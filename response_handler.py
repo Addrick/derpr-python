@@ -6,55 +6,47 @@ from Bot import *
 def generate_response(message, bots):
     reply = "error"  # if nothing overwrites
 
-    # determine which bot based on name TODO
+    # TODO determine which bot based on name
     # bot = check_bot(message, bots)
     bot = bots[0]
-    reply = check_cmds(bot, message)
-
-    return reply
-
-
-def check_bot(message, bots):
-    #TODO: need to store list of bots somewhere and pass/edit them! in derpr class?
-    # bots = ["derpr", "knowr"] #these need to refer to Bot objects
-
-    for bot in bots:
-        if message.startswith(bot):
-            return bot
-    pass
-
-def check_cmds(bot, message):
 
     # first, pull any specific local bot commands
     # help, dump last, !! (or other isolated response cmd), set prompt, set engine, wipe memory, set context length,
-    # 'remember'?, fuck off, preset personalities?
-
+    # 'remember'?, fuck off
     if message.content.startswith("what prompt"):
         prompt = bot.get_prompt()
-        # TODO: send message back to discord
         return prompt
 
     if message.content.startswith('help'):
         # this might show general commands and usages of the bot
-        response = "Here are some commands you can use..."
+        reply = "set prompt, what prompt, remember, !!, dump last query, set engine, what engine, set context length"
+        return reply
 
+    # todo: recall: dump memories
     elif message.content.startswith('dump last query'):
         # this might output the last query sent to the bot
-        response = "The last query was:..."
+        reply = "shit dont work yet"
+        print('shit dont work yet')
+        return reply
 
     elif message.content.startswith('!!'):
         # ignores chat context and only sends current message w/prompt
         # TODO: send message w/ context=0 or manually set to '' or soemthing
+        reply = "shit dont work yet"
         print('shit dont work yet')
+        return reply
 
     elif message.content.startswith('set prompt'):
         # this could change the prompt for conversation with the bot
         new_prompt = message.content[11:]
         bot.set_prompt(new_prompt)
+        # todo: ask bot to describe itself
+        reply = bot.inference(new_prompt + " Please describe yourself.")
+        return reply
 
     elif message.content.startswith('set engine'):
         # this might switch the bot's functionality engine
-        new_engine = message.content[10:]
+        new_engine = message.content[11:]
         bot.set_engine(new_engine)
         reply = "engine set to " + new_engine
         return reply
@@ -77,4 +69,16 @@ def check_cmds(bot, message):
     #     # this could make the bot stop interacting for a time or leave the channel
     #     bot.timeout()
 
-    return
+    # if it makes it through all that, send reply normally as bot
+    # TODO: add chat context here?
+    # TODO: add prompt info here?
+    reply = bot.inference(message)
+
+    return reply
+
+
+def check_bot(message, bots):
+    for bot in bots:
+        if message.startswith(bot.name):
+            return bot
+    pass
