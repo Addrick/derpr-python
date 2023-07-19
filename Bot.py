@@ -83,7 +83,7 @@ class Bot:
         # relevant info: bot(+params) and message info.
         # Maybe don't make this func in this class and create in response_handler instead
         if self.engine == 'chatgpt':
-            # Call chatgpt api
+            # Call chatgpt api todo: move this out into another file
             import openai
 
             openai.api_key = api_keys.openai

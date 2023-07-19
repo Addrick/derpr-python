@@ -1,7 +1,7 @@
-from response_handler import *
-from Bot import *
-import api_keys
 import discord
+
+import api_keys
+from Bot import *
 
 API_TOKEN = api_keys.discord
 
@@ -20,6 +20,10 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
+    # log chat history TODO: separate based on channel name
+    with open('chat_history.txt', 'a') as file:
+        file.write(f'{message.author.name}: {message.content}\n')
+
     if message.author.id == client.user.id:
         return
     message_content = message.content
@@ -33,9 +37,11 @@ async def on_message(message):
     #await.reply or soemthing
 
     # create response using current bot settings:
+    # TODO: determine if response warranted,
     derprs_reply = derpr.respond(message)
     # derprs_reply = generate_response(message_content)
     await channel.send(derprs_reply)
+    print(derprs_reply)
 
 if __name__ == "__main__":
     client.run(API_TOKEN)

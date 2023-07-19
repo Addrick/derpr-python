@@ -1,5 +1,3 @@
-from Bot import *
-
 # let's just do chatgpt for now
 
 
@@ -41,7 +39,8 @@ def generate_response(message, bots):
         new_prompt = message.content[11:]
         bot.set_prompt(new_prompt)
         # todo: ask bot to describe itself
-        reply = bot.inference(new_prompt + " Please describe yourself.")
+        message.content = message.content[11:] + " Please describe yourself."
+        reply = bot.inference(message)
         return reply
 
     elif message.content.startswith('set engine'):
