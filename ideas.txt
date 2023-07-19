@@ -1,0 +1,20 @@
+﻿derpr changes made:
+-change all dibbr/dabbr to derpr
+-.gitignore
+-change default prompt
+
+proposed:
+-basic bot xml
+-expand engine selection w/bot xml (only really need to be able to make 1 api call... right? hf has tons of small models)
+-add option to toggle 'discord markup and stuff', maybe other similar
+
+-build-a-prompt:
+    > swearing "writes all friendly text as offensive with swearing"
+    > thinks in steps
+    > nsfw prompt
+    > magical (1) thru (10) scale of offensiveness
+    > 'content moderation training'
+    > 'best guess' encourage wider answers
+    
+    
+    
