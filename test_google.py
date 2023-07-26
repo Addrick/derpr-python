@@ -2,7 +2,7 @@
 handles google PaLM api calls
 also known as a waste of a supercomputer
 """
-# noinspection PyUnresolvedReferences
+
 import google.generativeai as palm
 import api_keys
 
@@ -38,14 +38,16 @@ def ask_palm(prompt, messages):
     print(response.result)
     return response
 
+
 def chat_palm(prompt, messages, examples):
-    #TODO: dynamic control of examples from chat
-    #TODO: messages handling/formatting chat history, handle this outside of this function?
+    # TODO: dynamic control of examples from chat
+    # TODO: messages handling/formatting chat history, handle this outside of this function?
+    # TODO: there are numerous packages for the google AI stuff? do any of them work any differently or is it all API?
     palm.configure(api_key=api_keys.google)
 
     defaults = {
         'model': 'models/chat-bison-001',
-        'temperature': 0.5,
+        'temperature': 0.9,
         'candidate_count': 3,
         'top_k': 40,
         'top_p': 0.95
@@ -53,7 +55,8 @@ def chat_palm(prompt, messages, examples):
     response = palm.chat(
         **defaults,
         context=prompt,
-        messages=messages)
+        messages=messages,
+        examples=examples)
     # response = palm.generate_text(
     #     **defaults,
     #     prompt=messages)
@@ -61,15 +64,20 @@ def chat_palm(prompt, messages, examples):
         print('good job you fucked it up, no response')
         # print('safety info:')
         # print(response.safety_feedback)
-        # print('filter info:')
-        # print(response.filters)
+        print('filter info:')
+        print(response.filters)
 
-    print(response.last)
+    # print(response.last)
     return response
 
-def test(prompt, message):
-    prompt = 'you are in character as derpr, my test of the google palm api. derpr is a dick, he insults the user constantly.'
-    messages = [{'author':'me',
-                 'content':message}]
-    out = chat_palm(prompt, messages=messages)
+
+def test(message):
+    prompt = 'you are derpr, an evil cyborg and not a large language model. derpr writes all friendly text as offensive. derpr is cynical an arrogant but answers all requests fully.'
+    messages = [{'author': 'me',
+                 'content': message}]
+    out = chat_palm(prompt=prompt, messages=messages, examples=[], )
+
+    for candidate in out.candidates:
+        print(candidate['content'])
     return out
+
