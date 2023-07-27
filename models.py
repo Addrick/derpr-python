@@ -4,6 +4,7 @@ import google.generativeai as palm
 
 
 # TODO: logits! openAI only I think
+# TODO: context is not yet implemented
 
 class Gpt3Turbo:
     def __init__(self, model_name="gpt-3.5-turbo", temperature=0.8, max_tokens=100, top_p=1.0):
@@ -13,16 +14,26 @@ class Gpt3Turbo:
         self.max_tokens = max_tokens
         self.top_p = top_p
 
-    def generate_response(self, prompt):
+    def generate_response(self, prompt, message, context):
         openai.api_key = self.api_key
-        response = openai.Completion.create(
-            engine=self.model_name,
-            prompt=prompt,
+        completion = openai.ChatCompletion.create(
+            # messages=[ {"role": "system", "content": "You are a helpful assistant."},
+            # {"role": "user", "content": "Who won the world series in 2020?"},
+            # {"role": "assistant", "content": "The Los Angeles Dodgers won the World Series in 2020."},
+            # {"role": "user", "content": "Where was it played?"} ]
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": context},
+                {"role": "user", "content": message.content}
+            ],
+            model=self.model_name,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
-            top_p=self.top_p
+            top_p=self.top_p,
+            frequency_penalty=0,
+            presence_penalty=0
         )
-        return response.choices[0].text.strip()
+        return completion.choices[0].message.content
 
 
 class PalmPersonality:
@@ -63,4 +74,4 @@ class PalmPersonality:
             # Response of the AI to your most recent request to console
             print(response.last)
 
-        return response.choices[0].text.strip()
+        return response.last[0]

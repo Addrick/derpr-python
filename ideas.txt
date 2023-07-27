@@ -24,4 +24,6 @@ bot/personality class
 create new conversation:
 - if enough time has passed
 - if a message is from a different channel
-- based on
+- based on ???
+
+- context: personality-specific context system? like idk memory logs for each personality?

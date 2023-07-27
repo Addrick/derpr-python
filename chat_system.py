@@ -38,14 +38,16 @@ class ChatSystem:
         else:
             print(f"Personality '{personality_name}' does not exist.")
 
-    def generate_response(self, personality_name):
+    def generate_response(self, personality_name, message, context):
         if personality_name in self.personalities:
-            return self.personalities[personality_name].generate_response()
+            return self.personalities[personality_name].generate_response(message, context)
         else:
             print(f"Personality '{personality_name}' does not exist.")
 
-    def process_message(self, message):
+    def preprocess_message(self, message):
         # Extract command and arguments from the message content
+        # TODO: fix shitty autogeneration, which is basically all of it
+        # TODO: add a return True to all commands to cancel additional processing of the message
         command, *args = message.content.split()
 
         if command == "!add_personality":
@@ -82,15 +84,6 @@ class ChatSystem:
                 self.add_to_prompt(personality_name, text_to_add)
             else:
                 print("Usage: !add_to_prompt <personality_name> <text_to_add...>")
-
-        elif command == "!generate_response":
-            if len(args) == 1:
-                personality_mention = args[0]
-                # Extract personality name from the mention
-                personality_name = personality_mention[3:-1]  # Assuming the mention format is <@id>
-
-                response = self.generate_response(personality_name)
-                # Send the generated response back to the user via Discord
 
         # ... Add more commands as needed
         else:
