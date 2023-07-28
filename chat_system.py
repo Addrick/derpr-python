@@ -1,7 +1,9 @@
 from personality import Personality
 
-# Certainly! Here's an updated version of the `ChatSystem` class with the `process_message()` method that allows addressing personalities by an `@name` mention:
+DEBUG = 1
 
+# ChatSystem
+# Maintains personalities, responsible for executing dev commands
 class ChatSystem:
     def __init__(self):
         self.personalities = {}
@@ -10,8 +12,8 @@ class ChatSystem:
     def get_personality_list(self):
         return self.personalities
 
-    def add_personality(self, name, model_name):
-        personality = Personality(name, model_name)
+    def add_personality(self, name, model_name, prompt):
+        personality = Personality(name, model_name, prompt)
         self.personalities[name] = personality
 
     def switch_personality(self, name):
@@ -44,51 +46,70 @@ class ChatSystem:
         else:
             print(f"Personality '{personality_name}' does not exist.")
 
+    # Checks for keywords at the start of a message, reroutes to internal program settings
+    # Returns True if dev command is executed, used to skip chat request in main.py loop
+    # Commands use the format `derpr <command> <arguments...>`. For example:
+    #
+    # - To add a personality: `derpr add personality <name> <prompt>`
+    # - To change the model: `derpr change model <model_name>` TODO: fuckit-style guessing for close matches
+    # - To update parameters: `derpr update parameters <personality_name> <new_parameters...>` TODO:
+    # - To add to the prompt: `derpr set prompt <personality_name> <prompt>`
+    #
+    # TODO: stop message processing after this, or do something else (ie 'describe yourself')
     def preprocess_message(self, message):
-        # Extract command and arguments from the message content
-        # TODO: fix shitty autogeneration, which is basically all of it
-        # TODO: add a return True to all commands to cancel additional processing of the message
-        command, *args = message.content.split()
+        # Extract the command and arguments from the message content
+        personality_name = message.content.split()[0]
+        command, *args = message.content.split()[1:]
 
-        if command == "!add_personality":
-            if len(args) == 2:
-                name, model_name = args
-                self.add_personality(name, model_name)
-            else:
-                print("Usage: !add_personality <name> <model_name>")
-
-        elif command == "!switch_personality":
-            if len(args) == 1:
-                name = args[0]
-                self.switch_personality(name)
-            else:
-                print("Usage: !switch_personality <name>")
-
-        elif command == "!change_model":
-            if len(args) == 1:
-                model_name = args[0]
-                self.change_model(model_name)
-            else:
-                print("Usage: !change_model <model_name>")
-
-        elif command == "!update_parameters":
+        # Appends the message to end of prompt
+        if command == 'remember':
             if len(args) >= 2:
-                personality_name, new_parameters = args[0], args[1:]
+                text_to_add = ' ' + message.content
+                self.add_to_prompt(personality_name, text_to_add)
+                return 'implement me'
+            else:
+                print("Usage: set <keyword> <arguments...>")
+
+        if command == 'what':
+            keyword = args[0]
+
+            if keyword == 'prompt':
+
+                if personality_name in self.personalities:
+                    personality = self.personalities[personality_name]
+                    prompt = personality.get_prompt()
+                    response = f"Prompt for '{personality_name}': {prompt}"
+                    return response
+
+                else:
+                    print(f"Personality '{personality_name}' does not exist.")
+            else:
+                print("Usage: what <keyword> <arguments...>")
+
+        elif command == 'change':
+            if len(args) == 1 and args[0] == 'model':
+                model_name = args[1]
+                self.change_model(model_name)
+                return 'implement me'
+            else:
+                print("Usage: change model <model_name>")
+
+        elif command == 'update':
+            if len(args) >= 2 and args[0] == 'parameters':
+                personality_name, new_parameters = args[1], args[2:]
                 self.update_parameters(personality_name, new_parameters)
             else:
-                print("Usage: !update_parameters <personality_name> <new_parameters...>")
+                print("Usage: update parameters <personality_name> <new_parameters...>")
 
-        elif command == "!add_to_prompt":
-            if len(args) >= 2:
-                personality_name, text_to_add = args[0], ' '.join(args[1:])
-                self.add_to_prompt(personality_name, text_to_add)
+        elif command == 'add':
+            if len(args) >= 2 and args[0] == 'personality':
+                name, prompt = args[1], args[2]
+                self.add_personality(name, prompt)
+                return 'implement me'
             else:
-                print("Usage: !add_to_prompt <personality_name> <text_to_add...>")
+                print("Usage: add personality <name> <prompt>")
 
         # ... Add more commands as needed
         else:
-            print("Command not recognized.")
-#
-# In this updated `process_message()` method, the `!generate_response` command now accepts a personality mention via `@name`. The personality name is extracted from the mention (`personality_mention`) by removing the mention format (assumed to be `<@id>`) using string slicing. The extracted personality name is then used to generate a response using the `generate_response()` method.
-#
-# Please note that you will still need to implement the code to interact with the Discord API and send the response message back to the user. Additionally, ensure that your Discord bot and the library you are using for interaction support mentioning users/roles in chat messages.
+            if DEBUG:
+                print("No commands found.")

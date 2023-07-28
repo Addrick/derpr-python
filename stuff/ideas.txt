@@ -27,3 +27,10 @@ create new conversation:
 - based on ???
 
 - context: personality-specific context system? like idk memory logs for each personality?
+
+=======
+-DEV COMMAND LIST:
+help, set prompt, what prompt, set context length, what context,
+
+=======
+- Send (some) error messages as completion requests as Dr. Watson

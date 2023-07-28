@@ -1,6 +1,6 @@
 import api_keys
-import response_handler
-from bot_configs import *
+from stuff.old import response_handler
+from stuff.old.bot_configs import *
 # Bot class used to store distinct personality instances
 default_params = 'put parameters here'
 

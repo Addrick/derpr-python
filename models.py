@@ -4,7 +4,6 @@ import google.generativeai as palm
 
 
 # TODO: logits! openAI only I think
-# TODO: context is not yet implemented
 
 class Gpt3Turbo:
     def __init__(self, model_name="gpt-3.5-turbo", temperature=0.8, max_tokens=100, top_p=1.0):
@@ -37,6 +36,7 @@ class Gpt3Turbo:
 
 
 class PalmPersonality:
+    # TODO: context == message history in here I think, is not yet fully implemented/tested
     def __init__(self, api_key, model_name='models/chat-bison-001', temperature=0.8, max_tokens=100, top_p=1.0):
         self.api_key = api_key
         self.model_name = model_name
@@ -44,7 +44,7 @@ class PalmPersonality:
         self.max_tokens = max_tokens
         self.top_p = top_p
 
-    def generate_response(self, prompt, messages=[], examples=[]):
+    def generate_response(self, prompt, context=[], examples=[]):
         palm.configure(api_key=api_keys.google)
 
         defaults = {
@@ -58,12 +58,12 @@ class PalmPersonality:
         }
         context = ""
         # TODO: prolly not here, add command to store message as example
-        messages.append("NEXT REQUEST")
+        context.append("NEXT REQUEST")
         response = palm.chat(
             **defaults,
             context=context,
             examples=examples,
-            messages=messages
+            messages=context
         )
         if response.last is None:
             print('good job you fucked it up, no response')
