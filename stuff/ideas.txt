@@ -19,14 +19,14 @@ proposed:
     
 program setup:
 conversation class
-bot/personality class
+bot/persona class
 
 create new conversation:
 - if enough time has passed
 - if a message is from a different channel
 - based on ???
 
-- context: personality-specific context system? like idk memory logs for each personality?
+- context: persona-specific context system? like idk memory logs for each persona?
 
 =======
 -DEV COMMAND LIST:
@@ -34,3 +34,7 @@ help, set prompt, what prompt, set context length, what context,
 
 =======
 - Send (some) error messages as completion requests as Dr. Watson
+
+=======
+- Add logic to have certain AIs only listen to specific rooms
+    > commands to add or remove "bing stop listening" -> say ok and remove from server watchlist

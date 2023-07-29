@@ -1,7 +1,7 @@
 import api_keys
 from stuff.old import response_handler
 from stuff.old.bot_configs import *
-# Bot class used to store distinct personality instances
+# Bot class used to store distinct persona instances
 default_params = 'put parameters here'
 
 class derpr:

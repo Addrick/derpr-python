@@ -1,113 +1,126 @@
-from personality import Personality
+import api_keys
+from persona import *
+import models
+import msg_preprocess
 
 DEBUG = 1
 
+
 # ChatSystem
-# Maintains personalities, responsible for executing dev commands
+# Maintains personas, responsible for executing dev commands
 class ChatSystem:
     def __init__(self):
-        self.personalities = {}
-        self.current_personality = None
+        self.personas = {}
+        self.models_available = []
+        self.update_models()
 
-    def get_personality_list(self):
-        return self.personalities
+    def update_models(self):
+        self.models_available = models.get_available_models()
 
-    def add_personality(self, name, model_name, prompt):
-        personality = Personality(name, model_name, prompt)
-        self.personalities[name] = personality
+    def get_persona_list(self):
+        return self.personas
 
-    def switch_personality(self, name):
-        if name in self.personalities:
-            self.current_personality = self.personalities[name]
+    def add_persona(self, name, model_name, prompt):
+        persona = persona(name, model_name, prompt)
+        self.personas[name] = persona
+
+    def update_parameters(self, persona_name, new_parameters):
+        if persona_name in self.personas:
+            self.personas[persona_name].update_parameters(new_parameters)
         else:
-            print(f"Personality '{name}' does not exist.")
+            print(f"persona '{persona_name}' does not exist.")
 
-    def change_model(self, model_name):
-        if self.current_personality:
-            self.current_personality.change_model(model_name)
+    def add_to_prompt(self, persona_name, text_to_add):
+        if persona_name in self.personas:
+            self.personas[persona_name].add_to_prompt(text_to_add)
         else:
-            print("No current personality. Please switch to a personality first.")
+            print(f"persona '{persona_name}' does not exist.")
 
-    def update_parameters(self, personality_name, new_parameters):
-        if personality_name in self.personalities:
-            self.personalities[personality_name].update_parameters(new_parameters)
+    def generate_response(self, persona_name, message, context):
+        if persona_name in self.personas:
+            return self.personas[persona_name].generate_response(message, context)
         else:
-            print(f"Personality '{personality_name}' does not exist.")
-
-    def add_to_prompt(self, personality_name, text_to_add):
-        if personality_name in self.personalities:
-            self.personalities[personality_name].add_to_prompt(text_to_add)
-        else:
-            print(f"Personality '{personality_name}' does not exist.")
-
-    def generate_response(self, personality_name, message, context):
-        if personality_name in self.personalities:
-            return self.personalities[personality_name].generate_response(message, context)
-        else:
-            print(f"Personality '{personality_name}' does not exist.")
+            print(f"persona '{persona_name}' does not exist.")
 
     # Checks for keywords at the start of a message, reroutes to internal program settings
     # Returns True if dev command is executed, used to skip chat request in main.py loop
     # Commands use the format `derpr <command> <arguments...>`. For example:
     #
-    # - To add a personality: `derpr add personality <name> <prompt>`
-    # - To change the model: `derpr change model <model_name>` TODO: fuckit-style guessing for close matches
-    # - To update parameters: `derpr update parameters <personality_name> <new_parameters...>` TODO:
-    # - To add to the prompt: `derpr set prompt <personality_name> <prompt>`
+    # - To add a persona: `derpr add persona <name> <prompt>`
+    # - To change the model: `<persona_name> change model <model_name>` TODO: fuckit-style guessing for close matches
+    # - To update parameters: `<persona_name> update parameters <persona_name> <new_parameters...>` TODO:
+    # - To set a prompt: `<persona_name> set prompt <prompt>`
     #
-    # TODO: stop message processing after this, or do something else (ie 'describe yourself')
+    # TODO: finish: remember,
     def preprocess_message(self, message):
         # Extract the command and arguments from the message content
-        personality_name = message.content.split()[0]
+        persona_name = message.content.split()[0]
         command, *args = message.content.split()[1:]
+        current_persona = self.personas[persona_name]
+
+        if command == 'help':
+            help_msg = "remember <+prompt>, what prompt/model, set prompt/model"
+            return help_msg
 
         # Appends the message to end of prompt
         if command == 'remember':
             if len(args) >= 2:
                 text_to_add = ' ' + message.content
-                self.add_to_prompt(personality_name, text_to_add)
-                return 'implement me'
-            else:
-                print("Usage: set <keyword> <arguments...>")
+                self.add_to_prompt(persona_name, text_to_add)
+                response = 'success!' + " just kidding haha doesn't work yet probably"
+                return response
 
-        if command == 'what':
+        elif command == 'what':
             keyword = args[0]
 
             if keyword == 'prompt':
+                prompt = current_persona.get_prompt()
+                response = f"Prompt for '{persona_name}': {prompt}"
+                return response
 
-                if personality_name in self.personalities:
-                    personality = self.personalities[personality_name]
-                    prompt = personality.get_prompt()
-                    response = f"Prompt for '{personality_name}': {prompt}"
-                    return response
+            if keyword == 'model':
+                model_name = current_persona.get_model_name()
+                response = f"{persona_name} is using {model_name}"
+                return response
 
-                else:
-                    print(f"Personality '{personality_name}' does not exist.")
-            else:
-                print("Usage: what <keyword> <arguments...>")
+        elif command == 'set':
+            keyword = args[0]
 
-        elif command == 'change':
-            if len(args) == 1 and args[0] == 'model':
+            if len(args) == 2 and args[0] == 'model':
                 model_name = args[1]
-                self.change_model(model_name)
-                return 'implement me'
-            else:
-                print("Usage: change model <model_name>")
+                model_class = models.get_model(model_name)
 
-        elif command == 'update':
-            if len(args) >= 2 and args[0] == 'parameters':
-                personality_name, new_parameters = args[1], args[2:]
-                self.update_parameters(personality_name, new_parameters)
-            else:
-                print("Usage: update parameters <personality_name> <new_parameters...>")
+                success = current_persona.set_model(model_class)
+                if success:
+                    response = model_name + " set as model."
+                else:
+                    response = "Model not found."
+                return response
 
-        elif command == 'add':
-            if len(args) >= 2 and args[0] == 'personality':
-                name, prompt = args[1], args[2]
-                self.add_personality(name, prompt)
-                return 'implement me'
-            else:
-                print("Usage: add personality <name> <prompt>")
+            elif keyword == 'model':
+                model_name = args[1]
+                if hasattr(models, model_name):
+                    # Instantiate the model class based on the model name
+                    model_class = getattr(models, model_name)
+                    self.change_model(model_class())
+                    print(f"Model set to '{model_name}'.")
+                else:
+                    print(f"Model '{model_name}' does not exist.")
+
+        # elif command == 'update':
+        #     if len(args) >= 2 and args[0] == 'parameters':
+        #         persona_name, new_parameters = args[1], args[2:]
+        #         self.update_parameters(persona_name, new_parameters)
+        #     else:
+        #         print("Usage: update parameters <persona_name> <new_parameters...>")
+
+        # elif command == 'add':
+        #     if len(args) >= 2 and args[0] == 'persona':
+        #         name, prompt = args[1], args[2]
+        #         self.add_persona(name, prompt)
+        #         return 'success!' + " just kidding haha doesn't work yet"
+        #     else:
+        #         print("Usage: add persona <name> <prompt>")
 
         # ... Add more commands as needed
         else:
