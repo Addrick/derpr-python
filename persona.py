@@ -36,5 +36,4 @@ class Persona:
         response = self.model.generate_response(self.prompt, message, context)
         self.context.append(self.prompt)
         self.context.append(response)
-        self.prompt = ""  # Reset prompt for the next conversation
         return response
