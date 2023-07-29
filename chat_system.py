@@ -1,7 +1,6 @@
 import api_keys
 from persona import *
 import models
-import msg_preprocess
 
 DEBUG = 1
 
@@ -21,7 +20,7 @@ class ChatSystem:
         return self.personas
 
     def add_persona(self, name, model_name, prompt):
-        persona = persona(name, model_name, prompt)
+        persona = Persona(name, model_name, prompt)
         self.personas[name] = persona
 
     def update_parameters(self, persona_name, new_parameters):
@@ -86,18 +85,13 @@ class ChatSystem:
         elif command == 'set':
             keyword = args[0]
 
-            if len(args) == 2 and args[0] == 'model':
-                model_name = args[1]
-                model_class = models.get_model(model_name)
+            if keyword == 'prompt':
+                # TODO: add some prompt buffs like 'you're in character as x', maybe test first
+                prompt = args[1:]
+                current_persona.set_prompt(prompt)
+                print(f"Prompt set for '{persona_name}'.")
 
-                success = current_persona.set_model(model_class)
-                if success:
-                    response = model_name + " set as model."
-                else:
-                    response = "Model not found."
-                return response
-
-            elif keyword == 'model':
+            if keyword == 'model':
                 model_name = args[1]
                 if hasattr(models, model_name):
                     # Instantiate the model class based on the model name

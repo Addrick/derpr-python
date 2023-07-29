@@ -2,7 +2,7 @@ import models
 
 DEBUG = 1
 
-class persona:
+class Persona:
     def __init__(self, name, model, prompt):
         self.name = name
         self.model = model
