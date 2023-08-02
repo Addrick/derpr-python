@@ -1,19 +1,19 @@
+# A more condensed version of the code can be achieved by creating a base class that the three individual classes inherit from. The base class can include the common methods and attributes, reducing the code repetition. This also makes it easier to apply changes across all classes.
+
 import api_keys
 import openai
 import google.generativeai as palm
 import inspect
 import sys
 
-# TODO: logits! openAI only I think
+
 
 def get_available_models():
     model_list = []
     for _, model in inspect.getmembers(sys.modules[__name__]):
-        if inspect.isclass(model):
-            if hasattr(model, "model_name"):
-                model_list.append(model.model_name)
+        if inspect.isclass(model) and model != BaseModel:
+            model_list.append(model.__name__)
     return model_list
-
 
 def get_model(model_name):
     module = sys.modules['models']
@@ -23,102 +23,117 @@ def get_model(model_name):
             return model_class()
     return False
 
-class Gpt3Turbo:
-    def __init__(self, model_name="gpt-3.5-turbo", temperature=0.8, max_tokens=100, top_p=1.0):
-        self.api_key = api_keys.openai
+class BaseModel:
+    def __init__(self, model_name, temperature=0.8, max_tokens=100, top_p=1.0):
         self.model_name = model_name
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.top_p = top_p
+        self.json_request = None
+        self.json_response = None
 
-    def generate_response(self, prompt, message, context):
-        openai.api_key = self.api_key
-        completion = openai.ChatCompletion.create(
-            # messages=[ {"role": "system", "content": "You are a helpful assistant."},
-            # {"role": "user", "content": "Who won the world series in 2020?"},
-            # {"role": "assistant", "content": "The Los Angeles Dodgers won the World Series in 2020."},
-            # {"role": "user", "content": "Where was it played?"} ]
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": context},
-                {"role": "user", "content": message.content}
-            ],
-            model=self.model_name,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            top_p=self.top_p,
-            frequency_penalty=0,
-            presence_penalty=0
-        )
-        return completion.choices[0].message.content
+    def get_raw_json_request(self):
+        return self.json_request
 
-class Gpt4:
-    def __init__(self, model_name="gpt-4", temperature=0.8, max_tokens=100, top_p=1.0):
+    def get_max_tokens(self):
+        return self.max_tokens
+
+    def set_response_token_limit(self, new_response_token_limit):
+        if isinstance(new_response_token_limit, int):
+            self.max_tokens = new_response_token_limit
+            return True
+        else:
+            print("Error: Input is not an integer.")
+            return False
+
+class Gpt3Turbo(BaseModel):
+    def __init__(self, model_name="gpt-3.5-turbo", temperature=0.8, max_tokens=200, top_p=1.0):
+        super().__init__(model_name, temperature, max_tokens, top_p)
         self.api_key = api_keys.openai
-        self.model_name = model_name
-        self.temperature = temperature
-        self.max_tokens = max_tokens
-        self.top_p = top_p
+        self.frequency_penalty = 0
+        self.presence_penalty = 0
 
     def generate_response(self, prompt, message, context):
         openai.api_key = self.api_key
+        messages=[
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": context},
+            {"role": "user", "content": message.content}
+        ]
+        return self._create_completion(messages)
+
+    def _create_completion(self, messages):
         completion = openai.ChatCompletion.create(
-            # messages=[ {"role": "system", "content": "You are a helpful assistant."},
-            # {"role": "user", "content": "Who won the world series in 2020?"},
-            # {"role": "assistant", "content": "The Los Angeles Dodgers won the World Series in 2020."},
-            # {"role": "user", "content": "Where was it played?"} ]
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": context},
-                {"role": "user", "content": message.content}
-            ],
+            messages=messages,
             model=self.model_name,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             top_p=self.top_p,
-            frequency_penalty=0,
-            presence_penalty=0
+            frequency_penalty=self.frequency_penalty,
+            presence_penalty=self.presence_penalty
         )
+        self.json_request = {
+            "model": self.model_name,
+            "messages": messages,
+            "options": {
+                "use_cache": False,
+                "best_of": 1,
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+                "top_p": self.top_p,
+                "frequency_penalty": self.frequency_penalty,
+                "presence_penalty": self.presence_penalty
+            },
+            "object": "chat.completion",
+            "id": self.model_name,
+        }
+        self.json_response = completion
         return completion.choices[0].message.content
 
+class Gpt4(Gpt3Turbo):
+    def __init__(self, model_name="gpt-4", temperature=0.8, max_tokens=200, top_p=1.0):
+        super().__init__(model_name, temperature, max_tokens, top_p)
 
-class Palmpersona:
-    # TODO: context == message history in here I think, is not yet fully implemented/tested
-    def __init__(self, model_name='models/chat-bison-001', temperature=0.8, max_tokens=100, top_p=1.0):
+class PalmBison(BaseModel):
+    def __init__(self, model_name='models/chat-bison-001', temperature=0.8, max_tokens=200, top_p=1.0):
+        super().__init__(model_name, temperature, max_tokens, top_p)
         self.api_key = api_keys.google
-        self.model_name = model_name
-        self.temperature = temperature
-        self.max_tokens = max_tokens
-        self.top_p = top_p
 
-    def generate_response(self, prompt, context=[], examples=[]):
-        palm.configure(api_key=api_keys.google)
+    def generate_response(self, prompt, message, context=[], examples=[]):
+        palm.configure(api_key=self.api_key)
+        context.append("NEXT REQUEST")
+        completion = self._create_completion(context)
+        return completion
 
+    def _create_completion(self, context):
         defaults = {
             'model': self.model_name,
             'temperature': self.temperature,
-            # todo: idk maybe have it generate multiple ones and autopick the best or some shit,
-            #  or at least guard against empty responses
             'candidate_count': 1,
             'top_k': 40,
             'top_p': 0.95,
         }
-        context = ""
-        # TODO: prolly not here, add command to store message as example
-        context.append("NEXT REQUEST")
-        response = palm.chat(
+        completion = palm.chat(
             **defaults,
             context=context,
-            examples=examples,
             messages=context
         )
-        if response.last is None:
-            print('good job you fucked it up, no response')
-            # print('safety info:') #for ext completion rather than chat
-            # print(response.safety_feedback)
+        if completion.last is None:
+            print('good job, no response')
             print('filter info:')
-            print(response.filters)
-            # Response of the AI to your most recent request to console
-            print(response.last)
+            print(completion.filters)
+            print(completion.last)
+        self.json_response = completion
+        return completion.last[0]
 
-        return response.last[0]
+# TODO: redo this and generate a list on startup, then just reference the list
+def create_available_models_list():
+    model_list = []
+    module = sys.modules[__name__]
+    classes = inspect.getmembers(module, inspect.isclass)
+    for _, model_class in classes:
+        if issubclass(model_class, BaseModel):
+            model_instance = model_class()
+            if hasattr(model_instance, "model_name"):
+                model_list.append(model_instance.model_name)
+    return model_list

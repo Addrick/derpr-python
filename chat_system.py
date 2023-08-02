@@ -1,3 +1,5 @@
+import json
+
 import api_keys
 from persona import *
 import models
@@ -36,8 +38,9 @@ class ChatSystem:
             print(f"persona '{persona_name}' does not exist.")
 
     def generate_response(self, persona_name, message, context):
+        clean_context = context.replace("\n", " ")
         if persona_name in self.personas:
-            return self.personas[persona_name].generate_response(message, context)
+            return f"{persona_name}: {self.personas[persona_name].generate_response(message, clean_context, )}"
         else:
             print(f"persona '{persona_name}' does not exist.")
 
@@ -58,7 +61,7 @@ class ChatSystem:
         current_persona = self.personas[persona_name]
 
         if command == 'help':
-            help_msg = "remember <+prompt>, what prompt/model, set prompt/model"
+            help_msg = "remember <+prompt>, what prompt/model/personas, set prompt/model/token_limit, dump last"
             return help_msg
 
         # Appends the message to end of prompt
@@ -69,6 +72,16 @@ class ChatSystem:
                 response = 'success!' + " just kidding haha doesn't work yet probably"
                 return response
 
+        elif command == 'add':
+            keyword = args[0]
+
+            if keyword == 'persona':
+                persona_name = args[1]
+                prompt = ' '.join(args[1:])
+                self.add_persona(persona_name, models.Gpt3Turbo(), prompt)
+                response = f"Ziggy added '{persona_name}': {prompt}"
+                return response
+
         elif command == 'what':
             keyword = args[0]
 
@@ -76,10 +89,17 @@ class ChatSystem:
                 prompt = current_persona.get_prompt()
                 response = f"Prompt for '{persona_name}': {prompt}"
                 return response
-
             if keyword == 'model':
                 model_name = current_persona.get_model_name()
                 response = f"{persona_name} is using {model_name}"
+                return response
+            if keyword == 'models':
+                model_names = models.get_available_models()
+                response = f"Available model options are: {model_names}"
+                return response
+            if keyword == 'personas':
+                personas = self.get_persona_list()
+                response = f"Available personas are: {personas}"
                 return response
 
         elif command == 'set':
@@ -87,19 +107,33 @@ class ChatSystem:
 
             if keyword == 'prompt':
                 # TODO: add some prompt buffs like 'you're in character as x', maybe test first
-                prompt = args[1:]
+                prompt = ''.join(args[1:])
                 current_persona.set_prompt(prompt)
                 print(f"Prompt set for '{persona_name}'.")
-
-            if keyword == 'model':
+                return 'new_prompt_set'
+            elif keyword == 'model':
                 model_name = args[1]
                 if hasattr(models, model_name):
                     # Instantiate the model class based on the model name
                     model_class = getattr(models, model_name)
-                    self.change_model(model_class())
-                    print(f"Model set to '{model_name}'.")
+                    current_persona.set_model(model_class())
+                    return f"Model set to '{model_name}'."
                 else:
-                    print(f"Model '{model_name}' does not exist.")
+                    return f"Model '{model_name}' does not exist."
+            elif keyword == 'token_limit':
+                token_limit = args[1]
+                existing_prompt = current_persona.get_prompt()
+                # success = current_persona.set_response_token_limit(int(token_limit))
+                self.add_persona(persona_name, models.Gpt3Turbo(), existing_prompt, token_limit=token_limit)
+                # if success:
+                #     return f"Set token limit: '{token_limit}' response tokens."
+                return f"Set token limit: '{token_limit}' response tokens."
+                # else:
+                #     return f"Failed to set token limit: '{token_limit}'."
+
+        elif command == 'dump_last':
+            raw_json_response = current_persona.get_last_json()
+            return f"{json.dumps(raw_json_response, indent=4)}"
 
         # elif command == 'update':
         #     if len(args) >= 2 and args[0] == 'parameters':
