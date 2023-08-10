@@ -1,4 +1,6 @@
-# A more condensed version of the code can be achieved by creating a base class that the three individual classes inherit from. The base class can include the common methods and attributes, reducing the code repetition. This also makes it easier to apply changes across all classes.
+# A more condensed version of the code can be achieved by creating a base class that the three individual
+# classes inherit from. The base class can include the common methods and attributes,
+# reducing the code repetition. This also makes it easier to apply changes across all classes.
 
 import api_keys
 import openai

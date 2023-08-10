@@ -61,7 +61,7 @@ class ChatSystem:
         current_persona = self.personas[persona_name]
 
         if command == 'help':
-            help_msg = "remember <+prompt>, what prompt/model/personas, set prompt/model/token_limit, dump last"
+            help_msg = "remember <+prompt>, what prompt/model/personas, set prompt/model/context_limit/token_limit, dump last"
             return help_msg
 
         # Appends the message to end of prompt
@@ -75,11 +75,12 @@ class ChatSystem:
         elif command == 'add':
             keyword = args[0]
 
+            # TODO: make this easier to remember/use, not repeat bot name
             if keyword == 'persona':
                 persona_name = args[1]
                 prompt = ' '.join(args[1:])
                 self.add_persona(persona_name, models.Gpt3Turbo(), prompt)
-                response = f"Ziggy added '{persona_name}': {prompt}"
+                response = f"added '{persona_name}': {prompt}"
                 return response
 
         elif command == 'what':
@@ -111,6 +112,7 @@ class ChatSystem:
                 current_persona.set_prompt(prompt)
                 print(f"Prompt set for '{persona_name}'.")
                 return 'new_prompt_set'
+
             elif keyword == 'model':
                 model_name = args[1]
                 if hasattr(models, model_name):
@@ -120,20 +122,24 @@ class ChatSystem:
                     return f"Model set to '{model_name}'."
                 else:
                     return f"Model '{model_name}' does not exist."
+
             elif keyword == 'token_limit':
                 token_limit = args[1]
                 existing_prompt = current_persona.get_prompt()
-                # success = current_persona.set_response_token_limit(int(token_limit))
                 self.add_persona(persona_name, models.Gpt3Turbo(), existing_prompt, token_limit=token_limit)
-                # if success:
-                #     return f"Set token limit: '{token_limit}' response tokens."
                 return f"Set token limit: '{token_limit}' response tokens."
-                # else:
-                #     return f"Failed to set token limit: '{token_limit}'."
+
+            elif keyword == 'context_limit':
+                token_limit = args[1]
+                return f"Set context limit, now reading '{token_limit}' previous messages."
 
         elif command == 'dump_last':
             raw_json_response = current_persona.get_last_json()
-            return f"{json.dumps(raw_json_response, indent=4)}"
+            last_request = json.dumps(raw_json_response, indent=4).replace("``", "")
+            # for key, value in last_request.items():
+            #     updated_value = value.replace("``", "")
+            #     last_request[key] = updated_value
+            return f"``` {last_request} ```"
 
         # elif command == 'update':
         #     if len(args) >= 2 and args[0] == 'parameters':
