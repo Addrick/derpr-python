@@ -16,13 +16,13 @@ class ChatSystem:
         self.update_models()
 
     def update_models(self):
-        self.models_available = models.get_available_models()
+        self.models_available = [model.lower() for model in models.get_available_chat_models()]
 
     def get_persona_list(self):
         return self.personas
 
-    def add_persona(self, name, model_name, prompt):
-        persona = Persona(name, model_name, prompt)
+    def add_persona(self, name, model_name, prompt, context_limit, token_limit):
+        persona = Persona(name, model_name, prompt, context_limit, token_limit)
         self.personas[name] = persona
 
     def update_parameters(self, persona_name, new_parameters):
@@ -38,9 +38,9 @@ class ChatSystem:
             print(f"persona '{persona_name}' does not exist.")
 
     def generate_response(self, persona_name, message, context):
-        clean_context = context.replace("\n", " ")
+        # clean_context = context.replace("\n", " ")
         if persona_name in self.personas:
-            return f"{persona_name}: {self.personas[persona_name].generate_response(message, clean_context, )}"
+            return f"{persona_name}: {self.personas[persona_name].generate_response(message, context, )}"
         else:
             print(f"persona '{persona_name}' does not exist.")
 
@@ -53,7 +53,7 @@ class ChatSystem:
     # - To update parameters: `<persona_name> update parameters <persona_name> <new_parameters...>` TODO:
     # - To set a prompt: `<persona_name> set prompt <prompt>`
     #
-    # TODO: finish: remember,
+    # TODO: finish: remember, find other commands to use
     def preprocess_message(self, message):
         # Extract the command and arguments from the message content
         persona_name = message.content.split()[0]
@@ -61,7 +61,7 @@ class ChatSystem:
         current_persona = self.personas[persona_name]
 
         if command == 'help':
-            help_msg = "remember <+prompt>, what prompt/model/personas, set prompt/model/context_limit/token_limit, dump last"
+            help_msg = "remember <+prompt>, what prompt/model/personas/context/token_limit, set prompt/model/context_limit/token_limit, dump last"
             return help_msg
 
         # Appends the message to end of prompt
@@ -90,29 +90,35 @@ class ChatSystem:
                 prompt = current_persona.get_prompt()
                 response = f"Prompt for '{persona_name}': {prompt}"
                 return response
-            if keyword == 'model':
+            elif keyword == 'model':
                 model_name = current_persona.get_model_name()
                 response = f"{persona_name} is using {model_name}"
                 return response
-            if keyword == 'models':
-                model_names = models.get_available_models()
+            elif keyword == 'models':
+                model_names = models.get_available_chat_models()
                 response = f"Available model options are: {model_names}"
                 return response
-            if keyword == 'personas':
+            elif keyword == 'personas':
                 personas = self.get_persona_list()
                 response = f"Available personas are: {personas}"
+                return response
+            elif keyword == 'context':
+                context = current_persona.get_context_length()
+                response = f"{persona_name} currently looks back {context} previous messages for context."
+                return response
+            elif keyword == 'token_limit':
+                token_limit = current_persona.get_response_token_limit()
+                response = f"{persona_name} is limited to {token_limit} response tokens."
                 return response
 
         elif command == 'set':
             keyword = args[0]
-
             if keyword == 'prompt':
                 # TODO: add some prompt buffs like 'you're in character as x', maybe test first
                 prompt = ''.join(args[1:])
                 current_persona.set_prompt(prompt)
                 print(f"Prompt set for '{persona_name}'.")
                 return 'new_prompt_set'
-
             elif keyword == 'model':
                 model_name = args[1]
                 if hasattr(models, model_name):
@@ -122,41 +128,32 @@ class ChatSystem:
                     return f"Model set to '{model_name}'."
                 else:
                     return f"Model '{model_name}' does not exist."
-
             elif keyword == 'token_limit':
                 token_limit = args[1]
                 existing_prompt = current_persona.get_prompt()
                 self.add_persona(persona_name, models.Gpt3Turbo(), existing_prompt, token_limit=token_limit)
                 return f"Set token limit: '{token_limit}' response tokens."
-
-            elif keyword == 'context_limit':
-                token_limit = args[1]
-                return f"Set context limit, now reading '{token_limit}' previous messages."
+            elif keyword == 'context':
+                context_limit = args[1]
+                return f"Set context_limit for {persona_name}, now reading '{context_limit}' previous messages."
 
         elif command == 'dump_last':
+            # TODO: send this to a special dev channel or thread rather than spam main convo
+            # also this hackjob number counting shit is bound to cause problems eventually
             raw_json_response = current_persona.get_last_json()
-            last_request = json.dumps(raw_json_response, indent=4).replace("``", "")
-            # for key, value in last_request.items():
-            #     updated_value = value.replace("``", "")
-            #     last_request[key] = updated_value
+            # todo: figure out why the encoding is so fucked up here
+            last_request = json.dumps(raw_json_response, indent=2, ensure_ascii=False, separators=(',', ':')).replace("```", "").replace('\\n', '\n').replace('\\"', '\"')
+            if len(last_request) + 6 > 2000:
+                formatted_string = break_and_recombine_string(last_request, 1993, '```')
+                return f"{formatted_string}"
             return f"``` {last_request} ```"
 
-        # elif command == 'update':
-        #     if len(args) >= 2 and args[0] == 'parameters':
-        #         persona_name, new_parameters = args[1], args[2:]
-        #         self.update_parameters(persona_name, new_parameters)
-        #     else:
-        #         print("Usage: update parameters <persona_name> <new_parameters...>")
-
-        # elif command == 'add':
-        #     if len(args) >= 2 and args[0] == 'persona':
-        #         name, prompt = args[1], args[2]
-        #         self.add_persona(name, prompt)
-        #         return 'success!' + " just kidding haha doesn't work yet"
-        #     else:
-        #         print("Usage: add persona <name> <prompt>")
-
-        # ... Add more commands as needed
         else:
             if DEBUG:
                 print("No commands found.")
+
+def break_and_recombine_string(input_string, substring_length, bumper_string):
+    substrings = [input_string[i:i+substring_length] for i in range(0, len(input_string), substring_length)]
+    formatted_substrings = [bumper_string + substring + bumper_string for substring in substrings]
+    combined_string = ' '.join(formatted_substrings)
+    return combined_string

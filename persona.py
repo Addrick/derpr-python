@@ -3,15 +3,13 @@ import models
 DEBUG = 1
 
 class Persona:
-    def __init__(self, name, model, prompt, context_length=10, token_limit=100):
+    def __init__(self, name, model, prompt, context_limit=10, token_limit=100):
         self.name = name
-        self.model = model
         self.prompt = prompt
-        self.parameters = {}
-        self.context = []
-        self.last_json = 'none yet'
-        self.context_length = context_length
+        self.context_length = context_limit
         self.response_token_limit = token_limit
+        self.model = model
+        self.last_json = 'none yet'
 
     def get_context_length(self):
         return self.context_length
@@ -56,14 +54,9 @@ class Persona:
     def get_model_name(self):
         return self.model.model_name
 
-    # def update_parameters(self, new_parameters):
-    #     self.parameters.update(new_parameters)
-
     def generate_response(self, message, context):
         if DEBUG:
             print('Querying response as ' + self.name + '...')
         response = self.model.generate_response(self.prompt, message, context)
         self.last_json = self.model.get_raw_json_request()
-        self.context.append(self.prompt)
-        self.context.append(response)
         return response
