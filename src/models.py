@@ -1,4 +1,4 @@
-from src import api_keys
+from stuff import api_keys
 import openai
 import google.generativeai as palm
 import inspect

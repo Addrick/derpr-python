@@ -69,7 +69,6 @@ class ChatSystem:
             persona_dict['personas'].append(persona_json)
         return persona_dict
 
-
     def update_parameters(self, persona_name, new_parameters):
         if persona_name in self.personas:
             self.personas[persona_name].update_parameters(new_parameters)
@@ -92,27 +91,6 @@ class ChatSystem:
     def check_models_available(self):
         self.models_available = [model.lower() for model in models.get_available_chat_models()]
 
-    # def from_dict(self, persona_dict):
-    #     name = persona_dict["name"]
-    #     prompt = persona_dict["prompt"]
-    #     model_name = persona_dict["model_name"]
-    #     context_limit = persona_dict["context_limit"]
-    #     token_limit = persona_dict["token_limit"]
-    #
-    #
-    #
-    #     persona = Persona(name, prompt, model_class(), context_limit, token_limit)
-    #     return persona
-
-    # Checks for keywords at the start of a message, reroutes to internal program settings
-    # Returns True if dev command is executed, used to skip chat request in main.py loop
-    # Commands use the format `derpr <command> <arguments...>`. For example:
-    #
-    # - To add a persona: `derpr add persona <name> <prompt>`
-    # - To change the model: `<persona_name> change model <model_name>` TODO: fuckit-style guessing for close matches
-    # - To update parameters: `<persona_name> update parameters <persona_name> <new_parameters...>` TODO:
-    # - To set a prompt: `<persona_name> set prompt <prompt>`
-    #
     # TODO: finish: remember, find other commands to use
     def preprocess_message(self, message):
         # Extract the command and arguments from the message content
