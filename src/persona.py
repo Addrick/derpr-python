@@ -1,6 +1,5 @@
 import json
-
-DEBUG = 1
+from global_config import *
 
 class Persona:
     def __init__(self, name, model, prompt, context_limit=10, token_limit=100):
@@ -57,7 +56,7 @@ class Persona:
     def generate_response(self, message, context):
         if DEBUG:
             print('Querying response as ' + self.name + '...')
-        response = self.model.generate_response(self.prompt, message, context)
+        response = self.model.generate_response(self.prompt, message, context, max_tokens=self.token_limit)
         self.last_json = self.model.get_raw_json_request()
         return response
 

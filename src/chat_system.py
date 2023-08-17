@@ -2,9 +2,7 @@ import os
 
 from persona import *
 import models
-
-DEBUG = 1
-
+from global_config import *
 
 # ChatSystem
 # Maintains personas, responsible for executing dev commands
@@ -48,11 +46,10 @@ class ChatSystem:
         persona = Persona(name, model_name, prompt, context_limit, token_limit)
         self.personas[name] = persona
         # add to persona bank file
-        self.serialize('personas')
+        self.save_personas_to_file('personas')
 
-    def serialize(self, file_path):
+    def save_personas_to_file(self, file_path=PERSONA_SAVE_LOCATION):
         persona_dict = self.to_dict()
-
         with open(file_path, "w") as file:
             file.write(json.dumps(persona_dict))
 
@@ -69,35 +66,33 @@ class ChatSystem:
             persona_dict['personas'].append(persona_json)
         return persona_dict
 
-    def update_parameters(self, persona_name, new_parameters):
-        if persona_name in self.personas:
-            self.personas[persona_name].update_parameters(new_parameters)
-        else:
-            print(f"persona '{persona_name}' does not exist.")
-
     def add_to_prompt(self, persona_name, text_to_add):
         if persona_name in self.personas:
             self.personas[persona_name].add_to_prompt(text_to_add)
+            self.save_personas_to_file('personas')
         else:
             print(f"persona '{persona_name}' does not exist.")
 
-    def generate_response(self, persona_name, message, context):
+    def generate_response(self, persona_name, message, context=[]):
         # clean_context = context.replace("\n", " ")
         if persona_name in self.personas:
-            return f"{persona_name}: {self.personas[persona_name].generate_response(message, context, )}"
+            persona = self.personas[persona_name]
+            context_limit = persona.get_context_length()
+            token_limit = persona.get_response_token_limit()
+            return f"{persona_name}: {persona.generate_response(message, context)}"
         else:
             print(f"persona '{persona_name}' does not exist.")
 
     def check_models_available(self):
         self.models_available = [model.lower() for model in models.get_available_chat_models()]
 
-    # TODO: finish: remember, find other commands to use
     def preprocess_message(self, message):
         # Extract the command and arguments from the message content
         persona_name = message.content.split()[0].lower()
         command, *args = message.content.split()[1:]
         current_persona = self.personas[persona_name]
 
+        # TODO: add !! command
         if command == 'help':
             help_msg = "remember <+prompt>, " \
                        "what prompt/model/personas/context/token_limit, " \
@@ -113,15 +108,17 @@ class ChatSystem:
                 response = 'success!' + " just kidding haha doesn't work yet probably"
                 return response
 
+        # Add new persona
         elif command == 'add':
             keyword = args[0]
-
             # TODO: make this easier to remember/use, not repeat bot name
             if keyword == 'persona':
                 persona_name = args[1]
                 prompt = ' '.join(args[1:])
                 self.add_persona(persona_name, models.Gpt3Turbo(), prompt, context_limit=4, token_limit=256)
-                response = f"added '{persona_name}': {prompt}"
+                # response = f"added '{persona_name}'"
+                message.content = 'you are in character as ' + persona_name + '. Welcome to the chat, please describe your typical behavior and disposition for us:'
+                response = self.generate_response(persona_name, message)
                 return response
 
         elif command == 'what':
@@ -159,7 +156,9 @@ class ChatSystem:
                 prompt = ''.join(args[1:])
                 current_persona.set_prompt(prompt)
                 print(f"Prompt set for '{persona_name}'.")
+                self.save_personas_to_file()
                 return 'new_prompt_set'
+
             elif keyword == 'model':
                 model_name = args[1]
                 if hasattr(models, model_name):
@@ -169,6 +168,7 @@ class ChatSystem:
                     return f"Model set to '{model_name}'."
                 else:
                     return f"Model '{model_name}' does not exist."
+
             elif keyword == 'token_limit':
                 token_limit = args[1]
                 existing_prompt = current_persona.get_prompt()
@@ -176,6 +176,7 @@ class ChatSystem:
                 self.add_persona(persona_name, models.Gpt3Turbo(), existing_prompt, existing_context,
                                  token_limit=token_limit)
                 return f"Set token limit: '{token_limit}' response tokens."
+
             elif keyword == 'context':
                 context_limit = args[1]
                 return f"Set context_limit for {persona_name}, now reading '{context_limit}' previous messages."

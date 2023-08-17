@@ -3,6 +3,7 @@ import openai
 import google.generativeai as palm
 import inspect
 import sys
+from global_config import *
 
 
 class LanguageModel:
@@ -30,7 +31,7 @@ class LanguageModel:
 
 
 class Gpt3Turbo(LanguageModel):
-    def __init__(self, model_name="gpt-3.5-turbo", temperature=.8, max_tokens=200, top_p=1.0):
+    def __init__(self, model_name="gpt-3.5-turbo", temperature=.8, max_tokens=DEFAULT_TOKEN_LIMIT, top_p=1.0):
         super().__init__(model_name, temperature, max_tokens, top_p)
         self.api_key = api_keys.openai
         self.frequency_penalty = 0
@@ -71,12 +72,12 @@ class Gpt3Turbo(LanguageModel):
 
 
 class Gpt4(Gpt3Turbo):
-    def __init__(self, model_name="gpt-4", temperature=0.8, max_tokens=200, top_p=1.0):
+    def __init__(self, model_name="gpt-4", temperature=0.8, max_tokens=DEFAULT_TOKEN_LIMIT, top_p=1.0):
         super().__init__(model_name, temperature, max_tokens, top_p)
 
 # https://developers.generativeai.google/guide/safety_setting
 class PalmBison(LanguageModel):
-    def __init__(self, model_name='palm-chat', temperature=0.8, max_tokens=200, top_p=1.0):
+    def __init__(self, model_name='palm-chat', temperature=0.8, max_tokens=2048, top_p=1.0):  # palm chat is currently free so spam away
         super().__init__(model_name, temperature, max_tokens, top_p)
         self.api_key = api_keys.google
 
@@ -86,7 +87,7 @@ class PalmBison(LanguageModel):
         # Build chat completion request for text completion model:
         persona_name = message.split()[0] # name should be first word of latest message
 
-        chat_request = f"you are in character as {persona_name}. {persona_name} is chatting with others, here is the most recent conversation: \n{context}\n Now, respond to the chat request as {persona_name}: "
+        chat_request = f"you are in character as {persona_name}. {prompt} {persona_name} is chatting with others, here is the most recent conversation: \n{context}\n Now, respond to the chat request as {persona_name}: "
         completion = self._create_completion(prompt=chat_request)
         return completion
 
