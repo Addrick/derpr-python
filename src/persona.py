@@ -1,4 +1,4 @@
-import models
+import json
 
 DEBUG = 1
 
@@ -8,7 +8,7 @@ class Persona:
         self.prompt = prompt
         self.context_length = context_limit
         self.response_token_limit = token_limit
-        self.model = model
+        self.model = model  # must be model object
         self.last_json = 'none yet'
 
     def get_context_length(self):
@@ -60,3 +60,4 @@ class Persona:
         response = self.model.generate_response(self.prompt, message, context)
         self.last_json = self.model.get_raw_json_request()
         return response
+

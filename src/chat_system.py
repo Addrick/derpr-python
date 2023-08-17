@@ -1,6 +1,5 @@
-import json
+import os
 
-import api_keys
 from persona import *
 import models
 
@@ -13,10 +12,34 @@ class ChatSystem:
     def __init__(self):
         self.personas = {}
         self.models_available = []
-        self.update_models()
+        self.check_models_available()
 
-    def update_models(self):
-        self.models_available = [model.lower() for model in models.get_available_chat_models()]
+    def load_personas_from_file(self, file_path):
+        if not os.path.exists(file_path):
+            print(f"File '{file_path}' does not exist.")
+            return
+
+        with open(file_path, "r") as file:
+            persona_data = json.load(file)
+            for persona in persona_data['personas']:
+                try:
+                    # for persona_data in personas_data:
+                    name = persona["name"]
+                    model_name = persona["model_name"]
+                    prompt = persona["prompt"]
+                    context_limit = persona["context_limit"]
+                    token_limit = persona["token_limit"]
+                    if hasattr(models, model_name):
+                        # Instantiate the model class based on the model name
+                        model_class = getattr(models, model_name)
+                        f"Model set to '{model_name}'."
+                    else:
+                        f"Model '{model_name}' does not exist, using GPT3Turbo."
+                        model_class = models.Gpt3Turbo()
+                    self.add_persona(name, model_class, prompt, context_limit, token_limit)
+                except json.JSONDecodeError as e:
+                    print(f"Error decoding JSON file '{file_path}': {str(e)}")
+                    return
 
     def get_persona_list(self):
         return self.personas
@@ -24,6 +47,28 @@ class ChatSystem:
     def add_persona(self, name, model_name, prompt, context_limit, token_limit):
         persona = Persona(name, model_name, prompt, context_limit, token_limit)
         self.personas[name] = persona
+        # add to persona bank file
+        self.serialize('personas')
+
+    def serialize(self, file_path):
+        persona_dict = self.to_dict()
+
+        with open(file_path, "w") as file:
+            file.write(json.dumps(persona_dict))
+
+    def to_dict(self):
+        persona_dict = {'personas': [] }
+        for persona_name, persona in self.personas.items():
+            persona_json = {
+            "name": persona.name,
+            "prompt": persona.prompt,
+            "model_name": persona.model.model_name,
+            "context_limit": persona.context_length,
+            "token_limit": persona.response_token_limit,
+            }
+            persona_dict['personas'].append(persona_json)
+        return persona_dict
+
 
     def update_parameters(self, persona_name, new_parameters):
         if persona_name in self.personas:
@@ -44,6 +89,21 @@ class ChatSystem:
         else:
             print(f"persona '{persona_name}' does not exist.")
 
+    def check_models_available(self):
+        self.models_available = [model.lower() for model in models.get_available_chat_models()]
+
+    # def from_dict(self, persona_dict):
+    #     name = persona_dict["name"]
+    #     prompt = persona_dict["prompt"]
+    #     model_name = persona_dict["model_name"]
+    #     context_limit = persona_dict["context_limit"]
+    #     token_limit = persona_dict["token_limit"]
+    #
+    #
+    #
+    #     persona = Persona(name, prompt, model_class(), context_limit, token_limit)
+    #     return persona
+
     # Checks for keywords at the start of a message, reroutes to internal program settings
     # Returns True if dev command is executed, used to skip chat request in main.py loop
     # Commands use the format `derpr <command> <arguments...>`. For example:
@@ -56,12 +116,15 @@ class ChatSystem:
     # TODO: finish: remember, find other commands to use
     def preprocess_message(self, message):
         # Extract the command and arguments from the message content
-        persona_name = message.content.split()[0]
+        persona_name = message.content.split()[0].lower()
         command, *args = message.content.split()[1:]
         current_persona = self.personas[persona_name]
 
         if command == 'help':
-            help_msg = "remember <+prompt>, what prompt/model/personas/context/token_limit, set prompt/model/context_limit/token_limit, dump last"
+            help_msg = "remember <+prompt>, " \
+                       "what prompt/model/personas/context/token_limit, " \
+                       "set prompt/model/context_limit/token_limit, " \
+                       "dump last"
             return help_msg
 
         # Appends the message to end of prompt
@@ -79,7 +142,7 @@ class ChatSystem:
             if keyword == 'persona':
                 persona_name = args[1]
                 prompt = ' '.join(args[1:])
-                self.add_persona(persona_name, models.Gpt3Turbo(), prompt)
+                self.add_persona(persona_name, models.Gpt3Turbo(), prompt, context_limit=4, token_limit=256)
                 response = f"added '{persona_name}': {prompt}"
                 return response
 
@@ -131,7 +194,9 @@ class ChatSystem:
             elif keyword == 'token_limit':
                 token_limit = args[1]
                 existing_prompt = current_persona.get_prompt()
-                self.add_persona(persona_name, models.Gpt3Turbo(), existing_prompt, token_limit=token_limit)
+                existing_context = current_persona.get_context_length()
+                self.add_persona(persona_name, models.Gpt3Turbo(), existing_prompt, existing_context,
+                                 token_limit=token_limit)
                 return f"Set token limit: '{token_limit}' response tokens."
             elif keyword == 'context':
                 context_limit = args[1]
@@ -141,7 +206,6 @@ class ChatSystem:
             # TODO: send this to a special dev channel or thread rather than spam main convo
             # also this hackjob number counting shit is bound to cause problems eventually
             raw_json_response = current_persona.get_last_json()
-            # todo: figure out why the encoding is so fucked up here
             last_request = json.dumps(raw_json_response, indent=2, ensure_ascii=False, separators=(',', ':')).replace("```", "").replace('\\n', '\n').replace('\\"', '\"')
             if len(last_request) + 6 > 2000:
                 formatted_string = break_and_recombine_string(last_request, 1993, '```')
