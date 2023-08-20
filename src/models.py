@@ -41,7 +41,7 @@ class Gpt3Turbo(LanguageModel):
         messages = [
             {"role": "system", "content": prompt},
             {"role": "user", "content": context},
-            {"role": "user", "content": message.content}]
+            {"role": "user", "content": message}]
         return self._create_completion(messages)
 
     def _create_completion(self, messages):

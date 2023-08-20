@@ -12,4 +12,5 @@
 # TODO: start/stop system to sleep personas
 # TODO: personal messages break due to lack of channel or guild name (both?)
 # TODO: important: tokenizer request
-# TODO:
+# TODO: add temperature customizing commands
+#

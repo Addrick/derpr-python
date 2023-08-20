@@ -17,7 +17,6 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-
     if DEBUG:
         message_content = message.content
         message_author = message.author
@@ -49,6 +48,7 @@ async def on_message(message):
                            message in channel.history(limit=GLOBAL_CONTEXT_LIMIT)]
                 reversed_history = history[::-1]  # Reverse the history list
                 # TODO: test embedding this as a separated json object/series of messages in the api instead of dumping it all as a single block in a one 'user content' field
+                # TODO: persona-specific context limits currently have no affect, might be same for token_limit
                 context = " \n".join(reversed_history[:-1])
 
                 # Set the bot's activity to indicate operation
@@ -67,7 +67,7 @@ async def on_message(message):
                     dev_response = bot.preprocess_message(message)
                     if dev_response is None:
                         context = 'recent chat history: \n' + context
-                        response = bot.generate_response(persona_name, message, context)
+                        response = bot.generate_response(persona_name, message.content, context)
                     else:
                         response = dev_response
                     if response:

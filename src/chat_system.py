@@ -73,13 +73,16 @@ class ChatSystem:
         else:
             print(f"persona '{persona_name}' does not exist.")
 
-    def generate_response(self, persona_name, message, context=[]):
+    def generate_response(self, persona_name, message, context=''):
         # clean_context = context.replace("\n", " ")
         if persona_name in self.personas:
             persona = self.personas[persona_name]
             context_limit = persona.get_context_length()
             token_limit = persona.get_response_token_limit()
-            return f"{persona_name}: {persona.generate_response(message, context)}"
+            reply = persona.generate_response(message, context)
+            if persona_name != 'derpr':
+                reply = f"{persona_name}: {reply}"
+            return reply
         else:
             print(f"persona '{persona_name}' does not exist.")
 
@@ -117,7 +120,7 @@ class ChatSystem:
                 prompt = ' '.join(args[1:])
                 self.add_persona(persona_name, models.Gpt3Turbo(), prompt, context_limit=4, token_limit=256)
                 # response = f"added '{persona_name}'"
-                message.content = 'you are in character as ' + persona_name + '. Welcome to the chat, please describe your typical behavior and disposition for us:'
+                message = 'you are in character as ' + persona_name + '. Welcome to the chat, please describe your typical behavior and disposition for us:'
                 response = self.generate_response(persona_name, message)
                 return response
 
@@ -153,11 +156,13 @@ class ChatSystem:
             keyword = args[0]
             if keyword == 'prompt':
                 # TODO: add some prompt buffs like 'you're in character as x', maybe test first
-                prompt = ''.join(args[1:])
+                prompt = ' '.join(args[1:])
                 current_persona.set_prompt(prompt)
                 print(f"Prompt set for '{persona_name}'.")
                 self.save_personas_to_file()
-                return 'new_prompt_set'
+                message = 'you are in character as ' + persona_name + '. Welcome to the chat, please introduce yourself:'
+                response = self.generate_response(persona_name, message)
+                return response
 
             elif keyword == 'model':
                 model_name = args[1]
