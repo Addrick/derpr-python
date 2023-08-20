@@ -85,10 +85,10 @@ async def on_message(message):
 
 
 if __name__ == "__main__":
-    if not os.path.exists("./logs"):
-        os.makedirs("./logs")
+    if not os.path.exists(CHAT_LOG_LOCATION):
+        os.makedirs(CHAT_LOG_LOCATION)
         print("Logs folder created!")
     bot = ChatSystem()
-    bot.load_personas_from_file('personas')
+    bot.load_personas_from_file(PERSONA_SAVE_LOCATION)
 
     client.run(api_keys.discord)
