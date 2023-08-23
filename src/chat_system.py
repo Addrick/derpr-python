@@ -46,7 +46,7 @@ class ChatSystem:
         persona = Persona(name, model_name, prompt, context_limit, token_limit)
         self.personas[name] = persona
         # add to persona bank file
-        self.save_personas_to_file('personas')
+        self.save_personas_to_file(PERSONA_SAVE_LOCATION)
 
     def save_personas_to_file(self, file_path=PERSONA_SAVE_LOCATION):
         persona_dict = self.to_dict()
@@ -69,7 +69,7 @@ class ChatSystem:
     def add_to_prompt(self, persona_name, text_to_add):
         if persona_name in self.personas:
             self.personas[persona_name].add_to_prompt(text_to_add)
-            self.save_personas_to_file('personas')
+            self.save_personas_to_file(PERSONA_SAVE_LOCATION)
         else:
             print(f"persona '{persona_name}' does not exist.")
 
