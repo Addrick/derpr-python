@@ -46,6 +46,7 @@ class Gpt3Turbo(LanguageModel):
 
     def _create_completion(self, messages):
         completion = openai.ChatCompletion.create(
+            api_key=api_keys.openai,
             messages=messages,
             model=self.model_name,
             temperature=self.temperature,
@@ -154,7 +155,7 @@ def get_available_chat_models():
 
     # alternate method that utilizes teh model_name field and queries the API directly for all available models
     # OpenAI:
-    openai_models = openai.Model.list()
+    openai_models = openai.Model.list(api_key=api_keys.openai)
     for model in openai_models['data']:
         # trim list down to just gpt models; syntax is likely poor/incompatible for completion or edits
         if 'gpt-3' in model['id'] or 'gpt-4' in model['id']:

@@ -10,7 +10,8 @@ class ChatSystem:
     def __init__(self):
         self.personas = {}
         self.models_available = []
-        self.check_models_available()
+        # TODO: implement this so the model names appear when calling 'what models'
+        # self.check_models_available()
 
     def load_personas_from_file(self, file_path):
         if not os.path.exists(file_path):

@@ -1,6 +1,7 @@
 # eventually turn these into launch params
 
-DEBUG = 1
+DEBUG = 0
+ONLINE = 0
 GLOBAL_CONTEXT_LIMIT = 10
 DEFAULT_CONTEXT_LIMIT = 4
 DEFAULT_TOKEN_LIMIT = 256

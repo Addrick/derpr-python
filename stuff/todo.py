@@ -13,4 +13,4 @@
 # TODO: personal messages break due to lack of channel or guild name (both?)
 # TODO: important: tokenizer request
 # TODO: add temperature customizing commands
-#
+# TODO: better logging
