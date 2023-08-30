@@ -6,6 +6,7 @@ import sys
 from global_config import *
 
 
+# TODO: make 2 superclasses, OpenAI and Google, oh and Local, and utilize the built-in model names from publishers
 class LanguageModel:
     def __init__(self, model_name='basemodel', temperature=0.8, max_tokens=128, top_p=1.0):
         self.model_name = model_name
@@ -53,7 +54,7 @@ class Gpt3Turbo(LanguageModel):
             max_tokens=self.max_tokens,
             top_p=self.top_p,
             frequency_penalty=self.frequency_penalty,
-            presence_penalty=self.presence_penalty
+            presence_penalty=self.presence_penalty,
         )
         self.json_request = {
             "model": self.model_name,
@@ -67,14 +68,52 @@ class Gpt3Turbo(LanguageModel):
             },
             "object": "chat.completion",
             "id": self.model_name,
+            "stream": False
         }
         self.json_response = completion
+        # TODO: store/use token info: completion.usage.prompt_tokens/completion_tokens/total_tokens
+        # could keep running tally of usage if I ever see shared usage
         return completion.choices[0].message.content
+
+    def _create_completion_stream(self, messages):
+        completion = openai.ChatCompletion.create(
+            api_key=api_keys.openai,
+            messages=messages,
+            model=self.model_name,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            top_p=self.top_p,
+            frequency_penalty=self.frequency_penalty,
+            presence_penalty=self.presence_penalty,
+            stream=True
+        )
+        self.json_request = {
+            "model": self.model_name,
+            "messages": messages,
+            "options": {
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+                "top_p": self.top_p,
+                "frequency_penalty": self.frequency_penalty,
+                "presence_penalty": self.presence_penalty
+            },
+            "object": "chat.completion",
+            "id": self.model_name,
+            "stream": True
+        }
+        self.json_response = completion
+        # TODO: test me (streaming text vs full completion)
+        reply = ''
+        for chunk in completion:
+            print(chunk.choices[0].delta)
+            reply.append(chunk.choices[0].delta)
+        return reply
 
 
 class Gpt4(Gpt3Turbo):
     def __init__(self, model_name="gpt-4", temperature=0.8, max_tokens=DEFAULT_TOKEN_LIMIT, top_p=1.0):
         super().__init__(model_name, temperature, max_tokens, top_p)
+
 
 # https://developers.generativeai.google/guide/safety_setting
 class PalmBison(LanguageModel):
@@ -162,14 +201,6 @@ def get_available_chat_models():
             print(model['id'])
 
     return model_list
-
-
-# def get_available_models():
-#     model_list = []
-#     for _, model in inspect.getmembers(sys.modules[__name__]):
-#         if inspect.isclass(model) and model != BaseModel:
-#             model_list.append(model.__name__)
-#     return model_list
 
 
 def get_model(model_name):

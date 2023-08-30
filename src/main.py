@@ -82,7 +82,18 @@ async def on_message(message):
                 # TODO: typing doesn't last more than like 1s
                 # async with message.channel.typing():
 
-                if not ONLINE:  # TODO local context handling
+                if not ONLINE:
+                    import readline
+
+                    # Get the total number of history items
+                    history_length = readline.get_current_history_length()
+
+                    if GLOBAL_CONTEXT_LIMIT > history_length:
+                        GLOBAL_CONTEXT_LIMIT = history_length
+                    # Iterate over the history items and print them
+                    for i in range(1, GLOBAL_CONTEXT_LIMIT + 1):
+                        history_item = readline.get_history_item(i)
+                        context.append(history_item)
                     print('Warning: no context found')
                     context = ''
 
