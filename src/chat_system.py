@@ -98,9 +98,9 @@ class ChatSystem:
 
         # TODO: add !! command
         if command == 'help':
-            help_msg = "remember <+prompt>, " \
-                       "what prompt/model/personas/context/token_limit, " \
-                       "set prompt/model/context_limit/token_limit, " \
+            help_msg = "remember <+prompt>, \n" \
+                       "what prompt/model/personas/context/token_limit, \n" \
+                       "set prompt/model/context_limit/token_limit, \n" \
                        "dump last"
             return help_msg
 

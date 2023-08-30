@@ -67,8 +67,8 @@ async def on_message(message):
                     #   limits currently have no affect, might be same for token_limit
                     context = " \n".join(reversed_history[:-1])
 
+                # Set the bot's activity to indicate operation ('streaming <persona>...')
                 if ONLINE:
-                    # Set the bot's activity to indicate operation
                     # TODO: set a timeout or better yet a way to detect errors and report that
                     activity = discord.Activity(
                         type=discord.ActivityType.streaming,
