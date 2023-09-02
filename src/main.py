@@ -2,9 +2,9 @@ import asyncio
 
 import discord
 
-from src import fake_discord
+from src import fake_discord, global_config
 from stuff import api_keys
-from src.chat_system import *
+from chat_system import *
 from global_config import *
 
 intents = discord.Intents.all()
@@ -59,7 +59,7 @@ async def on_message(message):
                     history = [
                         f"{message.created_at.strftime('%Y-%m-%d, %H:%M:%S')}, {message.author.name}: {message.content}"
                         async for
-                        message in channel.history(limit=GLOBAL_CONTEXT_LIMIT)]
+                        message in channel.history(limit=global_config.GLOBAL_CONTEXT_LIMIT)]
                     reversed_history = history[::-1]  # Reverse the history list
                     # TODO: test embedding this as a separated json object/series of messages in the api instead of
                     #  dumping it all as a single block in a one 'user content' field

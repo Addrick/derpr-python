@@ -8,7 +8,7 @@ from global_config import *
 
 # TODO: make 2 superclasses, OpenAI and Google, oh and Local, and utilize the built-in model names from publishers
 class LanguageModel:
-    def __init__(self, model_name='basemodel', temperature=0.8, max_tokens=128, top_p=1.0):
+    def __init__(self, model_name='basemodel', temperature=0.8, max_tokens=DEFAULT_TOKEN_LIMIT, top_p=1.0):
         self.model_name = model_name
         self.temperature = temperature
         self.max_tokens = max_tokens

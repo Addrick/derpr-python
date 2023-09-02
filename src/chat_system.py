@@ -96,12 +96,13 @@ class ChatSystem:
         command, *args = message.content.split()[1:]
         current_persona = self.personas[persona_name]
 
-        # TODO: add !! command
+        # TODO: add !! command or some kind of equivalent (send message w/o context)
+        # this would use alternate logic to set context_limit = 0 or maybe overwrite context var, remove !! from msg
         if command == 'help':
             help_msg = "remember <+prompt>, \n" \
                        "what prompt/model/personas/context/token_limit, \n" \
                        "set prompt/model/context_limit/token_limit, \n" \
-                       "dump last"
+                       "dump_last"
             return help_msg
 
         # Appends the message to end of prompt
@@ -187,6 +188,7 @@ class ChatSystem:
                 context_limit = args[1]
                 return f"Set context_limit for {persona_name}, now reading '{context_limit}' previous messages."
 
+        # dumps a reconstruction of all raw fields sent to model for last completion request
         elif command == 'dump_last':
             # TODO: send this to a special dev channel or thread rather than spam main convo
             # also this hackjob number counting shit is bound to cause problems eventually

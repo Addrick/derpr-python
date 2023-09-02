@@ -45,6 +45,7 @@ class Persona:
     def set_model(self, model):
         # model = models.get_model(model_name)
         if not model:
+            print("model given is not model object")
             return False
         else:
             self.model = model
