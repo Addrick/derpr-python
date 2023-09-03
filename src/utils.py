@@ -5,6 +5,7 @@ from global_config import *
 from stuff import api_keys
 
 all_available_models = {'From OpenAI': '', 'From Google': ''}
+
 def refresh_model_list():
     refresh_available_openai_models()
     refresh_available_google_models()
