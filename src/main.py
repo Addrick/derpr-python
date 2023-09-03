@@ -28,10 +28,11 @@ async def on_message(message):
     if DEBUG:
         print(f'{message_author}: {message_content}')
 
-    # Log chat history
-    chat_log = CHAT_LOG_LOCATION + message.guild.name + " #" + message.channel.name + ".txt"
-    with open(chat_log, 'a', encoding='utf-8') as file:
-        file.write(f'{message.created_at} {message.author.name}: {message.content}\n')
+    if LOG_CHAT:
+        # Log chat history
+        chat_log = CHAT_LOG_LOCATION + message.guild.name + " #" + message.channel.name + ".txt"
+        with open(chat_log, 'a', encoding='utf-8') as file:
+            file.write(f'{message.created_at} {message.author.name}: {message.content}\n')
 
     # Don't reply to self
     if client.user is None:
@@ -47,77 +48,76 @@ async def on_message(message):
                 print('Checking for persona name: ' + persona_name)
 
             if message_content.lower().startswith(persona_mention):
-
-                # Check message for dev commands
-                if DEBUG:
-                    print('Found persona name: ' + persona_name)
-                    print('Checking for dev commands...')
-
-                if ONLINE:
-                    # Gather context (message history)
-                    channel = client.get_channel(message.channel.id)
-                    history = [
-                        f"{message.created_at.strftime('%Y-%m-%d, %H:%M:%S')}, {message.author.name}: {message.content}"
-                        async for
-                        message in channel.history(limit=global_config.GLOBAL_CONTEXT_LIMIT)]
-                    reversed_history = history[::-1]  # Reverse the history list
-                    # TODO: test embedding this as a separated json object/series of messages in the api instead of
-                    #  dumping it all as a single block in a one 'user content' field
-                    #  TODO: persona-specific context
-                    #   limits currently have no affect, might be same for token_limit
-                    context = " \n".join(reversed_history[:-1])
-
-                # Set the bot's activity to indicate operation ('streaming <persona>...')
-                if ONLINE:
-                    # TODO: set a timeout or better yet a way to detect errors and report that
-                    activity = discord.Activity(
-                        type=discord.ActivityType.streaming,
-                        name=persona_name + '...',
-                        url='https://www.twitch.tv/discordmakesmedothis'
-                    )
-                    # Change discord status to 'streaming <persona>...'
-                    # Discord doesn't let you do a whole lot with bot custom statuses
-                    await client.change_presence(activity=activity)
                 # Send typing flag and begin message processing
                 # TODO: typing doesn't last more than like 1s
-                # async with message.channel.typing():
+                # TODO: this is broken with offline mode and will break the whole thing probably
+                async with message.channel.typing():
 
-                if not ONLINE:
-                    import readline
+                    # Check message for dev commands
+                    if DEBUG:
+                        print('Found persona name: ' + persona_name)
+                        print('Checking for dev commands...')
 
-                    # Get the total number of history items
-                    history_length = readline.get_current_history_length()
-
-                    if GLOBAL_CONTEXT_LIMIT > history_length:
-                        GLOBAL_CONTEXT_LIMIT = history_length
-                    # Iterate over the history items and print them
-                    for i in range(1, GLOBAL_CONTEXT_LIMIT + 1):
-                        history_item = readline.get_history_item(i)
-                        context.append(history_item)
-                    print('Warning: no context found')
-                    context = ''
-
-                # Check for dev commands
-                dev_response = bot.preprocess_message(message)
-                if dev_response is None:
-                    context = 'recent chat history: \n' + context
-                    response = bot.generate_response(persona_name, message.content, context)
-                else:
-                    response = dev_response
-                if response:
+                    # Gather context and set status for discord
                     if ONLINE:
-                        # Split the response into multiple messages if it exceeds 2000 characters
-                        chunks = [response[i:i + 2000] for i in range(0, len(response), 2000)]
-                        for chunk in chunks:
-                            await channel.send(chunk)
-                            print(chunk)
+                        # Gather context (message history) from discord
+                        channel = client.get_channel(message.channel.id)
+                        history = [
+                            f"{message.created_at.strftime('%Y-%m-%d, %H:%M:%S')}, {message.author.name}: {message.content}"
+                            async for
+                            message in channel.history(limit=global_config.GLOBAL_CONTEXT_LIMIT)]
+                        reversed_history = history[::-1]  # Reverse the history list
+                        # TODO: test embedding this as a separated json object/series of messages in the api instead of
+                        #  dumping it all as a single block in a one 'user content' field
+                        #  TODO: persona-specific context
+                        #   limits currently have no affect, might be same for token_limit
+                        context = " \n".join(reversed_history[:-1])
 
-                        available_personas = ', '.join(list(bot.get_persona_list().keys()))
-                        presence_txt = f"as {available_personas} 👀"
-                        await client.change_presence(
-                            activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
+                        # TODO: set a timeout or better yet a way to detect errors and report that
+                        # Change discord status to 'streaming <persona>...'
+                        # Discord doesn't let you do a whole lot with bot custom statuses
+                        activity = discord.Activity(
+                            type=discord.ActivityType.streaming,
+                            name=persona_name + '...',
+                            url='https://www.twitch.tv/discordmakesmedothis')
+                        await client.change_presence(activity=activity)
+
+                    if not ONLINE:
+                        import readline
+
+                        # Get the total number of history items
+                        history_length = readline.get_current_history_length()
+
+                        if GLOBAL_CONTEXT_LIMIT > history_length:
+                            GLOBAL_CONTEXT_LIMIT = history_length
+                        # Iterate over the history items and print them
+                        for i in range(1, GLOBAL_CONTEXT_LIMIT + 1):
+                            history_item = readline.get_history_item(i)
+                            context.append(history_item)
+                        print('Warning: no context found')
+                        context = ''
+
+                    # Check for dev commands
+                    dev_response = bot.preprocess_message(message)
+                    if dev_response is None:
+                        context = 'recent chat history: \n' + context
+                        response = bot.generate_response(persona_name, message.content, context)
                     else:
-                        print(response)
+                        response = dev_response
+                    if response:
+                        if ONLINE:
+                            # Split the response into multiple messages if it exceeds 2000 characters
+                            chunks = [response[i:i + 2000] for i in range(0, len(response), 2000)]
+                            for chunk in chunks:
+                                await channel.send(chunk)
+                                print(chunk)
+
+                            available_personas = ', '.join(list(bot.get_persona_list().keys()))
+                            presence_txt = f"as {available_personas} 👀"
+                            await client.change_presence(
+                                activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
+                        else:
+                            print(response)
 
 
 if __name__ == "__main__":
@@ -125,7 +125,7 @@ if __name__ == "__main__":
         os.makedirs(CHAT_LOG_LOCATION)
         print("Logs folder created!")
     bot = ChatSystem()
-    bot.load_personas_from_file(PERSONA_SAVE_LOCATION)
+    bot.load_personas_from_file(PERSONA_SAVE_FILE)
 
     if ONLINE:
         # Initiate discord

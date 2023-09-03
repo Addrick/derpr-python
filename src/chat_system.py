@@ -1,7 +1,9 @@
 import os
 
 from persona import *
-import models
+# import models
+import engine
+import utils
 from global_config import *
 
 # ChatSystem
@@ -10,32 +12,23 @@ class ChatSystem:
     def __init__(self):
         self.personas = {}
         self.models_available = []
+        self.check_models_available()
         # TODO: implement this so the model names appear when calling 'what models'
-        # self.check_models_available()
 
     def load_personas_from_file(self, file_path):
         if not os.path.exists(file_path):
             print(f"File '{file_path}' does not exist.")
             return
-
         with open(file_path, "r") as file:
             persona_data = json.load(file)
             for persona in persona_data['personas']:
                 try:
-                    # for persona_data in personas_data:
                     name = persona["name"]
                     model_name = persona["model_name"]
                     prompt = persona["prompt"]
                     context_limit = persona["context_limit"]
                     token_limit = persona["token_limit"]
-                    if hasattr(models, model_name):
-                        # Instantiate the model class based on the model name
-                        model_class = getattr(models, model_name)
-                        f"Model set to '{model_name}'."
-                    else:
-                        f"Model '{model_name}' does not exist, using GPT3Turbo."
-                        model_class = models.Gpt3Turbo()
-                    self.add_persona(name, model_class, prompt, context_limit, token_limit)
+                    self.add_persona(name, model_name, prompt, context_limit, token_limit)
                 except json.JSONDecodeError as e:
                     print(f"Error decoding JSON file '{file_path}': {str(e)}")
                     return
@@ -47,9 +40,9 @@ class ChatSystem:
         persona = Persona(name, model_name, prompt, context_limit, token_limit)
         self.personas[name] = persona
         # add to persona bank file
-        self.save_personas_to_file(PERSONA_SAVE_LOCATION)
+        self.save_personas_to_file(PERSONA_SAVE_FILE)
 
-    def save_personas_to_file(self, file_path=PERSONA_SAVE_LOCATION):
+    def save_personas_to_file(self, file_path=PERSONA_SAVE_FILE):
         persona_dict = self.to_dict()
         with open(file_path, "w") as file:
             file.write(json.dumps(persona_dict))
@@ -58,7 +51,7 @@ class ChatSystem:
         persona_dict = {'personas': [] }
         for persona_name, persona in self.personas.items():
             persona_json = {
-            "name": persona.name,
+            "name": persona.persona_name,
             "prompt": persona.prompt,
             "model_name": persona.model.model_name,
             "context_limit": persona.context_length,
@@ -70,7 +63,7 @@ class ChatSystem:
     def add_to_prompt(self, persona_name, text_to_add):
         if persona_name in self.personas:
             self.personas[persona_name].add_to_prompt(text_to_add)
-            self.save_personas_to_file(PERSONA_SAVE_LOCATION)
+            self.save_personas_to_file(PERSONA_SAVE_FILE)
         else:
             print(f"persona '{persona_name}' does not exist.")
 
@@ -88,7 +81,8 @@ class ChatSystem:
             print(f"persona '{persona_name}' does not exist.")
 
     def check_models_available(self):
-        self.models_available = [model.lower() for model in models.get_available_chat_models()]
+        utils.refresh_model_list()
+        self.models_available = utils.all_available_models
 
     def preprocess_message(self, message):
         # Extract the command and arguments from the message content
@@ -120,7 +114,7 @@ class ChatSystem:
             if keyword == 'persona':
                 persona_name = args[1]
                 prompt = ' '.join(args[1:])
-                self.add_persona(persona_name, models.Gpt3Turbo(), prompt, context_limit=4, token_limit=256)
+                self.add_persona(persona_name, DEFAULT_MODEL_NAME, prompt, context_limit=4, token_limit=256)
                 # response = f"added '{persona_name}'"
                 message = 'you are in character as ' + persona_name + '. Welcome to the chat, please describe your typical behavior and disposition for us:'
                 response = self.generate_response(persona_name, message)
@@ -138,8 +132,9 @@ class ChatSystem:
                 response = f"{persona_name} is using {model_name}"
                 return response
             elif keyword == 'models':
-                model_names = models.get_available_chat_models()
-                response = f"Available model options are: {model_names}"
+                model_names = self.models_available
+                formatted_models = json.dumps(model_names, indent=2, ensure_ascii=False, separators=(',', ':')).replace('\"', '')
+                response = f"Available model options: {formatted_models}"
                 return response
             elif keyword == 'personas':
                 personas = self.get_persona_list()
@@ -168,20 +163,15 @@ class ChatSystem:
 
             elif keyword == 'model':
                 model_name = args[1]
-                if hasattr(models, model_name):
-                    # Instantiate the model class based on the model name
-                    model_class = getattr(models, model_name)
-                    current_persona.set_model(model_class())
+                if self.check_model_available(model_name):
+                    current_persona.set_model(model_name)
                     return f"Model set to '{model_name}'."
                 else:
-                    return f"Model '{model_name}' does not exist."
+                    return f"Model '{model_name}' does not exist. Currently available models are: {self.models_available}"
 
             elif keyword == 'token_limit':
                 token_limit = args[1]
-                existing_prompt = current_persona.get_prompt()
-                existing_context = current_persona.get_context_length()
-                self.add_persona(persona_name, models.Gpt3Turbo(), existing_prompt, existing_context,
-                                 token_limit=token_limit)
+                current_persona.set_token_limit(token_limit)
                 return f"Set token limit: '{token_limit}' response tokens."
 
             elif keyword == 'context':

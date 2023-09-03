@@ -14,3 +14,6 @@
 # TODO: important: tokenizer request
 # TODO: add temperature customizing commands
 # TODO: better logging
+# TODO: derpr persona should reset after some length of time or at least on restart. He's the concierge
+# TODO: automated test of sorts that queries openAI for basic question and prints response to terminal
+

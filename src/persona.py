@@ -1,14 +1,19 @@
 import json
 from global_config import *
+from src import engine, utils
 
+# TODO: dump_last needs to be handled here as the last request is now persona-specific (right?)
 class Persona:
-    def __init__(self, name, model, prompt, context_limit=10, token_limit=100):
-        self.name = name
+    def __init__(self, persona_name, model_name, prompt, context_limit=10, token_limit=100):
+        self.persona_name = persona_name
         self.prompt = prompt
         self.context_length = context_limit
         self.response_token_limit = token_limit
-        self.model = model  # must be model object
+        self.model = None
         self.last_json = 'none yet'
+        # self.last_response = 'none yet'
+
+        self.set_model(model_name)  # must be model object
 
     def get_context_length(self):
         return self.context_length
@@ -42,22 +47,25 @@ class Persona:
     def get_prompt(self):
         return self.prompt
 
-    def set_model(self, model):
-        # model = models.get_model(model_name)
-        if not model:
-            print("model given is not model object")
-            return False
-        else:
+    def set_model(self, model_name):
+        if model_name in utils.all_available_models:
+            model = engine.TextEngine(model_name, token_limit=self.response_token_limit)
             self.model = model
-            return True
+        elif self.model is None:
+            f"Model '{model_name}' not found, using gpt-3.5-turbo"
+            model_name = 'gpt-3.5-turbo'
+        else:
+            return
+        model = engine.TextEngine(model_name, token_limit=self.response_token_limit)
+        self.model = model
+        return model
 
     def get_model_name(self):
         return self.model.model_name
 
     def generate_response(self, message, context):
         if DEBUG:
-            print('Querying response as ' + self.name + '...')
+            print('Querying response as ' + self.persona_name + '...')
         response = self.model.generate_response(self.prompt, message, context)
         self.last_json = self.model.get_raw_json_request()
         return response
-
