@@ -6,7 +6,6 @@ import inspect
 import sys
 from global_config import *
 
-# noinspection DuplicatedCode
 class TextEngine:
     def __init__(self, model_name='none',
                  token_limit=DEFAULT_TOKEN_LIMIT,
@@ -21,17 +20,18 @@ class TextEngine:
         self.json_request = None
         self.json_response = None
         # self.all_available_models
+
         # OpenAI models
-        self.openai_models_available = utils.refresh_available_openai_models()
+        self.openai_models_available = utils.get_model_list()['From OpenAI']
         self.frequency_penalty = 0
         self.presence_penalty = 0
 
         # Google models
-        self.google_models_available = utils.refresh_available_google_models()
+        self.google_models_available = utils.get_model_list()['From Google']
         self.top_k = top_k
 
-    # def get_available_chat_models(self):
-    #     return self.all_available_models
+        # Local models
+        # TODO: add me (Kobold cpp?)
 
     def get_raw_json_request(self):
         return self.json_request
