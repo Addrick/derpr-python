@@ -13,7 +13,7 @@ class Persona:
         self.last_json = 'none yet'
         # self.last_response = 'none yet'
 
-        self.set_model(model_name)  # must be model object
+        self.set_model(model_name)
 
     def get_context_length(self):
         return self.context_length
@@ -48,14 +48,7 @@ class Persona:
         return self.prompt
 
     def set_model(self, model_name):
-        if model_name in utils.all_available_models:
-            model = engine.TextEngine(model_name, token_limit=self.response_token_limit)
-            self.model = model
-        elif self.model is None:
-            f"Model '{model_name}' not found, using gpt-3.5-turbo"
-            model_name = 'gpt-3.5-turbo'
-        else:
-            return
+        # Model name should be checked before calling this, messages will fail later if model name is invalid
         model = engine.TextEngine(model_name, token_limit=self.response_token_limit)
         self.model = model
         return model
