@@ -1,19 +1,30 @@
-from openai import Model
+import openai
 
 import engine
 from global_config import *
 from stuff import api_keys
 
-all_available_models = {'From OpenAI': '', 'From Google': ''}
 
-def refresh_model_list():
-    refresh_available_openai_models()
-    refresh_available_google_models()
-    # refresh_available_local_models()
+def get_model_list(update=False):
+    if update:
+        print('Updating available models from API...')
+        all_available_models = {'From OpenAI': refresh_available_openai_models(),
+                                'From Google': refresh_available_google_models()}
+        # refresh_available_local_models()
+        print(all_available_models)
+        return all_available_models
+    else:
+        # TODO: store these along with other persona info/maybe other stuff in a config file, allow update function to update config values
+        all_available_models = {'From OpenAI': ['gpt-3.5-turbo-0613', 'gpt-3.5-turbo-instruct-0914', 'gpt-3.5-turbo-0301', 'gpt-3.5-turbo-instruct', 'gpt-3.5-turbo-16k', 'gpt-4-0613', 'gpt-3.5-turbo-16k-0613', 'gpt-4', 'gpt-3.5-turbo', 'gpt-4-0314'],
+                                'From Google': ['text-bison-001']}
+        # refresh_available_local_models()
+        return all_available_models
+
 
 # OpenAI
 def refresh_available_openai_models():
-    openai_models = Model.list(api_key=api_keys.openai)
+    # openai.organization = "derpr"
+    openai_models = openai.Model.list(api_key=api_keys.openai)
     trimmed_list = []
     for model in openai_models['data']:
         # trim list down to just gpt models; syntax is likely poor/incompatible for completion or edits
@@ -22,30 +33,13 @@ def refresh_available_openai_models():
 
     if DEBUG:
         print(trimmed_list)
-    all_available_models['From OpenAI'] = trimmed_list
+    # all_available_models['From OpenAI'] = trimmed_list
     return trimmed_list
 
 # Google (lol)
 def refresh_available_google_models():
     google_models = 'text-bison-001'  # basically only 1 model rn
-    #  chat-bison uses different api syntax and isn't currently worth the time implementing because it sucks
-    all_available_models['From Google'] = google_models
+    #  chat-bison uses different api syntax and isn't currently worth the time implementing because goog sucks
+    # all_available_models['From Google'] = google_models
     return google_models
-
-def check_model_available(model_to_check):
-    lowest_order_items = []
-    for value in engine.models_available.values():
-        if isinstance(value, list):
-            lowest_order_items.extend(value)
-        else:
-            lowest_order_items.append(value)
-
-    if model_to_check in lowest_order_items:
-        if DEBUG:
-            print(f"The value '{model_to_check}' exists.")
-        return True
-    else:
-        if DEBUG:
-            print(f"The value '{model_to_check}' is not found.")
-        return False
 
