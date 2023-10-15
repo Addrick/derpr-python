@@ -11,9 +11,7 @@ from global_config import *
 class ChatSystem:
     def __init__(self):
         self.personas = {}
-        self.models_available = []
-        self.check_models_available()
-        # TODO: implement this so the model names appear when calling 'what models'
+        self.models_available = utils.get_model_list()
 
     def load_personas_from_file(self, file_path):
         if not os.path.exists(file_path):
@@ -81,8 +79,24 @@ class ChatSystem:
             print(f"persona '{persona_name}' does not exist.")
 
     def check_models_available(self):
-        utils.refresh_model_list()
-        self.models_available = utils.all_available_models
+        self.models_available = utils.get_model_list()
+
+    def check_model_available(self, model_to_check):
+        lowest_order_items = []
+        for value in self.models_available.values():
+            if isinstance(value, list):
+                lowest_order_items.extend(value)
+            else:
+                lowest_order_items.append(value)
+
+        if model_to_check in lowest_order_items:
+            if DEBUG:
+                print(f"The value '{model_to_check}' exists.")
+            return True
+        else:
+            if DEBUG:
+                print(f"The value '{model_to_check}' is not found.")
+            return False
 
     def preprocess_message(self, message):
         # Extract the command and arguments from the message content
@@ -163,7 +177,7 @@ class ChatSystem:
 
             elif keyword == 'model':
                 model_name = args[1]
-                if self.check_model_available(model_name):
+                if utils.check_model_available(model_name):
                     current_persona.set_model(model_name)
                     return f"Model set to '{model_name}'."
                 else:
