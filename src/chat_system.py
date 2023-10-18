@@ -177,7 +177,7 @@ class ChatSystem:
 
             elif keyword == 'model':
                 model_name = args[1]
-                if utils.check_model_available(model_name):
+                if self.check_model_available(model_name):
                     current_persona.set_model(model_name)
                     return f"Model set to '{model_name}'."
                 else:
