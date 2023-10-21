@@ -18,6 +18,13 @@
 # TODO: persona save file can overwrite itself and lose info with an unclean operation
 # TODO: dump_last says 200 response tokens, probably wrong so why is it wrong
 # TODO: add error handling for bad responses from OpenAI: take the error message and attempt to send the error to testr, maybe add some context and additional info like 'if this is randomly mid-conversation just try again'
+# TODO: more of a feature tbh, setting model to gpt-4 (or anything else likely) is not saved in the persona file for use on next restart. Avoids accidentally spamming gpt4, but is unexpected behavior
+# TODO: developer commands end up in message history, usually don't want this
+
+# big bug:
+# gpt4 has relatively long queries. current program behavior locks up while waiting for the api response and discord gets mad.
+# no noticeable effects from chat-end but seems like a significant operational issue given the long errors I get
+# [2023-10-20 02:33:48] [WARNING ] discord.gateway: Shard ID None heartbeat blocked for more than 10 seconds.
 
 # Inefficiencies:
 #

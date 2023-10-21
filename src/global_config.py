@@ -6,7 +6,7 @@ LOG_CHAT = 1
 
 
 DEFAULT_MODEL_NAME = 'gpt-3.5-turbo'
-GLOBAL_CONTEXT_LIMIT = 2 # currently is the global permanent default TODO
+GLOBAL_CONTEXT_LIMIT = 6 # currently is the global permanent default, also the true value is n-1 currently TODO
 DEFAULT_CONTEXT_LIMIT = 2 # 1 = no history, 2 = one message, etc
 DEFAULT_TOKEN_LIMIT = 256
 DEFAULT_TEMPERATURE = 0.8

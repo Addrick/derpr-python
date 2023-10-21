@@ -175,6 +175,16 @@ class ChatSystem:
                 response = self.generate_response(persona_name, message)
                 return response
 
+            # sets prompt to the default rude concierge derpr persona
+            if keyword == 'default_prompt':
+                prompt = DEFAULT_PERSONA
+                current_persona.set_prompt(prompt)
+                print(f"Prompt set for '{persona_name}'.")
+                self.save_personas_to_file()
+                message = 'you are in character as ' + persona_name + '. Welcome back to the chat, please introduce yourself:'
+                response = self.generate_response(persona_name, message)
+                return response
+
             elif keyword == 'model':
                 model_name = args[1]
                 if self.check_model_available(model_name):
