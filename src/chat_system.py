@@ -195,10 +195,10 @@ class ChatSystem:
 
             elif keyword == 'token_limit':
                 token_limit = args[1]
-                current_persona.set_token_limit(token_limit)
+                current_persona.set_response_token_limit(token_limit)
                 return f"Set token limit: '{token_limit}' response tokens."
 
-            elif keyword == 'context':
+            elif keyword == 'context_limit':
                 context_limit = args[1]
                 return f"Set context_limit for {persona_name}, now reading '{context_limit}' previous messages."
 
