@@ -108,8 +108,8 @@ class ChatSystem:
         # this would use alternate logic to set context_limit = 0 or maybe overwrite context var, remove !! from msg
         if command == 'help':
             help_msg = "remember <+prompt>, \n" \
-                       "what prompt/model/personas/context/token_limit, \n" \
-                       "set prompt/model/context_limit/token_limit, \n" \
+                       "what prompt/model/personas/context/tokens, \n" \
+                       "set prompt/model/context/tokens, \n" \
                        "dump_last"
             return help_msg
 
@@ -158,7 +158,7 @@ class ChatSystem:
                 context = current_persona.get_context_length()
                 response = f"{persona_name} currently looks back {context} previous messages for context."
                 return response
-            elif keyword == 'token_limit':
+            elif keyword == 'tokens':
                 token_limit = current_persona.get_response_token_limit()
                 response = f"{persona_name} is limited to {token_limit} response tokens."
                 return response
@@ -193,12 +193,12 @@ class ChatSystem:
                 else:
                     return f"Model '{model_name}' does not exist. Currently available models are: {self.models_available}"
 
-            elif keyword == 'token_limit':
+            elif keyword == 'tokens':
                 token_limit = args[1]
                 current_persona.set_response_token_limit(token_limit)
                 return f"Set token limit: '{token_limit}' response tokens."
 
-            elif keyword == 'context_limit':
+            elif keyword == 'context':
                 context_limit = args[1]
                 return f"Set context_limit for {persona_name}, now reading '{context_limit}' previous messages."
 
