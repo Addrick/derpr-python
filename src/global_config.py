@@ -1,7 +1,7 @@
 # eventually turn these into launch params or some shit
 
 DEBUG = 1
-ONLINE = 1
+ONLINE = 0
 LOG_CHAT = 1
 
 
@@ -18,4 +18,7 @@ DEFAULT_PERSONA = 'you are in character as derpr. derpr always writes all friend
 
 
 CHAT_LOG_LOCATION = '../stuff/logs/'
+LOCAL_CHAT_LOG = '../stuff/logs/'
+
 PERSONA_SAVE_FILE = '../stuff/personas'
+STDOUT_LOG = '../stuff/logs/stdout.txt'

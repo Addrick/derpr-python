@@ -1,4 +1,6 @@
 import asyncio
+import datetime
+import sys
 
 import discord
 
@@ -51,15 +53,15 @@ async def on_message(message):
                 # Send typing flag and begin message processing
                 # TODO: typing doesn't last more than like 1s
                 # TODO: this is broken with offline mode and will break the whole thing probably
-                async with message.channel.typing():
 
-                    # Check message for dev commands
-                    if DEBUG:
-                        print('Found persona name: ' + persona_name)
-                        print('Checking for dev commands...')
+                # Check message for dev commands
+                if DEBUG:
+                    print('Found persona name: ' + persona_name)
+                    print('Checking for dev commands...')
 
-                    # Gather context and set status for discord
-                    if ONLINE:
+                # Gather context and set status for discord
+                if ONLINE:
+                    async with message.channel.typing():
                         # Gather context (message history) from discord
                         channel = client.get_channel(message.channel.id)
                         history = [
@@ -82,42 +84,56 @@ async def on_message(message):
                             url='https://www.twitch.tv/discordmakesmedothis')
                         await client.change_presence(activity=activity)
 
-                    if not ONLINE:
-                        import readline
+                if not ONLINE:
+                    # Use custom stdout to save history to file and make it accessible to derpr - ok turns out I'm not using this
+                    sys.stdout = utils.LogStdOut(STDOUT_LOG)
+
+                    with open('../stuff/logs/local_guild #local_channel.txt', 'r') as file:
+                        # line_count = sum(1 for line in file)
 
                         # Get the total number of history items
-                        history_length = readline.get_current_history_length()
+                        history_length = len(STDOUT_LOG)
 
-                        if GLOBAL_CONTEXT_LIMIT > history_length:
-                            GLOBAL_CONTEXT_LIMIT = history_length
+                        if GLOBAL_CONTEXT_LIMIT < history_length:
+                            history_length = GLOBAL_CONTEXT_LIMIT
+
+                        lines = file.readlines()
+                        # Grabs last history_length number of messages from local chat history file and joins them into a string
+                        context = '/n'.join(lines[-1*(history_length+1):-1])
                         # Iterate over the history items and print them
-                        for i in range(1, GLOBAL_CONTEXT_LIMIT + 1):
-                            history_item = readline.get_history_item(i)
-                            context.append(history_item)
-                        print('Warning: no context found')
-                        context = ''
+                        # for i in range(1, GLOBAL_CONTEXT_LIMIT + 1):
+                        #     history_item = file.readlines[-i]
+                        #     context.append(history_item)
+                        # print('Warning: no context found')
+                        # context = ''
 
-                    # Check for dev commands
-                    dev_response = bot.preprocess_message(message)
-                    if dev_response is None:
-                        context = 'recent chat history: \n' + context
-                        response = bot.generate_response(persona_name, message.content, context)
+                # Check for dev commands
+                dev_response = bot.preprocess_message(message)
+                if dev_response is None:
+                    context = 'recent chat history: \n' + context
+                    response = bot.generate_response(persona_name, message.content, context)
+                else:
+                    response = dev_response
+                if response:
+                    if ONLINE:
+                        # Split the response into multiple messages if it exceeds 2000 characters
+                        chunks = [response[i:i + 2000] for i in range(0, len(response), 2000)]
+                        for chunk in chunks:
+                            await channel.send(chunk)
+                            print(chunk)
+
+                        available_personas = ', '.join(list(bot.get_persona_list().keys()))
+                        presence_txt = f"as {available_personas} 👀"
+                        await client.change_presence(
+                            activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
                     else:
-                        response = dev_response
-                    if response:
-                        if ONLINE:
-                            # Split the response into multiple messages if it exceeds 2000 characters
-                            chunks = [response[i:i + 2000] for i in range(0, len(response), 2000)]
-                            for chunk in chunks:
-                                await channel.send(chunk)
-                                print(chunk)
+                        print(response)
+                        #log it
+                        with open('../stuff/logs/local_guild #local_channel.txt', 'a', encoding='utf-8') as file:
+                            current_time = datetime.datetime.now().time()
+                            response = '\n' + persona_name + ': ' + str(current_time) + ' ' + response
 
-                            available_personas = ', '.join(list(bot.get_persona_list().keys()))
-                            presence_txt = f"as {available_personas} 👀"
-                            await client.change_presence(
-                                activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
-                        else:
-                            print(response)
+                            file.write(response)
 
 
 if __name__ == "__main__":
@@ -134,7 +150,7 @@ if __name__ == "__main__":
         while 1:
             message = input("Enter a message: ")
             # # Create a simulated message object
-            current_time = 0  # Todo
+            current_time = datetime.datetime.now().time()
             simulated_message = fake_discord.StrippedMessage(message, author=fake_discord.User(),
                                                              channel=fake_discord.Channel(),
                                                              guild=fake_discord.Guild(),
