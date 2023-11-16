@@ -99,6 +99,8 @@ class ChatSystem:
             return False
 
     def preprocess_message(self, message):
+        if DEBUG:
+            print('Checking for dev commands...')
         # Extract the command and arguments from the message content
         persona_name = message.content.split()[0].lower()
         command, *args = message.content.split()[1:]

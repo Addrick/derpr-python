@@ -35,12 +35,11 @@ async def on_message(message):
             file.write(f'{message.created_at} {message.author.name}: {message.content}\n')
 
     # Don't reply to self
-    if client.user is None:
-        client_id = 0
-    else:
-        client_id = client.user.id
-
-    if message.author.id is not client_id:
+    # if client.user is None:
+    #     client_id = 0
+    # else:
+    #     client_id = client.user.id
+    if message.author.id is not client.user.id:
         # check message for instance of persona name
         for persona_name, persona in bot.get_persona_list().copy().items():
             persona_mention = f"{persona_name}"
