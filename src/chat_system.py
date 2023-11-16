@@ -109,7 +109,12 @@ class ChatSystem:
         # TODO: add !! command or some kind of equivalent (send message w/o context)
         # this would use alternate logic to set context_limit = 0 or maybe overwrite context var, remove !! from msg
         if command == 'help':
-            help_msg = "remember <+prompt>, \n" \
+            help_msg = "" \
+                       "Talk to a specific persona by starting your message with their name. \n \n" \
+                       "Currently active personas: \n" + \
+                       ', '.join(self.personas.keys()) + "\n" \
+                       "Bot commands: \n" \
+                       "remember <+prompt>, \n" \
                        "what prompt/model/personas/context/tokens, \n" \
                        "set prompt/model/context/tokens, \n" \
                        "dump_last"
@@ -173,7 +178,7 @@ class ChatSystem:
                 current_persona.set_prompt(prompt)
                 print(f"Prompt set for '{persona_name}'.")
                 self.save_personas_to_file()
-                message = 'you are in character as ' + persona_name + '. Welcome to the chat, please introduce yourself:'
+                message = 'you are in character as ' + persona_name + '. Welcome to the chat room, please introduce yourself:'
                 response = self.generate_response(persona_name, message)
                 return response
 
@@ -183,7 +188,7 @@ class ChatSystem:
                 current_persona.set_prompt(prompt)
                 print(f"Prompt set for '{persona_name}'.")
                 self.save_personas_to_file()
-                message = 'you are in character as ' + persona_name + '. Welcome back to the chat, please introduce yourself:'
+                message = 'you are in character as ' + persona_name + '. Welcome back to the chat room, please introduce yourself:'
                 response = self.generate_response(persona_name, message)
                 return response
 

@@ -13,6 +13,7 @@
 # TODO: add personal messages: currently break due to lack of channel or guild name (both?)
 # TODO: add a persona prompt log - keep losing personas and wanting old versions back
 # TODO: derpr should say what personas are available and be like a receptionist (maybe?)
+# TODO: persona-specific context
 
 # Bugfixes:
 # TODO: remove name from message, remove 'derpr' from own chat history. Perhaps just do a replace all derpr to {persona}

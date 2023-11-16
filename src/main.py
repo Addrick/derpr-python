@@ -55,7 +55,6 @@ async def on_message(message):
                     # Check message for dev commands
                     if DEBUG:
                         print('Found persona name: ' + persona_name)
-                        print('Checking for dev commands...')
 
                     # Gather context and set status for discord
                     if ONLINE:
@@ -68,7 +67,6 @@ async def on_message(message):
                         reversed_history = history[::-1]  # Reverse the history list
                         # TODO: test embedding this as a separated json object/series of messages in the api instead of
                         #  dumping it all as a single block in a one 'user content' field
-                        #  TODO: persona-specific context
                         #   limits currently have no affect, might be same for token_limit
                         context = " \n".join(reversed_history[:-1])
 
