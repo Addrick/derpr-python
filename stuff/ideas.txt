@@ -8,6 +8,7 @@
     > magical (1) thru (10) scale of offensiveness
     > 'content moderation training'
     > 'best guess' encourage wider answers
+    > write/respond concisely
     
     
 program setup:
