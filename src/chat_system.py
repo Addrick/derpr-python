@@ -44,6 +44,8 @@ class ChatSystem:
         persona_dict = self.to_dict()
         with open(file_path, "w") as file:
             file.write(json.dumps(persona_dict))
+        if DEBUG:
+            print(f"Updated persona save.")
 
     def to_dict(self):
         persona_dict = {'personas': [] }
@@ -131,16 +133,16 @@ class ChatSystem:
         # Add new persona
         elif command == 'add':
             keyword = args[0]
-            # TODO: make this easier to remember/use, not repeat bot name
             if keyword == 'persona':
                 persona_name = args[1]
                 prompt = ' '.join(args[1:])
-                self.add_persona(persona_name, DEFAULT_MODEL_NAME, prompt, context_limit=4, token_limit=256)
+                self.add_persona(persona_name, DEFAULT_MODEL_NAME, prompt, context_limit=4, token_limit=1024)
                 # response = f"added '{persona_name}'"
-                message = 'you are in character as ' + persona_name + '. Welcome to the chat, please describe your typical behavior and disposition for us:'
+                message = DEFAULT_WELCOME_REQUEST
                 response = self.generate_response(persona_name, message)
                 return response
 
+        # Query config
         elif command == 'what':
             keyword = args[0]
 
@@ -170,28 +172,28 @@ class ChatSystem:
                 response = f"{persona_name} is limited to {token_limit} response tokens."
                 return response
 
+        # Set config
         elif command == 'set':
             keyword = args[0]
+
             if keyword == 'prompt':
-                # TODO: add some prompt buffs like 'you're in character as x', maybe test first
                 prompt = ' '.join(args[1:])
                 current_persona.set_prompt(prompt)
                 print(f"Prompt set for '{persona_name}'.")
                 self.save_personas_to_file()
-                message = 'you are in character as ' + persona_name + '. Welcome to the chat room, please introduce yourself:'
+                print(f"Updated save for '{persona_name}'.")
+                message = DEFAULT_WELCOME_REQUEST
                 response = self.generate_response(persona_name, message)
                 return response
-
             # sets prompt to the default rude concierge derpr persona
             if keyword == 'default_prompt':
                 prompt = DEFAULT_PERSONA
                 current_persona.set_prompt(prompt)
                 print(f"Prompt set for '{persona_name}'.")
                 self.save_personas_to_file()
-                message = 'you are in character as ' + persona_name + '. Welcome back to the chat room, please introduce yourself:'
+                message = DEFAULT_WELCOME_REQUEST
                 response = self.generate_response(persona_name, message)
                 return response
-
             elif keyword == 'model':
                 model_name = args[1]
                 if self.check_model_available(model_name):
@@ -199,12 +201,10 @@ class ChatSystem:
                     return f"Model set to '{model_name}'."
                 else:
                     return f"Model '{model_name}' does not exist. Currently available models are: {self.models_available}"
-
             elif keyword == 'tokens':
                 token_limit = args[1]
                 current_persona.set_response_token_limit(token_limit)
                 return f"Set token limit: '{token_limit}' response tokens."
-
             elif keyword == 'context':
                 context_limit = args[1]
                 return f"Set context_limit for {persona_name}, now reading '{context_limit}' previous messages."
