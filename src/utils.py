@@ -1,24 +1,22 @@
 import openai
 
 import engine
-from global_config import *
+from src import global_config
 from stuff import api_keys
 
-
+# get_model_list(update=False): If the update parameter is set to True, the function queries the API to update
+# and print the list of available models from OpenAI and Google. If update is False, it will return the models
+# available without updating
 def get_model_list(update=False):
     if update:
         print('Updating available models from API...')
         all_available_models = {'From OpenAI': refresh_available_openai_models(),
                                 'From Google': refresh_available_google_models()}
-        # refresh_available_local_models()
         print(all_available_models)
+        global_config.MODELS_AVAILABLE = all_available_models
         return all_available_models
     else:
-        # TODO: store these along with other persona info/maybe other stuff in a config file, allow update function to update config values
-        all_available_models = {'From OpenAI': ['gpt-3.5-turbo-0613', 'gpt-3.5-turbo-instruct-0914', 'gpt-3.5-turbo-0301', 'gpt-3.5-turbo-instruct', 'gpt-3.5-turbo-16k', 'gpt-4-0613', 'gpt-3.5-turbo-16k-0613', 'gpt-4', 'gpt-3.5-turbo', 'gpt-4-0314'],
-                                'From Google': ['text-bison-001']}
-        # refresh_available_local_models()
-        return all_available_models
+        return global_config.MODELS_AVAILABLE
 
 
 # OpenAI
@@ -31,7 +29,7 @@ def refresh_available_openai_models():
         if 'gpt-3' in model['id'] or 'gpt-4' in model['id']:
             trimmed_list.append(model['id'])
 
-    if DEBUG:
+    if global_config.DEBUG:
         print(trimmed_list)
     # all_available_models['From OpenAI'] = trimmed_list
     return trimmed_list
