@@ -34,11 +34,6 @@ async def on_message(message):
         with open(chat_log, 'a', encoding='utf-8') as file:
             file.write(f'{message.created_at} {message.author.name}: {message.content}\n')
 
-    # Don't reply to self
-    # if client.user is None:
-    #     client_id = 0
-    # else:
-    #     client_id = client.user.id
     if message.author.id is not client.user.id:
         # check message for instance of persona name
         for persona_name, persona in bot.get_persona_list().copy().items():
@@ -48,10 +43,8 @@ async def on_message(message):
 
             if message_content.lower().startswith(persona_mention):
                 # Send typing flag and begin message processing
-                # TODO: typing doesn't last more than like 1s
-                # TODO: this is broken with offline mode and will break the whole thing probably
+                # TODO: typing doesn't last more than like 10s
                 async with message.channel.typing():
-
                     # Check message for dev commands
                     if DEBUG:
                         print('Found persona name: ' + persona_name)
@@ -65,9 +58,8 @@ async def on_message(message):
                             async for
                             message in channel.history(limit=global_config.GLOBAL_CONTEXT_LIMIT)]
                         reversed_history = history[::-1]  # Reverse the history list
-                        # TODO: test embedding this as a separated json object/series of messages in the api instead of
-                        #  dumping it all as a single block in a one 'user content' field
-                        #   limits currently have no affect, might be same for token_limit
+                        # TODO: test embedding this as a properly separated series of messages in the api instead of
+                        #  dumping it all as a single block in a one 'user content' field. Should differentiate agent messages and properly attribute them as such (openAI specific feature?)
                         context = " \n".join(reversed_history[:-1])
 
                         # TODO: set a timeout or better yet a way to detect errors and report that

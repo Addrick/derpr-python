@@ -1,4 +1,5 @@
 import os
+import re
 
 from persona import *
 # import models
@@ -7,7 +8,8 @@ import utils
 from global_config import *
 
 # ChatSystem
-# Maintains personas, responsible for executing dev commands
+# Maintains personas, queries the engine system for responses, executes dev commands
+
 class ChatSystem:
     def __init__(self):
         self.personas = {}
@@ -71,8 +73,6 @@ class ChatSystem:
         # clean_context = context.replace("\n", " ")
         if persona_name in self.personas:
             persona = self.personas[persona_name]
-            context_limit = persona.get_context_length()
-            token_limit = persona.get_response_token_limit()
             reply = persona.generate_response(message, context)
             if persona_name != 'derpr':
                 reply = f"{persona_name}: {reply}"
@@ -104,8 +104,8 @@ class ChatSystem:
         if DEBUG:
             print('Checking for dev commands...')
         # Extract the command and arguments from the message content
-        persona_name = message.content.split()[0].lower()
-        command, *args = message.content.split()[1:]
+        persona_name = re.split(r'[ ,]', message.content)[0].lower()
+        command, *args = re.split(r'[ ,]', message.content)[1:]
         current_persona = self.personas[persona_name]
 
         # TODO: add !! command or some kind of equivalent (send message w/o context)
@@ -207,6 +207,7 @@ class ChatSystem:
                 return f"Set token limit: '{token_limit}' response tokens."
             elif keyword == 'context':
                 context_limit = args[1]
+                current_persona.set_context_length(context_limit)
                 return f"Set context_limit for {persona_name}, now reading '{context_limit}' previous messages."
 
         # dumps a reconstruction of all raw fields sent to model for last completion request
@@ -219,6 +220,8 @@ class ChatSystem:
                 formatted_string = break_and_recombine_string(last_request, 1993, '```')
                 return f"{formatted_string}"
             return f"``` {last_request} ```"
+
+        # TODO: add a function to call get_model_list(update=True). Current list is hardcoded in utils.py
 
         else:
             if DEBUG:

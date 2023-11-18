@@ -1,3 +1,8 @@
+#     StrippedMessage.__init__: Initializes a new StrippedMessage instance with the provided message content, timestamp, channel, guild, and author information.
+#     Guild.__init__: Initializes a new Guild instance with an optional name, defaulting to 'local_guild'.
+#     User.__init__: Initializes a new User instance with an optional name 'admin' and an id of 1 by default.
+#     Channel.__init__: Initializes a new Channel instance with an optional name, defaulting to 'local_channel'.
+
 class StrippedMessage:
     def __init__(self, content, timestamp, channel, guild, author):
         self.content = content

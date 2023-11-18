@@ -6,7 +6,7 @@ from stuff import api_keys
 
 # get_model_list(update=False): If the update parameter is set to True, the function queries the API to update
 # and print the list of available models from OpenAI and Google. If update is False, it will return the models
-# available without updating
+# saved in gloabl_config
 def get_model_list(update=False):
     if update:
         print('Updating available models from API...')
