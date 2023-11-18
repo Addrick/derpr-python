@@ -130,6 +130,11 @@ class ChatSystem:
                 response = 'success!' + " just kidding haha doesn't work yet probably"
                 return response
 
+        if command == 'save':
+            self.save_personas_to_file()
+            response = 'Personas saved.'
+            return response
+
         # Add new persona
         elif command == 'add':
             keyword = args[0]

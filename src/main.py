@@ -53,14 +53,14 @@ async def on_message(message):
                     if ONLINE:
                         # Gather context (message history) from discord
                         channel = client.get_channel(message.channel.id)
-                        history = [
+                        context = [
                             f"{message.created_at.strftime('%Y-%m-%d, %H:%M:%S')}, {message.author.name}: {message.content}"
                             async for
                             message in channel.history(limit=global_config.GLOBAL_CONTEXT_LIMIT)]
-                        reversed_history = history[::-1]  # Reverse the history list
+                        # reversed_history = history[::-1]  # Reverse the history list
                         # TODO: test embedding this as a properly separated series of messages in the api instead of
                         #  dumping it all as a single block in a one 'user content' field. Should differentiate agent messages and properly attribute them as such (openAI specific feature?)
-                        context = " \n".join(reversed_history[:-1])
+                        # context = " \n".join(reversed_history[:-1])
 
                         # TODO: set a timeout or better yet a way to detect errors and report that
                         # Change discord status to 'streaming <persona>...'
@@ -89,7 +89,7 @@ async def on_message(message):
                     # Check for dev commands
                     dev_response = bot.preprocess_message(message)
                     if dev_response is None:
-                        context = 'recent chat history: \n' + context
+                        # context = 'recent chat history: \n' + context
                         response = bot.generate_response(persona_name, message.content, context)
                     else:
                         response = dev_response
