@@ -35,6 +35,7 @@
 # TODO: TEST CASES!
 # TODO: remove name from message, remove 'derpr' from own chat history. Perhaps just do a replace all derpr to {persona} (why?)
 # TODO: overflow into ideas.txt
+# OpenAI has a new Assistants API that is basically what I'm doing here. Since this is meant to be engine-agnostic idk if it's worth but there are code and file analysis tools present now
 
 #
 # ideas, maybe bad ones:
