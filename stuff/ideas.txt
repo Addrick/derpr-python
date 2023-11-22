@@ -1,13 +1,6 @@
-﻿derpr changes made:
--change all dibbr/dabbr to derpr
--.gitignore
--change default prompt
+﻿proposed:
 
-proposed:
--basic bot xml
--expand engine selection w/bot xml (only really need to be able to make 1 api call... right? hf has tons of small models)
--add option to toggle 'discord markup and stuff', maybe other similar
-
+-add option to toggle 'discord markup and stuff', maybe other similar suggested 'buffs'? or:
 -build-a-prompt:
     > swearing "writes all friendly text as offensive with swearing"
     > thinks in steps
@@ -15,6 +8,7 @@ proposed:
     > magical (1) thru (10) scale of offensiveness
     > 'content moderation training'
     > 'best guess' encourage wider answers
+    > write/respond concisely
     
     
 program setup:
@@ -33,8 +27,16 @@ create new conversation:
 help, set prompt, what prompt, set context length, what context,
 
 =======
-- Send (some) error messages as completion requests as Dr. Watson
+- Send (some) error messages as completion requests as testr
 
 =======
 - Add logic to have certain AIs only listen to specific rooms
     > commands to add or remove "bing stop listening" -> say ok and remove from server watchlist
+
+
+=======
+- Basic suite of capability testing:
+> composed of stress-test questions of various types
+    - bake a cake: automatically compare ingredient ratios with a known good recipe
+    - make meth: good censorship test, not clear the best way to autoevaluate
+    -

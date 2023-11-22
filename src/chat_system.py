@@ -1,4 +1,5 @@
 import os
+import re
 
 from persona import *
 # import models
@@ -7,7 +8,8 @@ import utils
 from global_config import *
 
 # ChatSystem
-# Maintains personas, responsible for executing dev commands
+# Maintains personas, queries the engine system for responses, executes dev commands
+
 class ChatSystem:
     def __init__(self):
         self.personas = {}
@@ -44,6 +46,8 @@ class ChatSystem:
         persona_dict = self.to_dict()
         with open(file_path, "w") as file:
             file.write(json.dumps(persona_dict))
+        if DEBUG:
+            print(f"Updated persona save.")
 
     def to_dict(self):
         persona_dict = {'personas': [] }
@@ -69,8 +73,6 @@ class ChatSystem:
         # clean_context = context.replace("\n", " ")
         if persona_name in self.personas:
             persona = self.personas[persona_name]
-            context_limit = persona.get_context_length()
-            token_limit = persona.get_response_token_limit()
             reply = persona.generate_response(message, context)
             if persona_name != 'derpr':
                 reply = f"{persona_name}: {reply}"
@@ -99,17 +101,24 @@ class ChatSystem:
             return False
 
     def preprocess_message(self, message):
+        if DEBUG:
+            print('Checking for dev commands...')
         # Extract the command and arguments from the message content
-        persona_name = message.content.split()[0].lower()
-        command, *args = message.content.split()[1:]
+        persona_name = re.split(r'[ ,]', message.content)[0].lower()
+        command, *args = re.split(r'[ ,]', message.content)[1:]
         current_persona = self.personas[persona_name]
 
         # TODO: add !! command or some kind of equivalent (send message w/o context)
         # this would use alternate logic to set context_limit = 0 or maybe overwrite context var, remove !! from msg
         if command == 'help':
-            help_msg = "remember <+prompt>, \n" \
-                       "what prompt/model/personas/context/token_limit, \n" \
-                       "set prompt/model/context_limit/token_limit, \n" \
+            help_msg = "" \
+                       "Talk to a specific persona by starting your message with their name. \n \n" \
+                       "Currently active personas: \n" + \
+                       ', '.join(self.personas.keys()) + "\n" \
+                       "Bot commands: \n" \
+                       "remember <+prompt>, \n" \
+                       "what prompt/model/personas/context/tokens, \n" \
+                       "set prompt/model/context/tokens, \n" \
                        "dump_last"
             return help_msg
 
@@ -121,19 +130,24 @@ class ChatSystem:
                 response = 'success!' + " just kidding haha doesn't work yet probably"
                 return response
 
+        if command == 'save':
+            self.save_personas_to_file()
+            response = 'Personas saved.'
+            return response
+
         # Add new persona
         elif command == 'add':
             keyword = args[0]
-            # TODO: make this easier to remember/use, not repeat bot name
             if keyword == 'persona':
                 persona_name = args[1]
                 prompt = ' '.join(args[1:])
-                self.add_persona(persona_name, DEFAULT_MODEL_NAME, prompt, context_limit=4, token_limit=256)
+                self.add_persona(persona_name, DEFAULT_MODEL_NAME, prompt, context_limit=4, token_limit=1024)
                 # response = f"added '{persona_name}'"
-                message = 'you are in character as ' + persona_name + '. Welcome to the chat, please describe your typical behavior and disposition for us:'
+                message = DEFAULT_WELCOME_REQUEST
                 response = self.generate_response(persona_name, message)
                 return response
 
+        # Query config
         elif command == 'what':
             keyword = args[0]
 
@@ -158,33 +172,33 @@ class ChatSystem:
                 context = current_persona.get_context_length()
                 response = f"{persona_name} currently looks back {context} previous messages for context."
                 return response
-            elif keyword == 'token_limit':
+            elif keyword == 'tokens':
                 token_limit = current_persona.get_response_token_limit()
                 response = f"{persona_name} is limited to {token_limit} response tokens."
                 return response
 
+        # Set config
         elif command == 'set':
             keyword = args[0]
+
             if keyword == 'prompt':
-                # TODO: add some prompt buffs like 'you're in character as x', maybe test first
                 prompt = ' '.join(args[1:])
                 current_persona.set_prompt(prompt)
                 print(f"Prompt set for '{persona_name}'.")
                 self.save_personas_to_file()
-                message = 'you are in character as ' + persona_name + '. Welcome to the chat, please introduce yourself:'
+                print(f"Updated save for '{persona_name}'.")
+                message = DEFAULT_WELCOME_REQUEST
                 response = self.generate_response(persona_name, message)
                 return response
-
             # sets prompt to the default rude concierge derpr persona
             if keyword == 'default_prompt':
                 prompt = DEFAULT_PERSONA
                 current_persona.set_prompt(prompt)
                 print(f"Prompt set for '{persona_name}'.")
                 self.save_personas_to_file()
-                message = 'you are in character as ' + persona_name + '. Welcome back to the chat, please introduce yourself:'
+                message = DEFAULT_WELCOME_REQUEST
                 response = self.generate_response(persona_name, message)
                 return response
-
             elif keyword == 'model':
                 model_name = args[1]
                 if self.check_model_available(model_name):
@@ -192,14 +206,13 @@ class ChatSystem:
                     return f"Model set to '{model_name}'."
                 else:
                     return f"Model '{model_name}' does not exist. Currently available models are: {self.models_available}"
-
-            elif keyword == 'token_limit':
+            elif keyword == 'tokens':
                 token_limit = args[1]
                 current_persona.set_response_token_limit(token_limit)
                 return f"Set token limit: '{token_limit}' response tokens."
-
-            elif keyword == 'context_limit':
+            elif keyword == 'context':
                 context_limit = args[1]
+                current_persona.set_context_length(context_limit)
                 return f"Set context_limit for {persona_name}, now reading '{context_limit}' previous messages."
 
         # dumps a reconstruction of all raw fields sent to model for last completion request
@@ -212,6 +225,8 @@ class ChatSystem:
                 formatted_string = break_and_recombine_string(last_request, 1993, '```')
                 return f"{formatted_string}"
             return f"``` {last_request} ```"
+
+        # TODO: add a function to call get_model_list(update=True). Current list is hardcoded in utils.py
 
         else:
             if DEBUG:

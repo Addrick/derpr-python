@@ -36,13 +36,7 @@ async def on_message(message):
         with open(chat_log, 'a', encoding='utf-8') as file:
             file.write(f'{message.created_at} {message.author.name}: {message.content}\n')
 
-    # Don't reply to self
-    if client.user is None:
-        client_id = 0
-    else:
-        client_id = client.user.id
-
-    if message.author.id is not client_id:
+    if message.author.id is not client.user.id:
         # check message for instance of persona name
         for persona_name, persona in bot.get_persona_list().copy().items():
             persona_mention = f"{persona_name}"
@@ -51,6 +45,11 @@ async def on_message(message):
 
             if message_content.lower().startswith(persona_mention):
                 # Send typing flag and begin message processing
+                # TODO: typing doesn't last more than like 10s
+                async with message.channel.typing():
+                    # Check message for dev commands
+                    if DEBUG:
+                        print('Found persona name: ' + persona_name)
                 # TODO: typing doesn't last more than like 1s
                 # TODO: this is broken with offline mode and will break the whole thing probably
 
@@ -64,16 +63,14 @@ async def on_message(message):
                     async with message.channel.typing():
                         # Gather context (message history) from discord
                         channel = client.get_channel(message.channel.id)
-                        history = [
+                        context = [
                             f"{message.created_at.strftime('%Y-%m-%d, %H:%M:%S')}, {message.author.name}: {message.content}"
                             async for
                             message in channel.history(limit=global_config.GLOBAL_CONTEXT_LIMIT)]
-                        reversed_history = history[::-1]  # Reverse the history list
-                        # TODO: test embedding this as a separated json object/series of messages in the api instead of
-                        #  dumping it all as a single block in a one 'user content' field
-                        #  TODO: persona-specific context
-                        #   limits currently have no affect, might be same for token_limit
-                        context = " \n".join(reversed_history[:-1])
+                        # reversed_history = history[::-1]  # Reverse the history list
+                        # TODO: test embedding this as a properly separated series of messages in the api instead of
+                        #  dumping it all as a single block in a one 'user content' field. Should differentiate agent messages and properly attribute them as such (openAI specific feature?)
+                        # context = " \n".join(reversed_history[:-1])
 
                         # TODO: set a timeout or better yet a way to detect errors and report that
                         # Change discord status to 'streaming <persona>...'
@@ -107,20 +104,20 @@ async def on_message(message):
                         # print('Warning: no context found')
                         # context = ''
 
-                # Check for dev commands
-                dev_response = bot.preprocess_message(message)
-                if dev_response is None:
-                    context = 'recent chat history: \n' + context
-                    response = bot.generate_response(persona_name, message.content, context)
-                else:
-                    response = dev_response
-                if response:
-                    if ONLINE:
-                        # Split the response into multiple messages if it exceeds 2000 characters
-                        chunks = [response[i:i + 2000] for i in range(0, len(response), 2000)]
-                        for chunk in chunks:
-                            await channel.send(chunk)
-                            print(chunk)
+                    # Check for dev commands
+                    dev_response = bot.preprocess_message(message)
+                    if dev_response is None:
+                        # context = 'recent chat history: \n' + context
+                        response = bot.generate_response(persona_name, message.content, context)
+                    else:
+                        response = dev_response
+                    if response:
+                        if ONLINE:
+                            # Split the response into multiple messages if it exceeds 2000 characters
+                            chunks = [response[i:i + 2000] for i in range(0, len(response), 2000)]
+                            for chunk in chunks:
+                                await channel.send(chunk)
+                                print(chunk)
 
                         available_personas = ', '.join(list(bot.get_persona_list().keys()))
                         presence_txt = f"as {available_personas} 👀"

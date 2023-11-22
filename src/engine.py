@@ -77,31 +77,37 @@ class TextEngine:
         if self.model_name not in self.openai_models_available:
             print("Error: model name not found in available OpenAI models.")
         else:
-            completion = openai.ChatCompletion.create(
-                api_key=api_keys.openai,
-                messages=messages,
-                model=self.model_name,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                top_p=self.top_p,
-                frequency_penalty=self.frequency_penalty,
-                presence_penalty=self.presence_penalty,
-            )
-            self.json_request = {
-                "model": self.model_name,
-                "messages": messages,
-                "options": {
-                    "temperature": self.temperature,
-                    "max_tokens": self.max_tokens,
-                    "top_p": self.top_p,
-                    "frequency_penalty": self.frequency_penalty,
-                    "presence_penalty": self.presence_penalty
-                },
-                "object": "chat.completion",
-                "id": self.model_name,
-                "stream": False
-            }
-            self.json_response = completion
+            try:
+                completion = openai.ChatCompletion.create(
+                    api_key=api_keys.openai,
+                    messages=messages,
+                    model=self.model_name,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    top_p=self.top_p,
+                    frequency_penalty=self.frequency_penalty,
+                    presence_penalty=self.presence_penalty,
+                )
+                self.json_request = {
+                    "model": self.model_name,
+                    "messages": messages,
+                    "options": {
+                        "temperature": self.temperature,
+                        "max_tokens": self.max_tokens,
+                        "top_p": self.top_p,
+                        "frequency_penalty": self.frequency_penalty,
+                        "presence_penalty": self.presence_penalty
+                    },
+                    "object": "chat.completion",
+                    "id": self.model_name,
+                    "stream": False
+                }
+                self.json_response = completion
+
+            except openai.error.APIError as e:
+                return e.http_body
+                # return e.http_status + e.http_body #TODO: this method is preferred just not tested, openai fixed their api
+
         return completion.choices[0].message.content
 
     def _generate_google_response(self, prompt, message, context=[], examples=[]):

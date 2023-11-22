@@ -7,7 +7,7 @@ class Persona:
     def __init__(self, persona_name, model_name, prompt, context_limit=10, token_limit=100):
         self.persona_name = persona_name
         self.prompt = prompt
-        self.context_length = context_limit
+        self.context_length = int(context_limit) + 1
         self.response_token_limit = token_limit
         self.model = None
         self.last_json = 'none yet'
@@ -16,10 +16,10 @@ class Persona:
         self.set_model(model_name)
 
     def get_context_length(self):
-        return self.context_length
+        return self.context_length - 1
 
     def set_context_length(self, context_length):
-        self.context_length = context_length
+        self.context_length = int(context_length) + 1
 
     def get_response_token_limit(self):
         return self.response_token_limit
@@ -59,6 +59,13 @@ class Persona:
     def generate_response(self, message, context):
         if DEBUG:
             print('Querying response as ' + self.persona_name + '...')
+        context = context[1:self.context_length]
+        context = context[::-1]  # Reverse the history list
+        context = " \n".join(context[:-1])
+        context = 'recent chat history: \n' + context
+
+        # todo: implement token limit
+        #  token_limit = self.response_token_limit
         response = self.model.generate_response(self.prompt, message, context)
         self.last_json = self.model.get_raw_json_request()
         return response
