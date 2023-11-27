@@ -105,8 +105,10 @@ class TextEngine:
                 self.json_response = completion
 
             except openai.error.APIError as e:
-                return e.http_body
-                # return e.http_status + e.http_body #TODO: this method is preferred just not tested, openai fixed their api
+                return e.http_status + ": \n" + e.user_message
+
+            except openai.error.APIConnectionError as e:
+                return e.user_message
 
         return completion.choices[0].message.content
 

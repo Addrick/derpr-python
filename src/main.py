@@ -9,10 +9,10 @@ from stuff import api_keys
 from chat_system import *
 from global_config import *
 
+
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 guild = discord.Guild
-
 
 @client.event
 async def on_ready():
@@ -46,10 +46,9 @@ async def on_message(message):
             if message_content.lower().startswith(persona_mention):
                 # Send typing flag and begin message processing
                 # TODO: typing doesn't last more than like 10s
-                async with message.channel.typing():
-                    # Check message for dev commands
-                    if DEBUG:
-                        print('Found persona name: ' + persona_name)
+                # Check message for dev commands
+                if DEBUG:
+                    print('Found persona name: ' + persona_name)
                 # TODO: typing doesn't last more than like 1s
                 # TODO: this is broken with offline mode and will break the whole thing probably
 
@@ -80,29 +79,23 @@ async def on_message(message):
                             name=persona_name + '...',
                             url='https://www.twitch.tv/discordmakesmedothis')
                         await client.change_presence(activity=activity)
+                        # for is typing... :
+                        # # Start a task for the long operation
+                        # long_operation_task = asyncio.create_task(do_long_operation())
+                        #
+                        # while not long_operation_task.done():
+                        #     async with channel.typing():
+                        #         # Wait for a bit before sending the next 'is typing...' status
+                        #         await asyncio.sleep(5)
 
                 if not ONLINE:
-                    # Use custom stdout to save history to file and make it accessible to derpr - ok turns out I'm not using this
-                    sys.stdout = utils.LogStdOut(STDOUT_LOG)
-
+                    # local chat log for context
+                    # if GLOBAL_CONTEXT_LIMIT < history_length:
+                    #     history_length = GLOBAL_CONTEXT_LIMIT
                     with open('../stuff/logs/local_guild #local_channel.txt', 'r') as file:
-                        # line_count = sum(1 for line in file)
-
-                        # Get the total number of history items
-                        history_length = len(STDOUT_LOG)
-
-                        if GLOBAL_CONTEXT_LIMIT < history_length:
-                            history_length = GLOBAL_CONTEXT_LIMIT
-
                         lines = file.readlines()
                         # Grabs last history_length number of messages from local chat history file and joins them into a string
-                        context = '/n'.join(lines[-1*(history_length+1):-1])
-                        # Iterate over the history items and print them
-                        # for i in range(1, GLOBAL_CONTEXT_LIMIT + 1):
-                        #     history_item = file.readlines[-i]
-                        #     context.append(history_item)
-                        # print('Warning: no context found')
-                        # context = ''
+                        context = '/n'.join(lines[-1*(GLOBAL_CONTEXT_LIMIT+1):-1])
 
                     # Check for dev commands
                     dev_response = bot.preprocess_message(message)
@@ -119,18 +112,18 @@ async def on_message(message):
                                 await channel.send(chunk)
                                 print(chunk)
 
-                        available_personas = ', '.join(list(bot.get_persona_list().keys()))
-                        presence_txt = f"as {available_personas} 👀"
-                        await client.change_presence(
-                            activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
-                    else:
-                        print(response)
-                        #log it
-                        with open('../stuff/logs/local_guild #local_channel.txt', 'a', encoding='utf-8') as file:
-                            current_time = datetime.datetime.now().time()
-                            response = '\n' + persona_name + ': ' + str(current_time) + ' ' + response
+                            available_personas = ', '.join(list(bot.get_persona_list().keys()))
+                            presence_txt = f"as {available_personas} 👀"
+                            await client.change_presence(
+                                activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
+                        else:
+                            print(response)
+                            #log it
+                            with open('../stuff/logs/local_guild #local_channel.txt', 'a', encoding='utf-8') as file:
+                                current_time = datetime.datetime.now().time()
+                                response = '\n' + persona_name + ': ' + str(current_time) + ' ' + response
 
-                            file.write(response)
+                                file.write(response)
 
 
 if __name__ == "__main__":
@@ -144,6 +137,7 @@ if __name__ == "__main__":
         # Initiate discord
         client.run(api_keys.discord)
     else:
+        client = fake_discord.Client()
         while 1:
             message = input("Enter a message: ")
             # # Create a simulated message object

@@ -18,11 +18,18 @@ class Guild:
 
 
 class User:
-    def __init__(self, name='admin', id=1):
+    def __init__(self, name='local'):
         self.name = name
-        self.id = id
+        self.id = name
 
 
 class Channel:
     def __init__(self, name='local_channel'):
         self.name = name
+
+
+class Client:
+    def __init__(self, name='local_client'):
+        self.id = name
+        self.user = User(name=name)
+

@@ -1,6 +1,6 @@
 # eventually turn these into launch params or some shit
 
-DEBUG = 1
+DEBUG = 0
 ONLINE = 0
 LOG_CHAT = 1
 

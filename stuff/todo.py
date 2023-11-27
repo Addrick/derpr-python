@@ -1,6 +1,15 @@
 # derpr todo:
 
 # Maybe Features:
+# TODO: Better persona management:
+# change settings for all personas
+# better save format?
+# start/sleep
+# don't resave all personas on each update
+# print all personas w/info with one command
+# record token usage
+
+# TODO: try out various processing tricks like using LLM queries to evaluate the start/end of conversations or other lofty things
 # TODO: modify: add option to locate name anywhere in message for reply rather than first word only?
 # TODO: modify: make 'ignore own message' a flag to allow for persona conversations (+commands to modify in-chat)
 # TODO: print persona details cmd ('what personas' extension?)
@@ -9,7 +18,6 @@
 # TODO: better logging/errors
 # TODO: add temperature customizing commands
 # TODO: tokenizer request
-# TODO: better persona management: start/stop system to sleep personas
 # TODO: add personal messages: currently break due to lack of channel or guild name (both?)
 # TODO: add a persona prompt log - keep losing personas and wanting old versions back
 # TODO: derpr should say what personas are available and be like a receptionist (maybe?)
