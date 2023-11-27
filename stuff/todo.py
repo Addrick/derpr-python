@@ -52,3 +52,8 @@
 #
 # by default, add 'respond concisely as <name>' to end of request, add new dev command for 'concise on/off'
 # maybe a whole suite of options? maybe toggle with emoji reactions! lol
+
+# what is desired handling here?
+# only prompts save by default, but saving prompts also will save anything else that has been changed.
+# autosave all changes? probably simplest solution
+# save nothing, add 'save_defaults' and use that file as purely default configs?

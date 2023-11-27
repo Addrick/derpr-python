@@ -7,9 +7,9 @@ import engine
 import utils
 from global_config import *
 
+
 # ChatSystem
 # Maintains personas, queries the engine system for responses, executes dev commands
-
 class ChatSystem:
     def __init__(self):
         self.personas = {}
@@ -28,7 +28,7 @@ class ChatSystem:
                     prompt = persona["prompt"]
                     context_limit = persona["context_limit"]
                     token_limit = persona["token_limit"]
-                    self.add_persona(name, model_name, prompt, context_limit, token_limit)
+                    self.add_persona(name, model_name, prompt, context_limit, token_limit, save_new=False)
                 except json.JSONDecodeError as e:
                     print(f"Error decoding JSON file '{file_path}': {str(e)}")
                     return
@@ -36,11 +36,12 @@ class ChatSystem:
     def get_persona_list(self):
         return self.personas
 
-    def add_persona(self, name, model_name, prompt, context_limit, token_limit):
+    def add_persona(self, name, model_name, prompt, context_limit, token_limit, save_new=True):
         persona = Persona(name, model_name, prompt, context_limit, token_limit)
         self.personas[name] = persona
         # add to persona bank file
-        self.save_personas_to_file(PERSONA_SAVE_FILE)
+        if save_new:
+            self.save_personas_to_file(PERSONA_SAVE_FILE)
 
     def save_personas_to_file(self, file_path=PERSONA_SAVE_FILE):
         persona_dict = self.to_dict()
@@ -50,14 +51,14 @@ class ChatSystem:
             print(f"Updated persona save.")
 
     def to_dict(self):
-        persona_dict = {'personas': [] }
+        persona_dict = {'personas': []}
         for persona_name, persona in self.personas.items():
             persona_json = {
-            "name": persona.persona_name,
-            "prompt": persona.prompt,
-            "model_name": persona.model.model_name,
-            "context_limit": persona.context_length,
-            "token_limit": persona.response_token_limit,
+                "name": persona.persona_name,
+                "prompt": persona.prompt,
+                "model_name": persona.model.model_name,
+                "context_limit": persona.context_length,
+                "token_limit": persona.response_token_limit,
             }
             persona_dict['personas'].append(persona_json)
         return persona_dict
@@ -65,7 +66,7 @@ class ChatSystem:
     def add_to_prompt(self, persona_name, text_to_add):
         if persona_name in self.personas:
             self.personas[persona_name].add_to_prompt(text_to_add)
-            self.save_personas_to_file(PERSONA_SAVE_FILE)
+            # self.save_personas_to_file(PERSONA_SAVE_FILE)
         else:
             print(f"persona '{persona_name}' does not exist.")
 
@@ -115,11 +116,11 @@ class ChatSystem:
                        "Talk to a specific persona by starting your message with their name. \n \n" \
                        "Currently active personas: \n" + \
                        ', '.join(self.personas.keys()) + "\n" \
-                       "Bot commands: \n" \
-                       "remember <+prompt>, \n" \
-                       "what prompt/model/personas/context/tokens, \n" \
-                       "set prompt/model/context/tokens, \n" \
-                       "dump_last"
+                                                         "Bot commands: \n" \
+                                                         "remember <+prompt>, \n" \
+                                                         "what prompt/model/personas/context/tokens, \n" \
+                                                         "set prompt/model/context/tokens, \n" \
+                                                         "dump_last"
             return help_msg
 
         # Appends the message to end of prompt
@@ -161,7 +162,8 @@ class ChatSystem:
                 return response
             elif keyword == 'models':
                 model_names = self.models_available
-                formatted_models = json.dumps(model_names, indent=2, ensure_ascii=False, separators=(',', ':')).replace('\"', '')
+                formatted_models = json.dumps(model_names, indent=2, ensure_ascii=False, separators=(',', ':')).replace(
+                    '\"', '')
                 response = f"Available model options: {formatted_models}"
                 return response
             elif keyword == 'personas':
@@ -220,7 +222,8 @@ class ChatSystem:
             # TODO: send this to a special dev channel or thread rather than spam main convo
             # also this hackjob number counting shit is bound to cause problems eventually
             raw_json_response = current_persona.get_last_json()
-            last_request = json.dumps(raw_json_response, indent=2, ensure_ascii=False, separators=(',', ':')).replace("```", "").replace('\\n', '\n').replace('\\"', '\"')
+            last_request = json.dumps(raw_json_response, indent=2, ensure_ascii=False, separators=(',', ':')).replace(
+                "```", "").replace('\\n', '\n').replace('\\"', '\"')
             if len(last_request) + 6 > 2000:
                 formatted_string = break_and_recombine_string(last_request, 1993, '```')
                 return f"{formatted_string}"
@@ -232,8 +235,9 @@ class ChatSystem:
             if DEBUG:
                 print("No commands found.")
 
+
 def break_and_recombine_string(input_string, substring_length, bumper_string):
-    substrings = [input_string[i:i+substring_length] for i in range(0, len(input_string), substring_length)]
+    substrings = [input_string[i:i + substring_length] for i in range(0, len(input_string), substring_length)]
     formatted_substrings = [bumper_string + substring + bumper_string for substring in substrings]
     combined_string = ' '.join(formatted_substrings)
     return combined_string
