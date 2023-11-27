@@ -3,9 +3,9 @@ import re
 
 from persona import *
 # import models
-import engine
 import utils
 from global_config import *
+from src.utils import break_and_recombine_string
 
 
 # ChatSystem
@@ -236,8 +236,3 @@ class ChatSystem:
                 print("No commands found.")
 
 
-def break_and_recombine_string(input_string, substring_length, bumper_string):
-    substrings = [input_string[i:i + substring_length] for i in range(0, len(input_string), substring_length)]
-    formatted_substrings = [bumper_string + substring + bumper_string for substring in substrings]
-    combined_string = ' '.join(formatted_substrings)
-    return combined_string

@@ -41,3 +41,9 @@ def refresh_available_google_models():
     # all_available_models['From Google'] = google_models
     return google_models
 
+
+def break_and_recombine_string(input_string, substring_length, bumper_string):
+    substrings = [input_string[i:i + substring_length] for i in range(0, len(input_string), substring_length)]
+    formatted_substrings = [bumper_string + substring + bumper_string for substring in substrings]
+    combined_string = ' '.join(formatted_substrings)
+    return combined_string
