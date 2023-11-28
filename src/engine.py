@@ -1,3 +1,5 @@
+import asyncio
+
 from src import utils
 from stuff import api_keys
 import openai
@@ -57,6 +59,9 @@ class TextEngine:
                 {"role": "user", "content": context},  # TODO: try iterating this for 1 msg/context block
                 {"role": "user", "content": message}]
             response = self._generate_openai_response(messages)
+            # loop = asyncio.get_event_loop()
+            # response = loop.run_until_complete(self._generate_openai_response_stream(messages))
+
 
         # TODO: Google model query
         elif self.model_name in self.google_models_available:
@@ -114,6 +119,53 @@ class TextEngine:
                 return e.user_message
 
         return response + token_count
+
+    # async def _generate_openai_response_stream(self, messages):
+    #     from openai import AsyncOpenAI
+    #     client = AsyncOpenAI()
+    #     response = 'Error: empty/no completion.'
+    #     if self.model_name not in self.openai_models_available:
+    #         print("Error: model name not found in available OpenAI models.")
+    #         return "Error: model name not found in available OpenAI models."
+    #     else:
+    #         try:
+    #             completion = openai.ChatCompletion.create(
+    #                 api_key=api_keys.openai,
+    #                 messages=messages,
+    #                 model=self.model_name,
+    #                 temperature=self.temperature,
+    #                 max_tokens=self.max_tokens,
+    #                 top_p=self.top_p,
+    #                 frequency_penalty=self.frequency_penalty,
+    #                 presence_penalty=self.presence_penalty,
+    #                 stream=True,
+    #             )
+    #             self.json_request = {
+    #                 "model": self.model_name,
+    #                 "messages": messages,
+    #                 "options": {
+    #                     "temperature": self.temperature,
+    #                     "max_tokens": self.max_tokens,
+    #                     "top_p": self.top_p,
+    #                     "frequency_penalty": self.frequency_penalty,
+    #                     "presence_penalty": self.presence_penalty
+    #                 },
+    #                 "object": "chat.completion",
+    #                 "id": self.model_name,
+    #                 "stream": False
+    #             }
+    #             self.json_response = completion
+    #
+    #         except openai.error.APIError as e:
+    #             return e.http_status + ": \n" + e.user_message
+    #
+    #         except openai.error.APIConnectionError as e:
+    #             return e.user_message
+    #
+    #     responses = []
+    #     async for message in completion:
+    #         responses.append(message['choices'][0]['message']['content'])
+    #     return responses
 
     def _generate_google_response(self, prompt, message, context=[], examples=[]):
         palm.configure(api_key=api_keys.google)

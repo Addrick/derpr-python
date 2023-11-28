@@ -23,6 +23,14 @@
 # TODO: derpr persona should reset after some length of time or at least on restart. He's the concierge
 # TODO: easier way to write gpt-3.5-turbo  (ie 'gpt3'==)
 
+
+# ASYNC OVERHAUL
+# todo: fixes typing issues, allows for more agile program logic
+# seems to require converting all relevant methods to become async except the top (on_message)
+# will allow printing responses (somewhere) as they come in
+# can cancel an in-progress request if off base or done
+
+
 # PERSONA OVERHAUL
 # TODO: persona-specific context
 # TODO: 'reset/wipe/etc' can be done by setting context to 0 and then iterating a counter on each reply. Store iteration variable in persona or somewhere else?
