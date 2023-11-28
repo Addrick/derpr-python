@@ -21,7 +21,7 @@
 # TODO: add a persona prompt log - keep losing personas and wanting old versions back
 # TODO: derpr should say what personas are available and be like a receptionist (maybe?)
 # TODO: derpr persona should reset after some length of time or at least on restart. He's the concierge
-
+# TODO: easier way to write gpt-3.5-turbo  (ie 'gpt3'==)
 
 # PERSONA OVERHAUL
 # TODO: persona-specific context
@@ -33,8 +33,8 @@
 # TODO: all persona settings except prompt are lost UNLESS prompt is also changed. Need to add a method to all these updates to resave
 # TODO: developer commands end up in message history, usually don't want this. Maybe worth adding feature later to hide these form the next query
 # TODO: <persona> save should be more closely localized - need handler code to more intelligently deal with save data
-# TODO: gpt4 has relatively long queries. current program behavior locks up while waiting for the api response and discord gets mad.
-    # should be able to do this by making the
+# TODO: gpt4 has long queries. current program behavior locks up while waiting for the api response and discord gets mad.
+    # should be able to do this by making the API call async. https://github.com/openai/openai-python#async-usage
     # no noticeable effects from chat-end except not being sure if an answer is ever coming but can be handled better
     # [2023-10-20 02:33:48] [WARNING ] discord.gateway: Shard ID None heartbeat blocked for more than 10 seconds.
 # TODO(BIG): filter history/context for dev commands so they don't pollute input (check each history line with preprocess()?)

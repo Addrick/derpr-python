@@ -73,9 +73,10 @@ class TextEngine:
         return response
 
     def _generate_openai_response(self, messages):
-
+        response = 'Error: empty/no completion.'
         if self.model_name not in self.openai_models_available:
             print("Error: model name not found in available OpenAI models.")
+            return "Error: model name not found in available OpenAI models."
         else:
             try:
                 completion = openai.ChatCompletion.create(
@@ -103,6 +104,8 @@ class TextEngine:
                     "stream": False
                 }
                 self.json_response = completion
+                token_count = ' (' + str(completion.usage['total_tokens']) + ')'
+                response = completion.choices[0].message.content
 
             except openai.error.APIError as e:
                 return e.http_status + ": \n" + e.user_message
@@ -110,7 +113,7 @@ class TextEngine:
             except openai.error.APIConnectionError as e:
                 return e.user_message
 
-        return completion.choices[0].message.content
+        return response + token_count
 
     def _generate_google_response(self, prompt, message, context=[], examples=[]):
         palm.configure(api_key=api_keys.google)

@@ -128,7 +128,7 @@ class ChatSystem:
             if len(args) >= 2:
                 text_to_add = ' ' + message.content
                 self.add_to_prompt(persona_name, text_to_add)
-                response = 'success!' + " just kidding haha doesn't work yet probably"
+                response = 'success!' + " just kidding haha doesn't work yet probably never tested it"
                 return response
 
         if command == 'save':
