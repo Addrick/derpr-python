@@ -71,7 +71,6 @@ class ChatSystem:
             print(f"persona '{persona_name}' does not exist.")
 
     def generate_response(self, persona_name, message, context=''):
-        # clean_context = context.replace("\n", " ")
         if persona_name in self.personas:
             persona = self.personas[persona_name]
             reply = persona.generate_response(message, context)

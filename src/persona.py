@@ -7,7 +7,7 @@ class Persona:
     def __init__(self, persona_name, model_name, prompt, context_limit=10, token_limit=100):
         self.persona_name = persona_name
         self.prompt = prompt
-        self.context_length = int(context_limit) + 1
+        self.context_length = int(context_limit)
         self.response_token_limit = token_limit
         self.model = None
         self.last_json = 'none yet'
@@ -16,10 +16,10 @@ class Persona:
         self.set_model(model_name)
 
     def get_context_length(self):
-        return self.context_length - 1
+        return self.context_length
 
     def set_context_length(self, context_length):
-        self.context_length = int(context_length) + 1
+        self.context_length = int(context_length)
 
     def get_response_token_limit(self):
         return self.response_token_limit
@@ -49,7 +49,7 @@ class Persona:
 
     def set_model(self, model_name):
         # Model name should be checked before calling this, messages will fail later if model name is invalid
-        model = engine.TextEngine(model_name, token_limit=self.response_token_limit)
+        model = engine.TextEngine(model_name, token_limit=(self.response_token_limit+1))
         self.model = model
         return model
 

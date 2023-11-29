@@ -97,20 +97,20 @@ async def on_message(message):
                         # Grabs last history_length number of messages from local chat history file and joins them into a string
                         context = '/n'.join(lines[-1*(GLOBAL_CONTEXT_LIMIT+1):-1])
 
-                    # Check for dev commands
-                    dev_response = bot.preprocess_message(message)
-                    if dev_response is None:
-                        # context = 'recent chat history: \n' + context
-                        response = bot.generate_response(persona_name, message.content, context)
-                    else:
-                        response = dev_response
-                    if response:
-                        if ONLINE:
-                            # Split the response into multiple messages if it exceeds 2000 characters
-                            chunks = [response[i:i + 2000] for i in range(0, len(response), 2000)]
-                            for chunk in chunks:
-                                await channel.send(chunk)
-                                print(chunk)
+                # Check for dev commands
+                dev_response = bot.preprocess_message(message)
+                if dev_response is None:
+                    # context = 'recent chat history: \n' + context
+                    response = bot.generate_response(persona_name, message.content, context)
+                else:
+                    response = dev_response
+                if response:
+                    if ONLINE:
+                        # Split the response into multiple messages if it exceeds 2000 characters
+                        chunks = [response[i:i + 2000] for i in range(0, len(response), 2000)]
+                        for chunk in chunks:
+                            await channel.send(chunk)
+                            print(chunk)
 
                             available_personas = ', '.join(list(bot.get_persona_list().keys()))
                             presence_txt = f"as {available_personas} 👀"
