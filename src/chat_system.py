@@ -43,6 +43,11 @@ class ChatSystem:
         if save_new:
             self.save_personas_to_file(PERSONA_SAVE_FILE)
 
+    def delete_persona(self, name, save=False):
+        del self.personas[name]
+        if save:
+            self.save_personas_to_file(PERSONA_SAVE_FILE)
+
     def save_personas_to_file(self, file_path=PERSONA_SAVE_FILE):
         persona_dict = self.to_dict()
         with open(file_path, "w") as file:
@@ -119,6 +124,7 @@ class ChatSystem:
                                                          "remember <+prompt>, \n" \
                                                          "what prompt/model/personas/context/tokens, \n" \
                                                          "set prompt/model/context/tokens, \n" \
+                                                         "save, \n" \
                                                          "dump_last"
             return help_msg
 
@@ -145,6 +151,15 @@ class ChatSystem:
                 # response = f"added '{persona_name}'"
                 message = DEFAULT_WELCOME_REQUEST
                 response = self.generate_response(persona_name, message)
+                return response
+
+        # Add new persona
+        elif command == 'delete':
+            keyword = args[0]
+            if keyword == 'persona':
+                persona_name = args[1]
+                self.delete_persona(persona_name)
+                response = persona_name + " has been deleted."
                 return response
 
         # Query config

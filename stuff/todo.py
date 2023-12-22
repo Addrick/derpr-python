@@ -22,14 +22,14 @@
 # TODO: derpr should say what personas are available and be like a receptionist (maybe?)
 # TODO: derpr persona should reset after some length of time or at least on restart. He's the concierge
 # TODO: easier way to write gpt-3.5-turbo  (ie 'gpt3'==)
-
+# TODO: new function to handle when derpr responds (include @derpr and every-message options)
 
 # ASYNC OVERHAUL
 # todo: fixes typing issues, allows for more agile program logic
 # seems to require converting all relevant methods to become async except the top (on_message)
 # will allow printing responses (somewhere) as they come in
 # can cancel an in-progress request if off base or done
-
+# using stream: NOT using async for this will allow blocking of the loop while tokens are loaded. In times of extreme lag this could be cool/useful, since it will 'stop typing'. This might be super rarely useful though
 
 # PERSONA OVERHAUL
 # TODO: persona-specific context
