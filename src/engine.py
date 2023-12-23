@@ -225,18 +225,19 @@ class TextEngine:
         # TODO: test me
     def _generate_local_response(self, prompt, message, context=[]):
         import requests
-        {
-            "prompt": prompt,
-            "temperature": self.temperature,
-            "top_p": self.top_p
+        import json
+
+        url = 'http://localhost:5001/'
+        # TODO: experiment with prompting structures
+        payload = {
+            "prompt": prompt + ", now respond to this chat message and history: " + message,
+            "temperature": 0.5,
+            "top_p": 0.9
         }
-        url = 'http://localhost:5001/api/v1/generate'
-        payload = {'message': message}
 
         try:
-            response = requests.get(url, params=payload)
+            response = requests.post(url, json=payload)
             response.raise_for_status()  # Raise an exception for non-2xx status codes
-            return response.json()
+            print(response.json())
         except requests.exceptions.RequestException as e:
             print(f"An error occurred: {e}")
-            return None
