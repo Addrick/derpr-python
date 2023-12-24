@@ -13,7 +13,7 @@ def get_model_list(update=False):
         print('Updating available models from API...')
         all_available_models = {'From OpenAI': refresh_available_openai_models(),
                                 'From Google': refresh_available_google_models(),
-                                'Local': 'local'
+                                'Local': ['local']
                                 }
         print(all_available_models)
         global_config.MODELS_AVAILABLE = all_available_models
