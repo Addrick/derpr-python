@@ -226,7 +226,7 @@ class TextEngine:
         import requests
         import json
 
-        url = 'http://localhost:5001/'
+        url = 'http://localhost:5001/api/v1/generate'
         # TODO: experiment with prompting structures
         payload = {
             "prompt": prompt + ", now respond to this chat message and history: " + message,
