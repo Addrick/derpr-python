@@ -231,7 +231,7 @@ class TextEngine:
         # hardcoded for mistral 8x7b
         # <s> [INST] Instruction [/INST] Model answer</s> [INST] Follow-up instruction [/INST]
         payload = {
-            "prompt": "<s> [INST]" + prompt + "[/INST]" ", now respond to this chat message and history: " + message + "</s>",
+            "prompt": prompt + ", now respond to this chat message and history: " + message,
             "temperature": 0.5,
             "top_p": self.top_p,
             "max_context_length": self.max_tokens,
