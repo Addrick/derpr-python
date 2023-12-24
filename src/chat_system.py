@@ -125,8 +125,15 @@ class ChatSystem:
                                                          "what prompt/model/personas/context/tokens, \n" \
                                                          "set prompt/model/context/tokens, \n" \
                                                          "save, \n" \
+                                                         "update_models, \n" \
                                                          "dump_last"
             return help_msg
+
+        # Appends the message to end of prompt
+        if command == 'update_models':
+            utils.get_model_list(update=True)
+            response = 'updated models'
+            return response
 
         # Appends the message to end of prompt
         if command == 'remember':
