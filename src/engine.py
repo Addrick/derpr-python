@@ -63,13 +63,12 @@ class TextEngine:
             # response = loop.run_until_complete(self._generate_openai_response_stream(messages))
 
 
-        # TODO: Google model query
+        # TODO: test (finish?) Google model query
         elif self.model_name in self.google_models_available:
             response = self._generate_google_response(prompt, message, context)
 
-        # TODO: Local model query
         elif self.model_name == 'local':
-            response = 'local not yet implemented'
+            response = self._generate_local_response(prompt, message, context)
 
         else:
             print("Error: persona's model name not found.")
@@ -238,6 +237,8 @@ class TextEngine:
         try:
             response = requests.post(url, json=payload)
             response.raise_for_status()  # Raise an exception for non-2xx status codes
-            print(response.json())
+            return response.json()
         except requests.exceptions.RequestException as e:
-            print(f"An error occurred: {e}")
+            err_response = (f"An error occurred: {e}")
+            print(err_response)
+            return err_response

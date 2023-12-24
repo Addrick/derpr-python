@@ -23,6 +23,7 @@
 # TODO: derpr persona should reset after some length of time or at least on restart. He's the concierge
 # TODO: easier way to write gpt-3.5-turbo  (ie 'gpt3'==)
 # TODO: new function to handle when derpr responds (include @derpr and every-message options)
+# TODO: saving personas leaves 'in streaming...'; probably true for others too
 
 # ASYNC OVERHAUL
 # todo: fixes typing issues, allows for more agile program logic
