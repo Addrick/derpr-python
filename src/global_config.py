@@ -24,3 +24,4 @@ LOCAL_CHAT_LOG = '../stuff/logs/'
 
 PERSONA_SAVE_FILE = '../stuff/personas'
 STDOUT_LOG = '../stuff/logs/stdout.txt'
+

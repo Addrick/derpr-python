@@ -224,16 +224,24 @@ class TextEngine:
         # TODO: test me
     def _generate_local_response(self, prompt, message, context=[]):
         import requests
-        import json
 
         url = 'http://localhost:5001/api/v1/generate'
         # TODO: experiment with prompting structures
         payload = {
             "prompt": prompt + ", now respond to this chat message and history: " + message,
             "temperature": 0.5,
-            "top_p": 0.9
+            "top_p": self.top_p,
+            "max_context_length": self.max_tokens,
+            "max_length": self.max_tokens,
+            "quiet": False,
+            "rep_pen": 1.1,
+            "rep_pen_range": 256,
+            "rep_pen_slope": 1,
+            "tfs": 1,
+            "top_a": 0,
+            "top_k": self.top_k,
+            "typical": 1
         }
-
         try:
             response = requests.post(url, json=payload)
             response.raise_for_status()  # Raise an exception for non-2xx status codes
