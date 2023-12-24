@@ -7,6 +7,7 @@ from global_config import *
 
 
 # TODO: make 2 superclasses, OpenAI and Google, oh and Local, and utilize the built-in model names from publishers
+# TODO: delete this? I made engine.py I think this file is redundancy
 # LanguageModel.__init__: Initializes a new LanguageModel instance with the given model_name, temperature,
 # max_tokens, and top_p settings. The model_name defaults to 'basemodel', temperature to 0.8, max_tokens to
 # a default limit defined in settings, and top_p to 1.0. Most of these should be overwritten by the persona config

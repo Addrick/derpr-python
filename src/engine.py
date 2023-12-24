@@ -8,6 +8,7 @@ import inspect
 import sys
 from global_config import *
 
+
 class TextEngine:
     def __init__(self, model_name='none',
                  token_limit=DEFAULT_TOKEN_LIMIT,
@@ -227,8 +228,10 @@ class TextEngine:
 
         url = 'http://localhost:5001/api/v1/generate'
         # TODO: experiment with prompting structures
+        # hardcoded for mistral 8x7b
+        # <s> [INST] Instruction [/INST] Model answer</s> [INST] Follow-up instruction [/INST]
         payload = {
-            "prompt": prompt + ", now respond to this chat message and history: " + message,
+            "prompt": "<s> [INST]" + prompt + "[/INST]" ", now respond to this chat message and history: " + message + "</s>",
             "temperature": 0.5,
             "top_p": self.top_p,
             "max_context_length": self.max_tokens,
