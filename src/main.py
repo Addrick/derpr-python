@@ -98,7 +98,8 @@ async def on_message(message):
                         context = '/n'.join(lines[-1*(GLOBAL_CONTEXT_LIMIT+1):-1])
 
                 # Check for dev commands
-                dev_response = bot.preprocess_message(message)
+                # dev_response = bot.preprocess_message(message)
+                dev_response = bot.bot_logic.preprocess_message(message)
                 if dev_response is None:
                     # context = 'recent chat history: \n' + context
                     response = bot.generate_response(persona_name, message.content, context)
@@ -116,14 +117,14 @@ async def on_message(message):
                             presence_txt = f"as {available_personas} 👀"
                             await client.change_presence(
                                 activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
-                        else:
-                            print(response)
-                            #log it
-                            with open('../stuff/logs/local_guild #local_channel.txt', 'a', encoding='utf-8') as file:
-                                current_time = datetime.datetime.now().time()
-                                response = '\n' + persona_name + ': ' + str(current_time) + ' ' + response
+                    else:
+                        print(response)
+                        #log it
+                        with open('../stuff/logs/local_guild #local_channel.txt', 'a', encoding='utf-8') as file:
+                            current_time = datetime.datetime.now().time()
+                            response = '\n' + persona_name + ': ' + str(current_time) + ' ' + response
 
-                                file.write(response)
+                            file.write(response)
 
 
 if __name__ == "__main__":
