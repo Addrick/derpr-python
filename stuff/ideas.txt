@@ -1,4 +1,9 @@
-﻿proposed:
+﻿- ways to better deal with conversations:
+    > time-based cutoff
+    > dev command to start conversation sequence
+        - start/stop
+        - apply tag to each message
+    > !! = context=0
 
 -add option to toggle 'discord markup and stuff', maybe other similar suggested 'buffs'? or:
 -build-a-prompt:
