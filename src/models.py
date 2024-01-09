@@ -1,7 +1,6 @@
 from stuff import api_keys
 from openai import OpenAI
 
-client = OpenAI()
 import google.generativeai as palm
 import inspect
 import sys
@@ -43,6 +42,7 @@ class Gpt3Turbo(LanguageModel):
         self.api_key = api_keys.openai
         self.frequency_penalty = 0
         self.presence_penalty = 0
+        self.client = OpenAI(api_key=api_keys.openai)
 
     def generate_response(self, prompt, message, context):
         messages = [
@@ -52,7 +52,7 @@ class Gpt3Turbo(LanguageModel):
         return self._create_completion(messages)
 
     def _create_completion(self, messages):
-        completion = client.chat.completions.create(api_key=api_keys.openai,
+        completion = self.client.chat.completions.create(api_key=api_keys.openai,
         messages=messages,
         model=self.model_name,
         temperature=self.temperature,

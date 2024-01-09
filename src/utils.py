@@ -24,7 +24,7 @@ def get_model_list(update=False):
 
 # OpenAI
 def refresh_available_openai_models():
-    client = OpenAI()
+    client = OpenAI(api_key=api_keys.openai)
     # openai.organization = "derpr"
     openai_models = client.models.list(api_key=api_keys.openai)
     trimmed_list = []
