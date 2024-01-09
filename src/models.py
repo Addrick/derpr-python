@@ -1,5 +1,7 @@
 from stuff import api_keys
-import openai
+from openai import OpenAI
+
+client = OpenAI()
 import google.generativeai as palm
 import inspect
 import sys
@@ -50,16 +52,14 @@ class Gpt3Turbo(LanguageModel):
         return self._create_completion(messages)
 
     def _create_completion(self, messages):
-        completion = openai.ChatCompletion.create(
-            api_key=api_keys.openai,
-            messages=messages,
-            model=self.model_name,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            top_p=self.top_p,
-            frequency_penalty=self.frequency_penalty,
-            presence_penalty=self.presence_penalty,
-        )
+        completion = client.chat.completions.create(api_key=api_keys.openai,
+        messages=messages,
+        model=self.model_name,
+        temperature=self.temperature,
+        max_tokens=self.max_tokens,
+        top_p=self.top_p,
+        frequency_penalty=self.frequency_penalty,
+        presence_penalty=self.presence_penalty)
         self.json_request = {
             "model": self.model_name,
             "messages": messages,
@@ -80,17 +80,15 @@ class Gpt3Turbo(LanguageModel):
         return completion.choices[0].message.content
 
     def _create_completion_stream(self, messages):
-        completion = openai.ChatCompletion.create(
-            api_key=api_keys.openai,
-            messages=messages,
-            model=self.model_name,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            top_p=self.top_p,
-            frequency_penalty=self.frequency_penalty,
-            presence_penalty=self.presence_penalty,
-            stream=True
-        )
+        completion = client.chat.completions.create(api_key=api_keys.openai,
+        messages=messages,
+        model=self.model_name,
+        temperature=self.temperature,
+        max_tokens=self.max_tokens,
+        top_p=self.top_p,
+        frequency_penalty=self.frequency_penalty,
+        presence_penalty=self.presence_penalty,
+        stream=True)
         self.json_request = {
             "model": self.model_name,
             "messages": messages,
@@ -198,7 +196,7 @@ def get_available_chat_models():
 
     # alternate method that utilizes teh model_name field and queries the API directly for all available models
     # OpenAI:
-    openai_models = openai.Model.list(api_key=api_keys.openai)
+    openai_models = client.models.list(api_key=api_keys.openai)
     for model in openai_models['data']:
         # trim list down to just gpt models; syntax is likely poor/incompatible for completion or edits
         if 'gpt-3' in model['id'] or 'gpt-4' in model['id']:

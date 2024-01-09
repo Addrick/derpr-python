@@ -3,6 +3,8 @@ import asyncio
 from src import utils
 from stuff import api_keys
 import openai
+from openai import OpenAI
+
 import google.generativeai as palm
 import inspect
 import sys
@@ -32,6 +34,8 @@ class TextEngine:
         # Google models
         self.google_models_available = utils.get_model_list()['From Google']
         self.top_k = top_k
+
+        self.openai_client = OpenAI(api_key=api_keys.openai)
 
         # Local models
         # TODO: add me (Kobold cpp?)
@@ -84,16 +88,14 @@ class TextEngine:
             return "Error: model name not found in available OpenAI models."
         else:
             try:
-                completion = openai.ChatCompletion.create(
-                    api_key=api_keys.openai,
-                    messages=messages,
-                    model=self.model_name,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
-                    top_p=self.top_p,
-                    frequency_penalty=self.frequency_penalty,
-                    presence_penalty=self.presence_penalty,
-                )
+                completion = self.openai_client.chat.completions.create(
+                messages=messages,
+                model=self.model_name,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                top_p=self.top_p,
+                frequency_penalty=self.frequency_penalty,
+                presence_penalty=self.presence_penalty)
                 self.json_request = {
                     "model": self.model_name,
                     "messages": messages,
@@ -109,13 +111,13 @@ class TextEngine:
                     "stream": False
                 }
                 self.json_response = completion
-                token_count = ' (' + str(completion.usage['total_tokens']) + ')'
+                token_count = ' (' + str(completion.usage.total_tokens) + ')'
                 response = completion.choices[0].message.content
 
-            except openai.error.APIError as e:
+            except openai.APIError as e:
                 return e.http_status + ": \n" + e.user_message
 
-            except openai.error.APIConnectionError as e:
+            except openai.APIConnectionError as e:
                 return e.user_message
 
         return response + token_count
@@ -248,7 +250,7 @@ class TextEngine:
         try:
             response = requests.post(url, json=payload)
             response.raise_for_status()  # Raise an exception for non-2xx status codes
-            return response.json()
+            return response.text
         except requests.exceptions.RequestException as e:
             err_response = (f"An error occurred: {e}")
             print(err_response)

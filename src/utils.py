@@ -1,4 +1,4 @@
-import openai
+from openai import OpenAI
 
 import engine
 from src import global_config
@@ -24,8 +24,9 @@ def get_model_list(update=False):
 
 # OpenAI
 def refresh_available_openai_models():
+    client = OpenAI()
     # openai.organization = "derpr"
-    openai_models = openai.Model.list(api_key=api_keys.openai)
+    openai_models = client.models.list(api_key=api_keys.openai)
     trimmed_list = []
     for model in openai_models['data']:
         # trim list down to just gpt models; syntax is likely poor/incompatible for completion or edits
