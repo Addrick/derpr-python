@@ -61,7 +61,7 @@ class Persona:
             print('Querying response as ' + self.persona_name + '...')
         context = context[1:self.context_length]
         context = context[::-1]  # Reverse the history list
-        context = " \n".join(context[:-1])
+        context = " \n".join(context)
         context = 'recent chat history: \n' + context
 
         # todo: implement token limit
