@@ -53,13 +53,13 @@ class Gpt3Turbo(LanguageModel):
 
     def _create_completion(self, messages):
         completion = self.client.chat.completions.create(api_key=api_keys.openai,
-        messages=messages,
-        model=self.model_name,
-        temperature=self.temperature,
-        max_tokens=self.max_tokens,
-        top_p=self.top_p,
-        frequency_penalty=self.frequency_penalty,
-        presence_penalty=self.presence_penalty)
+                                                         messages=messages,
+                                                         model=self.model_name,
+                                                         temperature=self.temperature,
+                                                         max_tokens=self.max_tokens,
+                                                         top_p=self.top_p,
+                                                         frequency_penalty=self.frequency_penalty,
+                                                         presence_penalty=self.presence_penalty)
         self.json_request = {
             "model": self.model_name,
             "messages": messages,
@@ -80,15 +80,15 @@ class Gpt3Turbo(LanguageModel):
         return completion.choices[0].message.content
 
     def _create_completion_stream(self, messages):
-        completion = client.chat.completions.create(api_key=api_keys.openai,
-        messages=messages,
-        model=self.model_name,
-        temperature=self.temperature,
-        max_tokens=self.max_tokens,
-        top_p=self.top_p,
-        frequency_penalty=self.frequency_penalty,
-        presence_penalty=self.presence_penalty,
-        stream=True)
+        completion = self.client.chat.completions.create(api_key=api_keys.openai,
+                                                         messages=messages,
+                                                         model=self.model_name,
+                                                         temperature=self.temperature,
+                                                         max_tokens=self.max_tokens,
+                                                         top_p=self.top_p,
+                                                         frequency_penalty=self.frequency_penalty,
+                                                         presence_penalty=self.presence_penalty,
+                                                         stream=True)
         self.json_request = {
             "model": self.model_name,
             "messages": messages,
@@ -119,7 +119,8 @@ class Gpt4(Gpt3Turbo):
 
 # https://developers.generativeai.google/guide/safety_setting
 class PalmBison(LanguageModel):
-    def __init__(self, model_name='palm-chat', temperature=0.8, max_tokens=2048, top_p=1.0):  # palm chat is currently free so spam away
+    def __init__(self, model_name='palm-chat', temperature=0.8, max_tokens=2048,
+                 top_p=1.0):  # palm chat is currently free so spam away
         super().__init__(model_name, temperature, max_tokens, top_p)
         self.api_key = api_keys.google
 
@@ -127,7 +128,7 @@ class PalmBison(LanguageModel):
         palm.configure(api_key=self.api_key)
         context.append("NEXT REQUEST")
         # Build chat completion request for text completion model:
-        persona_name = message.split()[0] # name should be first word of latest message
+        persona_name = message.split()[0]  # name should be first word of latest message
 
         chat_request = f"you are in character as {persona_name}. {prompt} {persona_name} is chatting with others, here is the most recent conversation: \n{context}\n Now, respond to the chat request as {persona_name}: "
         completion = self._create_completion(prompt=chat_request)
@@ -182,27 +183,26 @@ class PalmBison(LanguageModel):
         self.json_response = completion
         return completion.last[0]
 
+    def get_available_chat_models(self):
+        model_list = []
+        module = sys.modules[__name__]
+        classes = inspect.getmembers(module, inspect.isclass)
+        for _, model_class in classes:
+            if issubclass(model_class, LanguageModel):
+                model_instance = model_class()
+                if hasattr(model_instance, "model_name"):
+                    if model_instance.model_name != 'basemodel':
+                        model_list.append(model_instance.model_name.lower())
 
-def get_available_chat_models():
-    model_list = []
-    module = sys.modules[__name__]
-    classes = inspect.getmembers(module, inspect.isclass)
-    for _, model_class in classes:
-        if issubclass(model_class, LanguageModel):
-            model_instance = model_class()
-            if hasattr(model_instance, "model_name"):
-                if model_instance.model_name != 'basemodel':
-                    model_list.append(model_instance.model_name.lower())
+        # alternate method that utilizes teh model_name field and queries the API directly for all available models
+        # OpenAI:
+        openai_models = self.client.models.list(api_key=api_keys.openai)
+        for model in openai_models['data']:
+            # trim list down to just gpt models; syntax is likely poor/incompatible for completion or edits
+            if 'gpt-3' in model['id'] or 'gpt-4' in model['id']:
+                print(model['id'])
 
-    # alternate method that utilizes teh model_name field and queries the API directly for all available models
-    # OpenAI:
-    openai_models = client.models.list(api_key=api_keys.openai)
-    for model in openai_models['data']:
-        # trim list down to just gpt models; syntax is likely poor/incompatible for completion or edits
-        if 'gpt-3' in model['id'] or 'gpt-4' in model['id']:
-            print(model['id'])
-
-    return model_list
+        return model_list
 
 
 def get_model(model_name):
@@ -212,5 +212,3 @@ def get_model(model_name):
         if _ == model_name:
             return model_class()
     return False
-
-

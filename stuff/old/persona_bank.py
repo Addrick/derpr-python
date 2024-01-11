@@ -1,4 +1,4 @@
-from src import models
+from stuff.old import models
 
 
 def create_default_personas(bot):

@@ -2,7 +2,6 @@ import os
 import re
 
 from persona import *
-# import models
 import utils
 from global_config import *
 from src.utils import break_and_recombine_string

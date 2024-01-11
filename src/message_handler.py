@@ -1,7 +1,6 @@
 import os
 import re
 from persona import *
-# import models
 import utils
 from global_config import *
 from src.utils import break_and_recombine_string
@@ -27,7 +26,7 @@ class BotLogic:
         if DEBUG:
             print('Checking for dev commands...')
         args = re.split(r'[ ,]', message.content)
-        persona_name, command, *args = args[0], args[1].lower(), args[2:]
+        persona_name, command, args = args[0], args[1].lower(), args[2:]
         current_persona = self.chat_system.personas.get(persona_name)
         handler = self.command_handlers.get(command)
         if handler:
@@ -65,7 +64,7 @@ class BotLogic:
             return response
 
     def _handle_save(self, persona_name, current_persona, message, args):
-        self.save_personas_to_file()
+        # self.save_personas_to_file()
         response = 'Personas saved.'
         return response
 
