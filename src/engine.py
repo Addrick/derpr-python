@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 from src import utils
 from stuff import api_keys
@@ -89,13 +90,13 @@ class TextEngine:
         else:
             try:
                 completion = self.openai_client.chat.completions.create(
-                messages=messages,
-                model=self.model_name,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                top_p=self.top_p,
-                frequency_penalty=self.frequency_penalty,
-                presence_penalty=self.presence_penalty)
+                    messages=messages,
+                    model=self.model_name,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    top_p=self.top_p,
+                    frequency_penalty=self.frequency_penalty,
+                    presence_penalty=self.presence_penalty)
                 self.json_request = {
                     "model": self.model_name,
                     "messages": messages,
@@ -225,6 +226,7 @@ class TextEngine:
         return completion.last[0]
 
         # TODO: test me
+
     def _generate_local_response(self, prompt, message, context=[]):
         import requests
 
@@ -252,28 +254,37 @@ class TextEngine:
         # <s> [INST] QUERY_1 [/INST] ANSWER_1</s> [INST] QUERY_2 [/INST] ANSWER_2</s>...
         payload = {
             "n": 1,
-             "max_context_length": 2048,
-             "max_length": 512,
-             "rep_pen": 1.1,
-             "temperature": 0.8,
-             "top_p": 0.92,
-             "top_k": 0,
-             "top_a": 0,
-             "typical": 1,
-             "tfs": 1,
-             "rep_pen_range": 300,
-             "rep_pen_slope": 0.7,
-             "sampler_order": [6, 0, 1, 3, 4, 2, 5],
-             "memory": "", "min_p": 0, "presence_penalty": 0,
-             "genkey": "KCPP6857", "prompt": prompt + ", now respond to this chat message: " + message,
-             "quiet": True,
-             "stop_sequence": ["You:", "\nYou ", "\nKoboldAI: "],
-             "use_default_badwordsids": False
+            "max_context_length": 2048,
+            "max_length": 128,
+            "rep_pen": 1.1,
+            "temperature": .5,
+            "top_p": 0.95,
+            "top_k": 0,
+            "top_a": 0,
+            "typical": 1,
+            "tfs": 1,
+            "rep_pen_range": 300,
+            "rep_pen_slope": 0.7,
+            "sampler_order": [6, 0, 1, 3, 4, 2, 5],
+            "memory": "", "min_p": 0, "presence_penalty": 0,
+            "genkey": "KCPP6857", "prompt": prompt + ", now respond to this chat message: " + message,
+            "quiet": True,
+            "stop_sequence": ["You:", "\nYou"],
+            "use_default_badwordsids": False
         }
         try:
-            response = requests.post(url, json=payload)
-            response.raise_for_status()  # Raise an exception for non-2xx status codes
-            return response.text
+            raw_response = requests.post(url, json=payload)
+            raw_response.raise_for_status()  # Raise an exception for non-2xx status codes
+            response = raw_response.text.replace('{"results": [{"text": "\nresponse:', '{"results": [{"text": "\\nresponse:')
+
+            # Parse the string as JSON
+            json_data = json.loads(response)
+
+            # Extract the <response> value
+            response = json_data['results'][0]['text'].split(': ')[1]
+
+            print(response)
+            return response
         except requests.exceptions.RequestException as e:
             err_response = (f"An error occurred: {e}")
             print(err_response)

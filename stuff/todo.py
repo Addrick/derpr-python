@@ -10,6 +10,7 @@
 # don't resave all personas on each update
 # print all personas w/info with one command
 # record token usage
+# ui to help modify personas or view info like messages as they are being generated
 
 # TODO: try out various processing tricks like using LLM queries to evaluate the start/end of conversations or other lofty things
 # TODO: modify: add option to locate name anywhere in message for reply rather than first word only?
