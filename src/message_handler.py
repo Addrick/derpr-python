@@ -73,10 +73,10 @@ class BotLogic:
         if keyword == 'persona':
             persona_name = args[1]
             prompt = ' '.join(args[1:])
-            self.add_persona(persona_name, DEFAULT_MODEL_NAME, prompt, context_limit=4, token_limit=1024)
+            self.chat_system.add_persona(persona_name, DEFAULT_MODEL_NAME, prompt, context_limit=4, token_limit=1024)
             # response = f"added '{persona_name}'"
             message = DEFAULT_WELCOME_REQUEST
-            response = self.generate_response(persona_name, message)
+            response = self.chat_system.generate_response(persona_name, message)
             return response
 
     def _handle_delete(self, persona_name, current_persona, message, args):
@@ -136,7 +136,7 @@ class BotLogic:
             return response
         elif args[0] == 'model':
             model_name = args[1]
-            if self.check_model_available(model_name):
+            if self.chat_system.check_model_available(model_name):
                 current_persona.set_model(model_name)
                 return f"Model set to '{model_name}'."
             else:

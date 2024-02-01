@@ -232,20 +232,43 @@ class TextEngine:
         # TODO: experiment with prompting structures
         # hardcoded for mistral 8x7b
         # <s> [INST] Instruction [/INST] Model answer</s> [INST] Follow-up instruction [/INST]
+        # payload = {
+        #     "prompt": prompt + ", now respond to this chat message and history: " + message,
+        #     "temperature": 0.5,
+        #     "top_p": self.top_p,
+        #     "max_context_length": 10,
+        #     "max_length": self.max_tokens,
+        #     "quiet": False,
+        #     "rep_pen": 1.1,
+        #     "rep_pen_range": 256,
+        #     "rep_pen_slope": 1,
+        #     "tfs": 1,
+        #     "top_a": 0,
+        #     "top_k": self.top_k,
+        #     "typical": 1
+        # }
+        ######################################
+        # # hardcoded for mistral miqu-1-70b
+        # <s> [INST] QUERY_1 [/INST] ANSWER_1</s> [INST] QUERY_2 [/INST] ANSWER_2</s>...
         payload = {
-            "prompt": prompt + ", now respond to this chat message and history: " + message,
-            "temperature": 0.5,
-            "top_p": self.top_p,
-            "max_context_length": self.max_tokens,
-            "max_length": self.max_tokens,
-            "quiet": False,
-            "rep_pen": 1.1,
-            "rep_pen_range": 256,
-            "rep_pen_slope": 1,
-            "tfs": 1,
-            "top_a": 0,
-            "top_k": self.top_k,
-            "typical": 1
+            "n": 1,
+             "max_context_length": 2048,
+             "max_length": 512,
+             "rep_pen": 1.1,
+             "temperature": 0.8,
+             "top_p": 0.92,
+             "top_k": 0,
+             "top_a": 0,
+             "typical": 1,
+             "tfs": 1,
+             "rep_pen_range": 300,
+             "rep_pen_slope": 0.7,
+             "sampler_order": [6, 0, 1, 3, 4, 2, 5],
+             "memory": "", "min_p": 0, "presence_penalty": 0,
+             "genkey": "KCPP6857", "prompt": prompt + ", now respond to this chat message: " + message,
+             "quiet": True,
+             "stop_sequence": ["You:", "\nYou ", "\nKoboldAI: "],
+             "use_default_badwordsids": False
         }
         try:
             response = requests.post(url, json=payload)

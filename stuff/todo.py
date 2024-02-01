@@ -1,5 +1,7 @@
 # derpr todo:
 
+#dump: remake 'testr test' to just find 'test' in chat as a solo word/message and convert testr to something bettr
+
 # Maybe Features:
 # TODO: Better persona management:
 # change settings for all personas
