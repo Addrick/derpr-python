@@ -36,7 +36,7 @@ class BotLogic:
         return None
 
     def _handle_help(self, persona_name, current_persona, message, args):
-        # TODO: autogenerate from
+        # TODO: autogenerate from functions?
         help_msg = "" \
                    "Talk to a specific persona by starting your message with their name. \n \n" \
                    "Currently active personas: \n" + \
@@ -50,23 +50,12 @@ class BotLogic:
                                                      "dump_last"
         return help_msg
 
-
-    def _handle_update_models(self, persona_name, current_persona, message, args):
-        utils.get_model_list(update=True)
-        response = 'updated models'
-        return response
-
     def _handle_remember(self, persona_name, current_persona, message, args):
         if len(args) >= 2:
             text_to_add = ' ' + message.content
             self.add_to_prompt(persona_name, text_to_add)
             response = 'success!' + " just kidding haha doesn't work yet probably never tested it"
             return response
-
-    def _handle_save(self, persona_name, current_persona, message, args):
-        # self.save_personas_to_file()
-        response = 'Personas saved.'
-        return response
 
     def _handle_add(self, persona_name, current_persona, message, args):
         keyword = args[0]
@@ -120,10 +109,8 @@ class BotLogic:
             prompt = ' '.join(args[1:])
             current_persona.set_prompt(prompt)
             print(f"Prompt set for '{persona_name}'.")
-            self.save_personas_to_file()
             print(f"Updated save for '{persona_name}'.")
-            message = DEFAULT_WELCOME_REQUEST
-            response = self.generate_response(persona_name, message)
+            response = 'Personas saved.'  # flag to save once back in main.py
             return response
         # sets prompt to the default rude concierge derpr persona
         if args[0] == 'default_prompt':
@@ -150,7 +137,8 @@ class BotLogic:
             current_persona.set_context_length(context_limit)
             return f"Set context_limit for {persona_name}, now reading '{context_limit}' previous messages."
 
-    def _handle_dump_last(self, persona_name, current_persona, message, args):
+    @staticmethod
+    def _handle_dump_last(persona_name, current_persona, message, args):
         # TODO: send this to a special dev channel or thread rather than spam main convo
         # also this hackjob number counting shit is bound to cause problems eventually
         raw_json_response = current_persona.get_last_json()
@@ -161,3 +149,13 @@ class BotLogic:
             return f"{formatted_string}"
         return f"``` {last_request} ```"
 
+    @staticmethod
+    def _handle_save(persona_name, current_persona, message, args):
+        response = 'Personas saved.'  # flag to save once back in main.py
+        return response
+
+    @staticmethod
+    def _handle_update_models(persona_name, current_persona, message, args):
+        utils.get_model_list(update=True)
+        response = 'updated models'
+        return response

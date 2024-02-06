@@ -104,6 +104,7 @@ async def on_message(message):
                     # context = 'recent chat history: \n' + context
                     response = bot.generate_response(persona_name, message.content, context)
                 else:
+                    # TODO: find better way to do this
                     if dev_response == 'Personas saved.':
                         bot.save_personas_to_file()
                     response = dev_response

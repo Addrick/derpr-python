@@ -232,7 +232,7 @@ class TextEngine:
 
         url = 'http://localhost:5001/api/v1/generate'
         # TODO: experiment with prompting structures
-        # hardcoded for mistral 8x7b
+        # hardcoded for mistral 8x7b, the settings below actually just seems to do that thing where the LLM dumps its training data
         # <s> [INST] Instruction [/INST] Model answer</s> [INST] Follow-up instruction [/INST]
         # payload = {
         #     "prompt": prompt + ", now respond to this chat message and history: " + message,
