@@ -40,11 +40,13 @@ class BotLogic:
         help_msg = "" \
                    "Talk to a specific persona by starting your message with their name. \n \n" \
                    "Currently active personas: \n" + \
-                   ', '.join(self.personas.keys()) + "\n" \
+                   ', '.join(self.chat_system.personas.keys()) + "\n" \
                                                      "Bot commands: \n" \
                                                      "remember <+prompt>, \n" \
                                                      "what prompt/model/personas/context/tokens, \n" \
                                                      "set prompt/model/context/tokens, \n" \
+                                                     "add <persona>, \n" \
+                                                     "delete <persona>, \n" \
                                                      "save, \n" \
                                                      "update_models, \n" \
                                                      "dump_last"
@@ -58,23 +60,26 @@ class BotLogic:
             return response
 
     def _handle_add(self, persona_name, current_persona, message, args):
-        keyword = args[0]
-        if keyword == 'persona':
-            persona_name = args[1]
-            prompt = ' '.join(args[1:])
-            self.chat_system.add_persona(persona_name, DEFAULT_MODEL_NAME, prompt, context_limit=4, token_limit=1024)
-            # response = f"added '{persona_name}'"
-            message = DEFAULT_WELCOME_REQUEST
-            response = self.chat_system.generate_response(persona_name, message)
-            return response
+        new_persona_name = args[0]
+        if len(args) <= 2:
+            args.append('you are in character as ' + new_persona_name)
+        prompt = ' '.join(args[1:])
+        self.chat_system.add_persona(new_persona_name,
+                                     DEFAULT_MODEL_NAME,
+                                     prompt,
+                                     context_limit=DEFAULT_CONTEXT_LIMIT,
+                                     token_limit=1024)
+        response = f"added '{new_persona_name}' with prompt: '{prompt}"
+        self.chat_system.save_personas_to_file()
+        # message = DEFAULT_WELCOME_REQUEST
+        # response = self.chat_system.generate_response(persona_name, message)
+        return response
 
     def _handle_delete(self, persona_name, current_persona, message, args):
-        keyword = args[0]
-        if keyword == 'persona':
-            persona_name = args[1]
-            self.delete_persona(persona_name)
-            response = persona_name + " has been deleted."
-            return response
+        persona_to_delete = args[0]  # handle case where persona does not exist
+        self.chat_system.delete_persona(persona_to_delete, save=True)
+        response = persona_name + " has been deleted."
+        return response
 
     def _handle_what(self, persona_name, current_persona, message, args):
         if args[0] == 'prompt':
@@ -110,6 +115,7 @@ class BotLogic:
             current_persona.set_prompt(prompt)
             print(f"Prompt set for '{persona_name}'.")
             print(f"Updated save for '{persona_name}'.")
+            self.chat_system.save_personas_to_file()
             response = 'Personas saved.'  # flag to save once back in main.py
             return response
         # sets prompt to the default rude concierge derpr persona
@@ -149,8 +155,8 @@ class BotLogic:
             return f"{formatted_string}"
         return f"``` {last_request} ```"
 
-    @staticmethod
-    def _handle_save(persona_name, current_persona, message, args):
+    def _handle_save(self, persona_name, current_persona, message, args):
+        self.chat_system.save_personas_to_file()
         response = 'Personas saved.'  # flag to save once back in main.py
         return response
 
