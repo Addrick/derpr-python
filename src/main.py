@@ -27,7 +27,7 @@ async def on_ready():
 async def on_message(message):
     message_content = message.content
     message_author = message.author
-    if DEBUG:
+    if DEBUG and ONLINE:
         print(f'{message_author}: {message_content}')
 
     if LOG_CHAT:
@@ -43,19 +43,13 @@ async def on_message(message):
             if DEBUG:
                 print('Checking for persona name: ' + persona_name)
 
+            # drop all to lowercase for ease of processing - should not affect llm output
             if message_content.lower().startswith(persona_mention):
                 # Send typing flag and begin message processing
                 # TODO: typing doesn't last more than like 10s
                 # Check message for dev commands
                 if DEBUG:
                     print('Found persona name: ' + persona_name)
-                # TODO: typing doesn't last more than like 1s
-                # TODO: this is broken with offline mode and will break the whole thing probably
-
-                # Check message for dev commands
-                if DEBUG:
-                    print('Found persona name: ' + persona_name)
-                    print('Checking for dev commands...')
 
                 # Gather context and set status for discord
                 if ONLINE:
@@ -68,25 +62,17 @@ async def on_message(message):
                             message in channel.history(limit=global_config.GLOBAL_CONTEXT_LIMIT)]
                         # reversed_history = history[::-1]  # Reverse the history list
                         # TODO: test embedding this as a properly separated series of messages in the api instead of
-                        #  dumping it all as a single block in a one 'user content' field. Should differentiate agent messages and properly attribute them as such (openAI specific feature?)
+                        #  dumping it all as a single block in a one 'user content' field. Should differentiate agent
+                        #  messages and properly attribute them as such (openAI specific feature?)
                         # context = " \n".join(reversed_history[:-1])
 
                         # TODO: set a timeout or better yet a way to detect errors and report that
                         # Change discord status to 'streaming <persona>...'
-                        # Discord doesn't let you do a whole lot with bot custom statuses
                         activity = discord.Activity(
                             type=discord.ActivityType.streaming,
                             name=persona_name + '...',
                             url='https://www.twitch.tv/discordmakesmedothis')
                         await client.change_presence(activity=activity)
-                        # for is typing... :
-                        # # Start a task for the long operation
-                        # long_operation_task = asyncio.create_task(do_long_operation())
-                        #
-                        # while not long_operation_task.done():
-                        #     async with channel.typing():
-                        #         # Wait for a bit before sending the next 'is typing...' status
-                        #         await asyncio.sleep(5)
 
                 if not ONLINE:
                     # local chat log for context

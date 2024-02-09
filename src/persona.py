@@ -11,6 +11,7 @@ class Persona:
         self.response_token_limit = token_limit
         self.model = None
         self.last_json = 'none yet'
+        self.conversation_mode = False
         # self.last_response = 'none yet'
 
         self.set_model(model_name)
@@ -56,6 +57,9 @@ class Persona:
     def get_model_name(self):
         return self.model.model_name
 
+    def set_conversation_mode(self, conversation_mode):
+        self.conversation_mode = conversation_mode
+
     def generate_response(self, message, context):
         if DEBUG:
             print('Querying response as ' + self.persona_name + '...')
@@ -68,4 +72,10 @@ class Persona:
         #  token_limit = self.response_token_limit
         response = self.model.generate_response(self.prompt, message, context)
         self.last_json = self.model.get_raw_json_request()
+
+        # conversation mode
+        if self.conversation_mode and self.context_length < GLOBAL_CONTEXT_LIMIT:
+            self.context_length += 2
+
         return response
+

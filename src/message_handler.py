@@ -5,7 +5,7 @@ import utils
 from global_config import *
 from src.utils import break_and_recombine_string
 
-
+# TODO: make use of the class structure instead of passing everything into a million static functions
 class BotLogic:
     def __init__(self, chat_system):
         self.chat_system = chat_system
@@ -18,6 +18,8 @@ class BotLogic:
             'delete': self._handle_delete,
             'what': self._handle_what,
             'set': self._handle_set,
+            'hello': self._handle_start_conversation,
+            'goodbye': self._handle_start_conversation,
             'dump_last': self._handle_dump_last,
             # Add additional commands as needed
         }
@@ -41,15 +43,17 @@ class BotLogic:
                    "Talk to a specific persona by starting your message with their name. \n \n" \
                    "Currently active personas: \n" + \
                    ', '.join(self.chat_system.personas.keys()) + "\n" \
-                                                     "Bot commands: \n" \
-                                                     "remember <+prompt>, \n" \
-                                                     "what prompt/model/personas/context/tokens, \n" \
-                                                     "set prompt/model/context/tokens, \n" \
-                                                     "add <persona>, \n" \
-                                                     "delete <persona>, \n" \
-                                                     "save, \n" \
-                                                     "update_models, \n" \
-                                                     "dump_last"
+                                                                 "Bot commands: \n" \
+                                                                 "hello (start new conversation), \n" \
+                                                                 "goodbye (end conversation), \n" \
+                                                                 "remember <+prompt>, \n" \
+                                                                 "what prompt/model/personas/context/tokens, \n" \
+                                                                 "set prompt/model/context/tokens, \n" \
+                                                                 "add <persona>, \n" \
+                                                                 "delete <persona>, \n" \
+                                                                 "save, \n" \
+                                                                 "update_models, \n" \
+                                                                 "dump_last"
         return help_msg
 
     def _handle_remember(self, persona_name, current_persona, message, args):
@@ -142,6 +146,18 @@ class BotLogic:
             context_limit = args[1]
             current_persona.set_context_length(context_limit)
             return f"Set context_limit for {persona_name}, now reading '{context_limit}' previous messages."
+
+    def _handle_start_conversation(self, persona_name, current_persona, message, args):
+        # Set context to 0, increment by 1 each message received
+        current_persona.set_context_length(0)
+        current_persona.set_conversation_mode(True)
+        return f"{persona_name}: Hello! Starting new conversation..."
+
+    def _handle_stop_conversation(self, persona_name, current_persona, message, args):
+        # Set context to 0, increment by 1 each message received
+        current_persona.set_context_length(DEFAULT_CONTEXT_LIMIT)
+        current_persona.set_conversation_mode(True)
+        return f"{persona_name}: Goodbye! Resetting context length to {GLOBAL_CONTEXT_LIMIT} previous messages..."
 
     @staticmethod
     def _handle_dump_last(persona_name, current_persona, message, args):
