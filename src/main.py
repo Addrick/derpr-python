@@ -1,13 +1,15 @@
 import asyncio
 import datetime
 import sys
-
 import discord
 
-from src import fake_discord, global_config
-from stuff import api_keys
-from chat_system import *
-from global_config import *
+from src import fake_discord
+from src.chat_system import ChatSystem
+from src.persona import *
+from src.utils import *
+from src.global_config import *
+from src.utils import break_and_recombine_string
+from src.message_handler import *
 
 
 intents = discord.Intents.all()

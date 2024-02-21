@@ -1,11 +1,11 @@
 import os
 import re
 
-from persona import *
-import utils
-from global_config import *
+from src.persona import *
+from src.utils import *
+from src.global_config import *
 from src.utils import break_and_recombine_string
-import message_handler
+from src.message_handler import *
 
 
 # ChatSystem
@@ -13,8 +13,8 @@ import message_handler
 class ChatSystem:
     def __init__(self):
         self.personas = {}
-        self.models_available = utils.get_model_list()
-        self.bot_logic = message_handler.BotLogic(self)  # Pass the instance of ChatSystem to BotLogic
+        self.models_available = get_model_list()
+        self.bot_logic = BotLogic(self)  # Pass the instance of ChatSystem to BotLogic
 
     def load_personas_from_file(self, file_path):
         if not os.path.exists(file_path):

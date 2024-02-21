@@ -1,7 +1,8 @@
 from openai import OpenAI
 
-import engine
-from src import global_config
+from src.persona import *
+import src.global_config
+from src.message_handler import *
 from stuff import api_keys
 
 
@@ -16,10 +17,10 @@ def get_model_list(update=False):
                                 'Local': ['local']
                                 }
         print(all_available_models)
-        global_config.MODELS_AVAILABLE = all_available_models
+        src.global_config.MODELS_AVAILABLE = all_available_models
         return all_available_models
     else:
-        return global_config.MODELS_AVAILABLE
+        return src.global_config.MODELS_AVAILABLE
 
 
 # OpenAI
@@ -33,7 +34,7 @@ def refresh_available_openai_models():
         if 'gpt-3' in model['id'] or 'gpt-4' in model['id']:
             trimmed_list.append(model['id'])
 
-    if global_config.DEBUG:
+    if src.global_config.DEBUG:
         print(trimmed_list)
     # all_available_models['From OpenAI'] = trimmed_list
     return trimmed_list

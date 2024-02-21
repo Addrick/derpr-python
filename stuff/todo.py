@@ -3,6 +3,7 @@
 #dump: remake 'testr test' to just find 'test' in chat as a solo word/message and convert testr to something bettr
 
 # Maybe Features:
+# TODO: create new TODOs via chat interface
 # TODO: Better persona management:
 # change settings for all personas
 # better save format?

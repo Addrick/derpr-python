@@ -9,7 +9,7 @@ from openai import OpenAI
 import google.generativeai as palm
 import inspect
 import sys
-from global_config import *
+from src.global_config import *
 
 
 class TextEngine:
