@@ -3,7 +3,7 @@ import datetime
 import sys
 import discord
 
-from src import fake_discord
+from src import fake_discord, global_config
 from src.chat_system import ChatSystem
 from src.persona import *
 from src.utils import *

@@ -3,6 +3,7 @@ import re
 from src.persona import *
 from src.global_config import *
 from src.utils import *
+from src.utils import break_and_recombine_string
 
 
 class BotLogic:
