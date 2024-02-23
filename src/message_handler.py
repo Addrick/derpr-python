@@ -75,15 +75,15 @@ class BotLogic:
                                      DEFAULT_MODEL_NAME,
                                      prompt,
                                      context_limit=DEFAULT_CONTEXT_LIMIT,
-                                     token_limit=1024)
-        response = f"added '{new_persona_name}' with prompt: '{prompt}"
-        self.chat_system.save_personas_to_file()
+                                     token_limit=1024,
+                                     save_new=True)
+        response = f"added '{new_persona_name}' with prompt: '{prompt}'"
         return response
 
     def _handle_delete(self):
         persona_to_delete = self.args[0]  # handle case where persona does not exist
         self.chat_system.delete_persona(persona_to_delete, save=True)
-        response = self.persona_name + " has been deleted."
+        response = persona_to_delete + " has been deleted."
         return response
 
     def _handle_what(self):
@@ -178,6 +178,6 @@ class BotLogic:
 
     @staticmethod
     def _handle_update_models():
-        utils.get_model_list(update=True)
+        get_model_list(update=True)
         response = 'updated models'
         return response

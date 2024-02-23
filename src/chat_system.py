@@ -1,6 +1,7 @@
 import os
 import re
 
+from src import utils
 from src.persona import *
 from src.utils import *
 from src.global_config import *
@@ -12,9 +13,14 @@ from src.message_handler import *
 # Maintains personas, queries the engine system for responses, executes dev commands
 class ChatSystem:
     def __init__(self):
+        self.persona_save_file = PERSONA_SAVE_FILE
         self.personas = {}
         self.models_available = get_model_list()
         self.bot_logic = BotLogic(self)  # Pass the instance of ChatSystem to BotLogic
+
+    def set_persona_save_file(self, new_path):
+        self.persona_save_file = new_path
+        print('persona save file location updated to ' + new_path)
 
     def load_personas_from_file(self, file_path):
         if not os.path.exists(file_path):
@@ -42,16 +48,16 @@ class ChatSystem:
         self.personas[name] = persona
         # add to persona bank file
         if save_new:
-            self.save_personas_to_file(PERSONA_SAVE_FILE)
+            self.save_personas_to_file()
 
     def delete_persona(self, name, save=False):
         del self.personas[name]
         if save:
-            self.save_personas_to_file(PERSONA_SAVE_FILE)
+            self.save_personas_to_file()
 
-    def save_personas_to_file(self, file_path=PERSONA_SAVE_FILE):
+    def save_personas_to_file(self):
         persona_dict = self.to_dict()
-        with open(file_path, "w") as file:
+        with open(self.persona_save_file, "w") as file:
             file.write(json.dumps(persona_dict))
         if DEBUG:
             print(f"Updated persona save.")
@@ -72,7 +78,7 @@ class ChatSystem:
     def add_to_prompt(self, persona_name, text_to_add):
         if persona_name in self.personas:
             self.personas[persona_name].add_to_prompt(text_to_add)
-            # self.save_personas_to_file(PERSONA_SAVE_FILE)
+            # self.save_personas_to_file(self.persona_save_file)
         else:
             print(f"persona '{persona_name}' does not exist.")
 
@@ -98,8 +104,8 @@ class ChatSystem:
                 lowest_order_items.append(value)
 
         if model_to_check in lowest_order_items:
-            if DEBUG:
-                print(f"The value '{model_to_check}' exists.")
+            # if DEBUG:
+                # print(f"The value '{model_to_check}' exists.")
             return True
         else:
             if DEBUG:

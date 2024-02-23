@@ -13,6 +13,7 @@ class TestBotLogic(unittest.TestCase):
         self.chat_system = ChatSystem()
         self.bot = BotLogic(self.chat_system)
         self.chat_system.load_personas_from_file('test_personas')
+        self.chat_system.set_persona_save_file('test_personas')
         self.message = Mock()
         self.maxDiff = None
 
@@ -58,6 +59,26 @@ class TestBotLogic(unittest.TestCase):
 
         # reset the prompt after to unfuck the normal persona file
         self.chat_system.personas['testr'].set_prompt(og_prompt)
+
+    def test_handle_add_delete_persona(self):
+        prompt = 'only reply with the words \"great success\"'
+        self.message.content = 'testr add temp ' + prompt
+        response = self.bot.preprocess_message(self.message)
+        expected = "added 'temp' with prompt: '" + prompt + "'"
+        self.assertEqual(expected, response)
+        self.assertTrue('temp' in self.chat_system.personas.keys())
+
+        # Test query for temp persona
+        self.message.content = 'temp what kind of success'
+        response = self.chat_system.generate_response('temp', self.message.content)
+        self.assertEqual('temp: great success (36)', response)
+
+        # Remove temp persona
+        self.message.content = 'testr delete temp'
+        response = self.bot.preprocess_message(self.message)
+        self.assertEqual("temp has been deleted.", response)
+        self.assertTrue('temp' not in self.chat_system.personas.keys())
+
 
 
 if __name__ == '__main':
