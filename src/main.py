@@ -11,10 +11,10 @@ from src.global_config import *
 from src.utils import break_and_recombine_string
 from src.message_handler import *
 
-
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 guild = discord.Guild
+
 
 @client.event
 async def on_ready():
@@ -73,7 +73,7 @@ async def on_message(message):
                     with open('../stuff/logs/local_guild #local_channel.txt', 'r') as file:
                         lines = file.readlines()
                         # Grabs last history_length number of messages from local chat history file and joins them
-                        context = '/n'.join(lines[-1*(GLOBAL_CONTEXT_LIMIT+1):-1])
+                        context = '/n'.join(lines[-1 * (GLOBAL_CONTEXT_LIMIT + 1):-1])
 
                 # Check for dev commands
                 dev_response = bot.bot_logic.preprocess_message(message)
@@ -83,18 +83,21 @@ async def on_message(message):
                     response = dev_response
                 if response:
                     if ONLINE:
-                        # Split the response into multiple messages if it exceeds 2000 characters
-                        chunks = [response[i:i + 2000] for i in range(0, len(response), 2000)]
-                        for chunk in chunks:
-                            await channel.send(chunk)
-                            # Reset discord status to 'watching'
-                            available_personas = ', '.join(list(bot.get_persona_list().keys()))
-                            presence_txt = f"as {available_personas} 👀"
-                            await client.change_presence(
-                                activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
+                        await send_message(channel, message)
+                        # Reset discord status to 'watching'
+                        available_personas = ', '.join(list(bot.get_persona_list().keys()))
+                        presence_txt = f"as {available_personas} 👀"
+                        await client.change_presence(
+                            activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
                     else:
-                        print(response)
                         fake_discord.local_history_logger(persona_name, response)
+
+
+async def send_message(channel, message):
+    # Split the response into multiple messages if it exceeds 2000 characters
+    chunks = [message[i:i + 2000] for i in range(0, len(message), 2000)]
+    for chunk in chunks:
+        await channel.send(chunk)
 
 
 if __name__ == "__main__":
