@@ -12,6 +12,34 @@ import sys
 from src.global_config import *
 
 
+def launch_koboldcpp():
+    import traceback
+    import subprocess
+
+    try:
+        # Launches koboldcpp with preconfigured settings file
+        command = [KOBOLDCPP_EXE, "--config", KOBOLDCPP_CONFIG]
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        while True:
+            output = process.stdout.readline()
+            if output == b'' and process.poll() is not None:
+                break
+            if output:
+                print("koboldcpp: " + output.strip().decode('utf-8'))  # Process the output as needed
+                # if output.startswith("Please connect to custom endpoint at http://localhost:5001"):
+                    # TODO: report startup status to chat
+
+
+
+        # Get the return code of the subprocess
+        return_code = process.poll()
+        print('Subprocess returned with code:', return_code)
+
+    except Exception:
+        traceback.print_exc()
+
+
 class TextEngine:
     def __init__(self, model_name='none',
                  token_limit=DEFAULT_TOKEN_LIMIT,
@@ -252,14 +280,15 @@ class TextEngine:
         ######################################
         # # hardcoded for mistral miqu-1-70b
         # <s> [INST] QUERY_1 [/INST] ANSWER_1</s> [INST] QUERY_2 [/INST] ANSWER_2</s>...
+        # TODO: settings seem to be pretty specific to particular models, using the persona attributes is not always the best result
         payload = {
             "n": 1,
             "max_context_length": 2048,
-            "max_length": 128,
+            "max_length": self.max_tokens,
             "rep_pen": 1.1,
-            "temperature": .5,
-            "top_p": 0.95,
-            "top_k": 0,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "top_k": self.top_k,
             "top_a": 0,
             "typical": 1,
             "tfs": 1,
@@ -268,7 +297,7 @@ class TextEngine:
             "sampler_order": [6, 0, 1, 3, 4, 2, 5],
             "memory": "", "min_p": 0, "presence_penalty": 0,
             "genkey": "KCPP6857", "prompt": prompt + ", now respond to this chat message: " + message,
-            "quiet": True,
+            "quiet": False,
             "stop_sequence": ["You:", "\nYou"],
             "use_default_badwordsids": False
         }
@@ -281,7 +310,7 @@ class TextEngine:
             json_data = json.loads(response)
 
             # Extract the <response> value
-            response = json_data['results'][0]['text'].split(': ')[1]
+            response = json_data['results'][0]['text'].split(': ')
 
             print(response)
             return response
@@ -289,3 +318,4 @@ class TextEngine:
             err_response = (f"An error occurred: {e}")
             print(err_response)
             return err_response
+

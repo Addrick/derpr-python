@@ -82,7 +82,8 @@ async def on_message(message):
                     #     history_length = GLOBAL_CONTEXT_LIMIT
                     with open('../stuff/logs/local_guild #local_channel.txt', 'r') as file:
                         lines = file.readlines()
-                        # Grabs last history_length number of messages from local chat history file and joins them into a string
+                        # Grabs last history_length number of messages from local chat history file and joins them
+                        # into a string
                         context = '/n'.join(lines[-1*(GLOBAL_CONTEXT_LIMIT+1):-1])
 
                 # Check for dev commands
@@ -92,9 +93,6 @@ async def on_message(message):
                     # context = 'recent chat history: \n' + context
                     response = bot.generate_response(persona_name, message.content, context)
                 else:
-                    # TODO: find better way to do this
-                    if dev_response == 'Personas saved.':
-                        bot.save_personas_to_file()
                     response = dev_response
                 if response:
                     if ONLINE:
@@ -110,7 +108,7 @@ async def on_message(message):
                                 activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
                     else:
                         print(response)
-                        #log it
+                        # log it
                         with open('../stuff/logs/local_guild #local_channel.txt', 'a', encoding='utf-8') as file:
                             current_time = datetime.datetime.now().time()
                             response = '\n' + persona_name + ': ' + str(current_time) + ' ' + response

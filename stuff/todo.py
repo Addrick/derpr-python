@@ -1,8 +1,10 @@
 # derpr todo:
 
 #dump: remake 'testr test' to just find 'test' in chat as a solo word/message and convert testr to something bettr
+# TODO: make tiny gui for easier parameter tuning
 
 # Maybe Features:
+# TODO: add multiple hyperparameter fields for personas to account for differences in models (ie openai_temp vs local_temp)
 # TODO: create new TODOs via chat interface
 # TODO: Better persona management:
 # change settings for all personas

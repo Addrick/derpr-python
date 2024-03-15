@@ -3,7 +3,7 @@ import re
 from src.persona import *
 from src.global_config import *
 from src.utils import *
-from src.utils import break_and_recombine_string
+from src.engine import *
 
 
 class BotLogic:
@@ -12,6 +12,7 @@ class BotLogic:
         self.message = None
         self.chat_system = chat_system
         self.current_persona = None
+        self.koboldcpp_thread = None
         self.command_handlers = {
             'help': self._handle_help,
             'update_models': self._handle_update_models,
@@ -24,6 +25,9 @@ class BotLogic:
             'hello': self._handle_start_conversation,
             'goodbye': self._handle_start_conversation,
             'dump_last': self._handle_dump_last,
+            'start_koboldcpp': self._handle_start_koboldcpp,
+            'stop_koboldcpp': self._handle_stop_koboldcpp,
+            'check_koboldcpp': self._handle_check_koboldcpp,
             # Add additional commands as needed
         }
 
@@ -31,8 +35,8 @@ class BotLogic:
         if DEBUG:
             print('Checking for dev commands...')
         self.message = message
-        self.args = re.split(r'[ ,]', message.content)
-        self.persona_name, command, self.args = self.args[0], self.args[1].lower(), self.args[2:]
+        self.args = re.split(r'[ ]', message.content)
+        self.persona_name, command, self.args = self.args[0].lower(), self.args[1].lower(), self.args[2:]
         self.current_persona = self.chat_system.personas.get(self.persona_name)
         handler = self.command_handlers.get(command)
         if handler:
@@ -56,6 +60,9 @@ class BotLogic:
                                                                  "delete <persona>, \n" \
                                                                  "save, \n" \
                                                                  "update_models, \n" \
+                                                                 "start_koboldcpp, \n" \
+                                                                 "stop_koboldcpp, \n" \
+                                                                 "check_koboldcpp, \n" \
                                                                  "dump_last"
         return help_msg
 
@@ -68,7 +75,7 @@ class BotLogic:
             return response
 
     def _handle_add(self):
-        new_persona_name = self.args[0]
+        new_persona_name = self.args[1]
         if len(self.args) <= 2:
             self.args.append('you are in character as ' + new_persona_name)
         prompt = ' '.join(self.args[1:])
@@ -154,6 +161,38 @@ class BotLogic:
         self.current_persona.set_context_length(0)
         self.current_persona.set_conversation_mode(True)
         return f"{self.persona_name}: Hello! Starting new conversation..."
+
+    def _handle_check_koboldcpp(self):
+        if self.koboldcpp_thread is not None:
+            return self.koboldcpp_thread.isAlive()
+
+    def _handle_stop_koboldcpp(self):
+        if self.koboldcpp_thread is not None:
+            # Stop the thread by setting a flag
+            self.koboldcpp_thread.do_run = False
+
+            # Wait for the thread to finish
+            self.koboldcpp_thread.join()
+            return "koboldcpp process stopped"
+
+    def _handle_start_koboldcpp(self):
+        # import subprocess
+        import threading
+        # Launch koboldcpp with default parameters on derpr host machine
+        # Create a new thread for launching koboldcpp
+        self.koboldcpp_thread = threading.Thread(target=launch_koboldcpp)
+
+        # Start the thread
+        self.koboldcpp_thread.start()
+
+        # Wait for the thread to complete
+        # self.koboldcpp_thread.join()
+
+        return "Starting koboldcpp..."
+        # if return_code == 0:
+        #     return("Koboldcpp started successfully.")
+        # else:
+        #     return(f"Error starting Koboldcpp: {return_code}")
 
     def _handle_stop_conversation(self):
         # Set context to 0, increment by 1 each message received

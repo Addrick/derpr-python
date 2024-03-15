@@ -1,7 +1,7 @@
 # eventually turn these into launch params or some shit
 
 DEBUG = 1
-ONLINE = 0
+ONLINE = 1
 LOG_CHAT = 1
 
 
@@ -24,4 +24,7 @@ LOCAL_CHAT_LOG = '../stuff/logs/'
 
 PERSONA_SAVE_FILE = '../stuff/personas'
 STDOUT_LOG = '../stuff/logs/stdout.txt'
+
+KOBOLDCPP_EXE = 'F:\Machine Learning\koboldcpp.exe'
+KOBOLDCPP_CONFIG = 'F:\Machine Learning\default_mistral_DPO.kcpps'
 
