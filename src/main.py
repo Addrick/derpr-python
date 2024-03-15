@@ -62,13 +62,6 @@ async def on_message(message):
                             f"{message.created_at.strftime('%Y-%m-%d, %H:%M:%S')}, {message.author.name}: {message.content}"
                             async for
                             message in channel.history(limit=global_config.GLOBAL_CONTEXT_LIMIT)]
-                        # reversed_history = history[::-1]  # Reverse the history list
-                        # TODO: test embedding this as a properly separated series of messages in the api instead of
-                        #  dumping it all as a single block in a one 'user content' field. Should differentiate agent
-                        #  messages and properly attribute them as such (openAI specific feature?)
-                        # context = " \n".join(reversed_history[:-1])
-
-                        # TODO: set a timeout or better yet a way to detect errors and report that
                         # Change discord status to 'streaming <persona>...'
                         activity = discord.Activity(
                             type=discord.ActivityType.streaming,
@@ -77,20 +70,14 @@ async def on_message(message):
                         await client.change_presence(activity=activity)
 
                 if not ONLINE:
-                    # local chat log for context
-                    # if GLOBAL_CONTEXT_LIMIT < history_length:
-                    #     history_length = GLOBAL_CONTEXT_LIMIT
                     with open('../stuff/logs/local_guild #local_channel.txt', 'r') as file:
                         lines = file.readlines()
                         # Grabs last history_length number of messages from local chat history file and joins them
-                        # into a string
                         context = '/n'.join(lines[-1*(GLOBAL_CONTEXT_LIMIT+1):-1])
 
                 # Check for dev commands
-                # dev_response = bot.preprocess_message(message)
                 dev_response = bot.bot_logic.preprocess_message(message)
                 if dev_response is None:
-                    # context = 'recent chat history: \n' + context
                     response = bot.generate_response(persona_name, message.content, context)
                 else:
                     response = dev_response
@@ -100,20 +87,14 @@ async def on_message(message):
                         chunks = [response[i:i + 2000] for i in range(0, len(response), 2000)]
                         for chunk in chunks:
                             await channel.send(chunk)
-                            print(chunk)
-
+                            # Reset discord status to 'watching'
                             available_personas = ', '.join(list(bot.get_persona_list().keys()))
                             presence_txt = f"as {available_personas} 👀"
                             await client.change_presence(
                                 activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
                     else:
                         print(response)
-                        # log it
-                        with open('../stuff/logs/local_guild #local_channel.txt', 'a', encoding='utf-8') as file:
-                            current_time = datetime.datetime.now().time()
-                            response = '\n' + persona_name + ': ' + str(current_time) + ' ' + response
-
-                            file.write(response)
+                        fake_discord.local_history_logger(persona_name, response)
 
 
 if __name__ == "__main__":

@@ -33,3 +33,10 @@ class Client:
         self.id = name
         self.user = User(name=name)
 
+def local_history_logger(persona_name, response):
+    import datetime
+    with open('../stuff/logs/local_guild #local_channel.txt', 'a', encoding='utf-8') as file:
+        current_time = datetime.datetime.now().time()
+        response = '\n' + persona_name + ': ' + str(current_time) + ' ' + response
+
+        file.write(response)

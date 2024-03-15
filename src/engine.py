@@ -28,9 +28,7 @@ def launch_koboldcpp():
             if output:
                 print("koboldcpp: " + output.strip().decode('utf-8'))  # Process the output as needed
                 # if output.startswith("Please connect to custom endpoint at http://localhost:5001"):
-                    # TODO: report startup status to chat
-
-
+                # TODO: report startup status to chat
 
         # Get the return code of the subprocess
         return_code = process.poll()
@@ -304,7 +302,8 @@ class TextEngine:
         try:
             raw_response = requests.post(url, json=payload)
             raw_response.raise_for_status()  # Raise an exception for non-2xx status codes
-            response = raw_response.text.replace('{"results": [{"text": "\nresponse:', '{"results": [{"text": "\\nresponse:')
+            response = raw_response.text.replace('{"results": [{"text": "\nresponse:',
+                                                 '{"results": [{"text": "\\nresponse:')
 
             # Parse the string as JSON
             json_data = json.loads(response)
@@ -318,4 +317,3 @@ class TextEngine:
             err_response = (f"An error occurred: {e}")
             print(err_response)
             return err_response
-
