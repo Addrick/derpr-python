@@ -82,13 +82,17 @@ class ChatSystem:
         else:
             print(f"persona '{persona_name}' does not exist.")
 
-    def generate_response(self, persona_name, message, context=''):
+    async def generate_response(self, persona_name, message, channel, context=''):
         if persona_name in self.personas:
             persona = self.personas[persona_name]
-            reply = persona.generate_response(message, context)
+            reply = await persona.generate_response(message, context)
             if persona_name != 'derpr':
                 reply = f"{persona_name}: {reply}"
-            return reply
+            # return reply
+            # Split the response into multiple messages if it exceeds 2000 characters
+            chunks = [reply[i:i + 2000] for i in range(0, len(message), 2000)]
+            for chunk in chunks:
+                await channel.send(chunk)
         else:
             print(f"persona '{persona_name}' does not exist.")
 

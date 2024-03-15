@@ -10,7 +10,8 @@ import google.generativeai as palm
 import inspect
 import sys
 from src.global_config import *
-
+import aiohttp
+import json
 
 def launch_koboldcpp():
     import traceback
@@ -82,7 +83,7 @@ class TextEngine:
             return False
 
     # Generates response based on model_name
-    def generate_response(self, prompt, message, context):
+    async def generate_response(self, prompt, message, context):
         # route specific API and model to use based on model_name
         # if model_name matches models found in various APIs
         if self.model_name in self.openai_models_available:
@@ -90,17 +91,17 @@ class TextEngine:
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": context},  # TODO: try iterating this for 1 msg/context block
                 {"role": "user", "content": message}]
-            response = self._generate_openai_response(messages)
+            # response = self._generate_openai_response(messages)
+            response = await self._generate_openai_response_stream(messages)
             # loop = asyncio.get_event_loop()
             # response = loop.run_until_complete(self._generate_openai_response_stream(messages))
 
-
         # TODO: test (finish?) Google model query
         elif self.model_name in self.google_models_available:
-            response = self._generate_google_response(prompt, message, context)
+            response = await self._generate_google_response(prompt, message, context)
 
         elif self.model_name == 'local':
-            response = self._generate_local_response(prompt, message, context)
+            response = await self._generate_local_response(prompt, message, context)
 
         else:
             print("Error: persona's model name not found.")
@@ -149,52 +150,42 @@ class TextEngine:
 
         return response + token_count
 
-    # async def _generate_openai_response_stream(self, messages):
-    #     from openai import AsyncOpenAI
-    #     client = AsyncOpenAI()
-    #     response = 'Error: empty/no completion.'
-    #     if self.model_name not in self.openai_models_available:
-    #         print("Error: model name not found in available OpenAI models.")
-    #         return "Error: model name not found in available OpenAI models."
-    #     else:
-    #         try:
-    #             completion = openai.ChatCompletion.create(
-    #                 api_key=api_keys.openai,
-    #                 messages=messages,
-    #                 model=self.model_name,
-    #                 temperature=self.temperature,
-    #                 max_tokens=self.max_tokens,
-    #                 top_p=self.top_p,
-    #                 frequency_penalty=self.frequency_penalty,
-    #                 presence_penalty=self.presence_penalty,
-    #                 stream=True,
-    #             )
-    #             self.json_request = {
-    #                 "model": self.model_name,
-    #                 "messages": messages,
-    #                 "options": {
-    #                     "temperature": self.temperature,
-    #                     "max_tokens": self.max_tokens,
-    #                     "top_p": self.top_p,
-    #                     "frequency_penalty": self.frequency_penalty,
-    #                     "presence_penalty": self.presence_penalty
-    #                 },
-    #                 "object": "chat.completion",
-    #                 "id": self.model_name,
-    #                 "stream": False
-    #             }
-    #             self.json_response = completion
-    #
-    #         except openai.error.APIError as e:
-    #             return e.http_status + ": \n" + e.user_message
-    #
-    #         except openai.error.APIConnectionError as e:
-    #             return e.user_message
-    #
-    #     responses = []
-    #     async for message in completion:
-    #         responses.append(message['choices'][0]['message']['content'])
-    #     return responses
+    async def _generate_openai_response_stream(self, messages):
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=api_keys.openai)  # TODO: put this somewhere better, may be a memory leak
+        if self.model_name not in self.openai_models_available:
+            print("Error: model name not found in available OpenAI models.")
+            return "Error: model name not found in available OpenAI models."
+        else:
+            completion = await client.chat.completions.create(
+                # api_key=api_keys.openai,
+                messages=messages,
+                model=self.model_name,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                top_p=self.top_p,
+                frequency_penalty=self.frequency_penalty,
+                presence_penalty=self.presence_penalty,
+                # stream=True,
+            )
+            self.json_request = {
+                "model": self.model_name,
+                "messages": messages,
+                "options": {
+                    "temperature": self.temperature,
+                    "max_tokens": self.max_tokens,
+                    "top_p": self.top_p,
+                    "frequency_penalty": self.frequency_penalty,
+                    "presence_penalty": self.presence_penalty
+                },
+                "object": "chat.completion",
+                "id": self.model_name,
+                "stream": False
+            }
+            self.json_response = completion
+            # print(completion.choices[0].message.content)
+
+        return completion.choices[0].message.content
 
     def _generate_google_response(self, prompt, message, context=[], examples=[]):
         palm.configure(api_key=api_keys.google)
@@ -253,32 +244,11 @@ class TextEngine:
 
         # TODO: test me
 
-    def _generate_local_response(self, prompt, message, context=[]):
-        import requests
 
+
+    async def _generate_local_response(self, prompt, message, context=[]):
         url = 'http://localhost:5001/api/v1/generate'
-        # TODO: experiment with prompting structures
-        # hardcoded for mistral 8x7b, the settings below actually just seems to do that thing where the LLM dumps its training data
-        # <s> [INST] Instruction [/INST] Model answer</s> [INST] Follow-up instruction [/INST]
-        # payload = {
-        #     "prompt": prompt + ", now respond to this chat message and history: " + message,
-        #     "temperature": 0.5,
-        #     "top_p": self.top_p,
-        #     "max_context_length": 10,
-        #     "max_length": self.max_tokens,
-        #     "quiet": False,
-        #     "rep_pen": 1.1,
-        #     "rep_pen_range": 256,
-        #     "rep_pen_slope": 1,
-        #     "tfs": 1,
-        #     "top_a": 0,
-        #     "top_k": self.top_k,
-        #     "typical": 1
-        # }
-        ######################################
-        # # hardcoded for mistral miqu-1-70b
-        # <s> [INST] QUERY_1 [/INST] ANSWER_1</s> [INST] QUERY_2 [/INST] ANSWER_2</s>...
-        # TODO: settings seem to be pretty specific to particular models, using the persona attributes is not always the best result
+
         payload = {
             "n": 1,
             "max_context_length": 2048,
@@ -293,27 +263,28 @@ class TextEngine:
             "rep_pen_range": 300,
             "rep_pen_slope": 0.7,
             "sampler_order": [6, 0, 1, 3, 4, 2, 5],
-            "memory": "", "min_p": 0, "presence_penalty": 0,
-            "genkey": "KCPP6857", "prompt": prompt + ", now respond to this chat message: " + message,
+            "memory": "",
+            "min_p": 0,
+            "presence_penalty": 0,
+            "genkey": "KCPP6857",
+            "prompt": prompt + ", now respond to this chat message: " + message,
             "quiet": False,
             "stop_sequence": ["You:", "\nYou"],
             "use_default_badwordsids": False
         }
+
         try:
-            raw_response = requests.post(url, json=payload)
-            raw_response.raise_for_status()  # Raise an exception for non-2xx status codes
-            response = raw_response.text.replace('{"results": [{"text": "\nresponse:',
-                                                 '{"results": [{"text": "\\nresponse:')
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload) as response:
+                    response_data = await response.text()
+                    response_data = response_data.replace('{"results": [{"text": "\nresponse:',
+                                                          '{"results": [{"text": "\\nresponse:')
+                    json_data = json.loads(response_data)
+                    response_text = json_data['results'][0]['text'].split(': ')
 
-            # Parse the string as JSON
-            json_data = json.loads(response)
-
-            # Extract the <response> value
-            response = json_data['results'][0]['text'].split(': ')
-
-            print(response)
-            return response
-        except requests.exceptions.RequestException as e:
-            err_response = (f"An error occurred: {e}")
+                    print(response_text)
+                    return response_text
+        except aiohttp.ClientError as e:
+            err_response = f"An error occurred: {e}"
             print(err_response)
             return err_response

@@ -10,10 +10,38 @@ from src.utils import *
 from src.global_config import *
 from src.utils import break_and_recombine_string
 from src.message_handler import *
+from discord.ext import commands
 
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 guild = discord.Guild
+# client = commands.Bot(intents=intents, )
+
+#  3/15 summary:
+# IT FUCKIN WORKS
+# WAIT I think it works with openai stuff
+#  i don't fuckin know how to do this, it seems like it should be easy. asyncio is enabled all the way down but
+#  generating a response seems to prevent another on_message from launching.
+#  it is working with async calls and using openaiasync, though it throws giant errors when operations take a long time
+####
+#  there is this discord.ext thing that seems to add extra complexity to what you can do
+#  not sure how it get it to help in any way (yet?)
+# https://stackoverflow.com/questions/50165120/why-doesnt-multiple-on-message-events-work
+# https://discordpy.readthedocs.io/en/latest/ext/commands/cogs.html
+####
+#  Create new events? maybe multiple events can run in parallel (big if true)
+
+###
+# class CogName(commands.Cog):
+#
+#     def __init__(self, bot):
+#         self.bot = bot # now you'll use self.bot instead of just bot when referring to the bot in the code
+#
+#     # this is how you register events, instead of using @bot.event
+#     @commands.Cog.listener()
+#     async def on_message(self, message):
+#         # some code
+#         print('here')
 
 
 @client.event
@@ -78,12 +106,14 @@ async def on_message(message):
                 # Check for dev commands
                 dev_response = bot.bot_logic.preprocess_message(message)
                 if dev_response is None:
-                    response = bot.generate_response(persona_name, message.content, context)
+                    # thread = threading.Thread(target=bot.generate_response(persona_name, message.content, channel, context), args=(message,))
+                    # thread.start()
+                    response = client.loop.create_task(bot.generate_response(persona_name, message.content, channel, context))
                 else:
                     response = dev_response
-                if response:
+                if response:  # TODO:fix
                     if ONLINE:
-                        await send_message(channel, message)
+                        # await send_message(channel, message)
                         # Reset discord status to 'watching'
                         available_personas = ', '.join(list(bot.get_persona_list().keys()))
                         presence_txt = f"as {available_personas} 👀"
@@ -91,6 +121,11 @@ async def on_message(message):
                             activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
                     else:
                         fake_discord.local_history_logger(persona_name, response)
+
+# TODO: seems that this is part of some kind of extension to discord.py called discord.ext.commands
+# @client.listen()
+# async def on_message(msg):
+#     print('ok it went')
 
 
 async def send_message(channel, message):
