@@ -1,9 +1,8 @@
-from openai import OpenAI
+from stuff import api_keys
 
-from src.persona import *
 import src.global_config
 from src.message_handler import *
-from stuff import api_keys
+from src.persona import *
 
 
 # get_model_list(update=False): If the update parameter is set to True, the function queries the API to update

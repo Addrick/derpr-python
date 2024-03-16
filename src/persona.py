@@ -1,9 +1,6 @@
-import json
-
-from src import engine
-from src.utils import *
-from src.global_config import *
 from src.message_handler import *
+from src.utils import *
+
 
 # TODO: dump_last needs to be handled here as the last request is now persona-specific (right?)
 class Persona:

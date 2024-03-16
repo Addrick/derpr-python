@@ -1,9 +1,5 @@
-import os
-import re
-from src.persona import *
-from src.global_config import *
-from src.utils import *
 from src.engine import *
+from src.persona import *
 
 
 class BotLogic:
@@ -163,10 +159,12 @@ class BotLogic:
         return f"{self.persona_name}: Hello! Starting new conversation..."
 
     def _handle_check_koboldcpp(self):
+        logging.info('checking if koboldcpp is running...')
         if self.koboldcpp_thread is not None:
             return self.koboldcpp_thread.isAlive()
 
     def _handle_stop_koboldcpp(self):
+        logging.info('attempting to stop koboldcpp...')
         if self.koboldcpp_thread is not None:
             # Stop the thread by setting a flag
             self.koboldcpp_thread.do_run = False
@@ -176,7 +174,6 @@ class BotLogic:
             return "koboldcpp process stopped"
 
     def _handle_start_koboldcpp(self):
-        # import subprocess
         import threading
         # Launch koboldcpp with default parameters on derpr host machine
         # Create a new thread for launching koboldcpp
@@ -184,15 +181,10 @@ class BotLogic:
 
         # Start the thread
         self.koboldcpp_thread.start()
-
         # Wait for the thread to complete
         # self.koboldcpp_thread.join()
 
         return "Starting koboldcpp..."
-        # if return_code == 0:
-        #     return("Koboldcpp started successfully.")
-        # else:
-        #     return(f"Error starting Koboldcpp: {return_code}")
 
     def _handle_stop_conversation(self):
         # Set context to 0, increment by 1 each message received
@@ -207,6 +199,7 @@ class BotLogic:
         last_request = json.dumps(raw_json_response, indent=2, ensure_ascii=False, separators=(',', ':')).replace(
             "```", "").replace('\\n', '\n').replace('\\"', '\"')
         if len(last_request) + 6 > 2000:
+            from src.utils import break_and_recombine_string
             formatted_string = break_and_recombine_string(last_request, 1993, '```')
             return f"{formatted_string}"
         return f"``` {last_request} ```"
@@ -218,6 +211,7 @@ class BotLogic:
 
     @staticmethod
     def _handle_update_models():
+        from src.utils import get_model_list
         get_model_list(update=True)
         response = 'updated models'
         return response

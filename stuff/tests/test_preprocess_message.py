@@ -78,6 +78,3 @@ class TestBotLogic(unittest.TestCase):
         self.assertTrue('temp' not in self.chat_system.personas.keys())
 
 
-
-if __name__ == '__main':
-    unittest.main()

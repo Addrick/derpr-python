@@ -1,47 +1,16 @@
 import asyncio
 import datetime
-import sys
-import discord
+import logging
+import os
 
+import discord
 from src import fake_discord, global_config
 from src.chat_system import ChatSystem
-from src.persona import *
-from src.utils import *
-from src.global_config import *
-from src.utils import break_and_recombine_string
 from src.message_handler import *
-from discord.ext import commands
 
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 guild = discord.Guild
-# client = commands.Bot(intents=intents, )
-
-#  3/15 summary:
-# IT FUCKIN WORKS
-# WAIT I think it works with openai stuff
-#  i don't fuckin know how to do this, it seems like it should be easy. asyncio is enabled all the way down but
-#  generating a response seems to prevent another on_message from launching.
-#  it is working with async calls and using openaiasync, though it throws giant errors when operations take a long time
-####
-#  there is this discord.ext thing that seems to add extra complexity to what you can do
-#  not sure how it get it to help in any way (yet?)
-# https://stackoverflow.com/questions/50165120/why-doesnt-multiple-on-message-events-work
-# https://discordpy.readthedocs.io/en/latest/ext/commands/cogs.html
-####
-#  Create new events? maybe multiple events can run in parallel (big if true)
-
-###
-# class CogName(commands.Cog):
-#
-#     def __init__(self, bot):
-#         self.bot = bot # now you'll use self.bot instead of just bot when referring to the bot in the code
-#
-#     # this is how you register events, instead of using @bot.event
-#     @commands.Cog.listener()
-#     async def on_message(self, message):
-#         # some code
-#         print('here')
 
 
 @client.event
@@ -51,6 +20,7 @@ async def on_ready():
     presence_txt = f"as {available_personas} 👀"
     await client.change_presence(
         activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 @client.event
@@ -87,9 +57,9 @@ async def on_message(message):
                         # Gather context (message history) from discord
                         channel = client.get_channel(message.channel.id)
                         context = [
-                            f"{message.created_at.strftime('%Y-%m-%d, %H:%M:%S')}, {message.author.name}: {message.content}"
+                            f"{msg.created_at.strftime('%Y-%m-%d, %H:%M:%S')}, {msg.author.name}: {msg.content}"
                             async for
-                            message in channel.history(limit=global_config.GLOBAL_CONTEXT_LIMIT)]
+                            msg in channel.history(limit=global_config.GLOBAL_CONTEXT_LIMIT)]
                         # Change discord status to 'streaming <persona>...'
                         activity = discord.Activity(
                             type=discord.ActivityType.streaming,
@@ -128,9 +98,9 @@ async def on_message(message):
 #     print('ok it went')
 
 
-async def send_message(channel, message):
+async def send_message(channel, msg):
     # Split the response into multiple messages if it exceeds 2000 characters
-    chunks = [message[i:i + 2000] for i in range(0, len(message), 2000)]
+    chunks = [msg[i:i + 2000] for i in range(0, len(msg), 2000)]
     for chunk in chunks:
         await channel.send(chunk)
 
