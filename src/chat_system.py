@@ -1,4 +1,5 @@
 import os
+import logging
 
 from src.message_handler import *
 from src.persona import *
@@ -16,11 +17,11 @@ class ChatSystem:
 
     def set_persona_save_file(self, new_path):
         self.persona_save_file = new_path
-        print('persona save file location updated to ' + new_path)
+        logging.info('persona save file location updated to ' + new_path)
 
     def load_personas_from_file(self, file_path):
         if not os.path.exists(file_path):
-            print(f"File '{file_path}' does not exist.")
+            logging.info(f"File '{file_path}' does not exist.")
             return
         with open(file_path, "r") as file:
             persona_data = json.load(file)
@@ -33,7 +34,7 @@ class ChatSystem:
                     token_limit = persona["token_limit"]
                     self.add_persona(name, model_name, prompt, context_limit, token_limit, save_new=False)
                 except json.JSONDecodeError as e:
-                    print(f"Error decoding JSON file '{file_path}': {str(e)}")
+                    logging.info(f"Error decoding JSON file '{file_path}': {str(e)}")
                     return
 
     def get_persona_list(self):
@@ -55,8 +56,7 @@ class ChatSystem:
         persona_dict = self.to_dict()
         with open(self.persona_save_file, "w") as file:
             file.write(json.dumps(persona_dict))
-        if DEBUG:
-            print(f"Updated persona save.")
+        logging.info(f"Updated persona save.")
 
     def to_dict(self):
         persona_dict = {'personas': []}
@@ -74,9 +74,8 @@ class ChatSystem:
     def add_to_prompt(self, persona_name, text_to_add):
         if persona_name in self.personas:
             self.personas[persona_name].add_to_prompt(text_to_add)
-            # self.save_personas_to_file(self.persona_save_file)
         else:
-            print(f"persona '{persona_name}' does not exist.")
+            logging.info(f"persona '{persona_name}' does not exist.")
 
     async def generate_response(self, persona_name, message, channel, context=''):
         if persona_name in self.personas:
@@ -84,18 +83,17 @@ class ChatSystem:
             reply = await persona.generate_response(message, context)
             if persona_name != 'derpr':
                 reply = f"{persona_name}: {reply}"
-            # return reply
+
             if channel is not None:
                 # Split the response into multiple messages if it exceeds 2000 characters
                 chunks = [reply[i:i + 2000] for i in range(0, len(message), 2000)]
                 for chunk in chunks:
                     await channel.send(chunk)
         else:
-            print(f"persona '{persona_name}' does not exist.")
+            logging.info(f"persona '{persona_name}' does not exist.")
 
     def check_models_available(self):
-        self.models_available = utils.get_model_list()
-
+        self.models_available = get_model_list()
 
     def check_model_available(self, model_to_check):
         lowest_order_items = []
@@ -106,11 +104,7 @@ class ChatSystem:
                 lowest_order_items.append(value)
 
         if model_to_check in lowest_order_items:
-            # if DEBUG:
-                # print(f"The value '{model_to_check}' exists.")
             return True
         else:
-            if DEBUG:
-                print(f"The value '{model_to_check}' is not found.")
+            logging.info(f"The value '{model_to_check}' is not found.")
             return False
-

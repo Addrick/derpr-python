@@ -1,3 +1,4 @@
+import logging
 import re
 
 from src.engine import *
@@ -30,17 +31,18 @@ class BotLogic:
         }
 
     def preprocess_message(self, message):
-        if DEBUG:
-            print('Checking for dev commands...')
+        logging.debug('Checking for dev commands...')
         self.message = message
         self.args = re.split(r'[ ]', message.content)
+        # try:
         self.persona_name, command, self.args = self.args[0].lower(), self.args[1].lower(), self.args[2:]
+        # except IndexError as e:
+        #     self.persona_name, command = self.args[0].lower(), self.args[1].lower()
         self.current_persona = self.chat_system.personas.get(self.persona_name)
         handler = self.command_handlers.get(command)
         if handler:
             return handler()
-        if DEBUG:
-            print("No commands found.")
+        logging.debug("No commands found.")
         return None
 
     def _handle_help(self):
@@ -87,7 +89,7 @@ class BotLogic:
         return response
 
     def _handle_delete(self):
-        persona_to_delete = self.args[0]  # handle case where persona does not exist
+        persona_to_delete = self.args[0]
         self.chat_system.delete_persona(persona_to_delete, save=True)
         response = persona_to_delete + " has been deleted."
         return response
@@ -124,16 +126,15 @@ class BotLogic:
         if self.args[0] == 'prompt':
             prompt = ' '.join(self.args[1:])
             self.current_persona.set_prompt(prompt)
-            print(f"Prompt set for '{self.persona_name}'.")
-            print(f"Updated save for '{self.persona_name}'.")
+            logging.info(f"Prompt set for '{self.persona_name}'.")
+            logging.info(f"Updated save for '{self.persona_name}'.")
             self.chat_system.save_personas_to_file()
-            response = 'Personas saved.'  # flag to save once back in main.py
+            response = 'Personas saved.'
             return response
-        # sets prompt to the default rude concierge derpr persona
         if self.args[0] == 'default_prompt':
             prompt = DEFAULT_PERSONA
             self.current_persona.set_prompt(prompt)
-            print(f"Prompt set for '{self.persona_name}'.")
+            logging.info(f"Prompt set for '{self.persona_name}'.")
             self.chat_system.save_personas_to_file()
             message = DEFAULT_WELCOME_REQUEST
             response = self.current_persona.generate_response(self.persona_name, message)
@@ -155,7 +156,6 @@ class BotLogic:
             return f"Set context_limit for {self.persona_name}, now reading '{context_limit}' previous messages."
 
     def _handle_start_conversation(self):
-        # Set context to 0, increment by 1 each message received
         self.current_persona.set_context_length(0)
         self.current_persona.set_conversation_mode(True)
         return f"{self.persona_name}: Hello! Starting new conversation..."
@@ -168,35 +168,23 @@ class BotLogic:
     def _handle_stop_koboldcpp(self):
         logging.info('attempting to stop koboldcpp...')
         if self.koboldcpp_thread is not None:
-            # Stop the thread by setting a flag
             self.koboldcpp_thread.do_run = False
-
-            # Wait for the thread to finish
             self.koboldcpp_thread.join()
             return "koboldcpp process stopped"
 
     def _handle_start_koboldcpp(self):
         import threading
-        # Launch koboldcpp with default parameters on derpr host machine
-        # Create a new thread for launching koboldcpp
         self.koboldcpp_thread = threading.Thread(target=launch_koboldcpp)
-
-        # Start the thread
         self.koboldcpp_thread.start()
-        # Wait for the thread to complete
-        # self.koboldcpp_thread.join()
 
         return "Starting koboldcpp..."
 
     def _handle_stop_conversation(self):
-        # Set context to 0, increment by 1 each message received
         self.current_persona.set_context_length(DEFAULT_CONTEXT_LIMIT)
         self.current_persona.set_conversation_mode(True)
         return f"{self.persona_name}: Goodbye! Resetting context length to {GLOBAL_CONTEXT_LIMIT} previous messages..."
 
     def _handle_dump_last(self):
-        # TODO: send this to a special dev channel or thread rather than spam main convo
-        # also this hackjob number counting shit is bound to cause problems eventually
         raw_json_response = self.current_persona.get_last_json()
         last_request = json.dumps(raw_json_response, indent=2, ensure_ascii=False, separators=(',', ':')).replace(
             "```", "").replace('\\n', '\n').replace('\\"', '\"')
@@ -208,7 +196,7 @@ class BotLogic:
 
     def _handle_save(self):
         self.chat_system.save_personas_to_file()
-        response = 'Personas saved.'  # flag to save once back in main.py
+        response = 'Personas saved.'
         return response
 
     def _handle_update_models(self):

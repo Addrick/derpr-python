@@ -1,9 +1,11 @@
+import logging
+
 from src import engine
 from src.message_handler import *
 from src.utils import *
+from src.global_config import *
 
 
-# TODO: dump_last needs to be handled here as the last request is now persona-specific (right?)
 class Persona:
     def __init__(self, persona_name, model_name, prompt, context_limit=10, token_limit=100):
         self.persona_name = persona_name
@@ -31,7 +33,7 @@ class Persona:
             self.context_length = response_token_limit
             return True
         else:
-            print("Error: Input is not an integer.")
+            logging.error("Error: Input is not an integer.")
             return False
 
     def set_last_json(self, last_json):
@@ -62,8 +64,7 @@ class Persona:
         self.conversation_mode = conversation_mode
 
     async def generate_response(self, message, context):
-        if DEBUG:
-            print('Querying response as ' + self.persona_name + '...')
+        logging.info('Querying response as ' + self.persona_name + '...')
         context = context[1:self.context_length]
         context = context[::-1]  # Reverse the history list
         context = " \n".join(context)

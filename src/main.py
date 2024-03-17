@@ -2,11 +2,16 @@ import asyncio
 import datetime
 import logging
 import os
+import sys
 
 import discord
 from src import fake_discord, global_config
 from src.chat_system import ChatSystem
 from src.message_handler import *
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
@@ -15,20 +20,17 @@ guild = discord.Guild
 
 @client.event
 async def on_ready():
-    print('Hello {0.user} !'.format(client))
+    logger.info('Hello {0.user} !'.format(client))
     available_personas = ', '.join(list(bot.get_persona_list().keys()))
     presence_txt = f"as {available_personas} 👀"
     await client.change_presence(
         activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 @client.event
 async def on_message(message):
-    message_content = message.content
-    message_author = message.author
-    if DEBUG and ONLINE:
-        print(f'{message_author}: {message_content}')
+    if ONLINE:
+        logger.info(f'{message.author}: {message.content}')
 
     if LOG_CHAT:
         # Log chat history
@@ -40,17 +42,15 @@ async def on_message(message):
         # check message for instance of persona name
         for persona_name, persona in bot.get_persona_list().items():
             persona_mention = f"{persona_name}"
-            if DEBUG:
-                print('Checking for persona name: ' + persona_name)
-
-            # drop all to lowercase for ease of processing - should not affect llm output
-            if message_content.lower().startswith(persona_mention):
+            logger.debug('Checking for persona name: ' + persona_name)
+            if (message.content.lower().startswith(persona_mention) or
+                    message.channel.name.startswith(persona_mention)):
+                if message.channel.name.startswith(persona_mention):
+                    message.content = persona_mention + " " + message.content
                 # Send typing flag and begin message processing
                 # TODO: typing doesn't last more than like 10s
                 # Check message for dev commands
-                if DEBUG:
-                    print('Found persona name: ' + persona_name)
-
+                logger.info('Found persona name: ' + persona_name)
                 # Gather context and set status for discord
                 if ONLINE:
                     async with message.channel.typing():
@@ -92,11 +92,6 @@ async def on_message(message):
                     else:
                         fake_discord.local_history_logger(persona_name, response)
 
-# TODO: seems that this is part of some kind of extension to discord.py called discord.ext.commands
-# @client.listen()
-# async def on_message(msg):
-#     print('ok it went')
-
 
 async def send_message(channel, msg):
     # Split the response into multiple messages if it exceeds 2000 characters
@@ -108,7 +103,7 @@ async def send_message(channel, msg):
 if __name__ == "__main__":
     if not os.path.exists(CHAT_LOG_LOCATION):
         os.makedirs(CHAT_LOG_LOCATION)
-        print("Logs folder created!")
+        logger.info("Logs folder created!")
     bot = ChatSystem()
     bot.load_personas_from_file(PERSONA_SAVE_FILE)
 

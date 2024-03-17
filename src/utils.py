@@ -1,3 +1,4 @@
+import logging
 from stuff import api_keys
 
 import src.global_config
@@ -10,12 +11,12 @@ from src.persona import *
 # saved in gloabl_config
 def get_model_list(update=False):
     if update:
-        print('Updating available models from API...')
+        logging.info('Updating available models from API...')
         all_available_models = {'From OpenAI': refresh_available_openai_models(),
                                 'From Google': refresh_available_google_models(),
                                 'Local': ['local']
                                 }
-        print(all_available_models)
+        logging.info(all_available_models)
         src.global_config.MODELS_AVAILABLE = all_available_models
         return all_available_models
     else:
@@ -33,8 +34,7 @@ def refresh_available_openai_models():
         if 'gpt-3' in model['id'] or 'gpt-4' in model['id']:
             trimmed_list.append(model['id'])
 
-    if src.global_config.DEBUG:
-        print(trimmed_list)
+    logging.info(trimmed_list)
     # all_available_models['From OpenAI'] = trimmed_list
     return trimmed_list
 

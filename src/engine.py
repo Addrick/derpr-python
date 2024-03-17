@@ -1,4 +1,5 @@
 import json
+import logging
 
 import aiohttp
 import google.generativeai as palm
@@ -24,13 +25,13 @@ def launch_koboldcpp():
             if output == b'' and process.poll() is not None:
                 break
             if output:
-                print("koboldcpp: " + output.strip().decode('utf-8'))  # Process the output as needed
+                logging.info("koboldcpp: " + output.strip().decode('utf-8'))  # Process the output as needed
                 # if output.startswith("Please connect to custom endpoint at http://localhost:5001"):
                 # TODO: report startup status to chat
 
         # Get the return code of the subprocess
         return_code = process.poll()
-        print('Subprocess returned with code:', return_code)
+        logging.info('Subprocess returned with code: %s', return_code)
 
     except Exception:
         traceback.print_exc()
@@ -76,7 +77,7 @@ class TextEngine:
             self.max_tokens = new_response_token_limit
             return True
         else:
-            print("Error: Input is not an integer.")
+            logging.info("Error: Input is not an integer.")
             return False
 
     # Generates response based on model_name
@@ -101,7 +102,7 @@ class TextEngine:
             response = await self._generate_local_response(prompt, message, context)
 
         else:
-            print("Error: persona's model name not found.")
+            logging.info("Error: persona's model name not found.")
             response = "Error: persona's model name not found."
 
         return response
@@ -109,7 +110,7 @@ class TextEngine:
     def _generate_openai_response(self, messages):
         response = 'Error: empty/no completion.'
         if self.model_name not in self.openai_models_available:
-            print("Error: model name not found in available OpenAI models.")
+            logging.info("Error: model name not found in available OpenAI models.")
             return "Error: model name not found in available OpenAI models."
         else:
             try:
@@ -151,7 +152,7 @@ class TextEngine:
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=api_keys.openai)  # TODO: put this somewhere better, may be a memory leak
         if self.model_name not in self.openai_models_available:
-            print("Error: model name not found in available OpenAI models.")
+            logging.info("Error: model name not found in available OpenAI models.")
             return "Error: model name not found in available OpenAI models."
         else:
             completion = await client.chat.completions.create(
@@ -180,7 +181,7 @@ class TextEngine:
                 "stream": False
             }
             self.json_response = completion
-            # print(completion.choices[0].message.content)
+            # logging.info(completion.choices[0].message.content)
 
         return completion.choices[0].message.content
 
@@ -199,7 +200,7 @@ class TextEngine:
             'top_p': self.top_p,
         }
         completion = palm.generate_text(
-            **defaults,
+            defaults,
             model='models/text-bison-001',
             prompt=prompt,
             safety_settings=[
@@ -232,10 +233,10 @@ class TextEngine:
                     "threshold": palm.safety_types.HarmBlockThreshold.BLOCK_NONE,
                 }])
         if completion.last is None:
-            print('good job, no response from server')
-            print('filter info:')
-            print(completion.filters)
-            print(completion.last)
+            logging.info('good job, no response from server')
+            logging.info('filter info:')
+            logging.info(completion.filters)
+            logging.info(completion.last)
         self.json_response = completion
         return completion.last[0]
 
@@ -279,9 +280,9 @@ class TextEngine:
                     json_data = json.loads(response_data)
                     response_text = json_data['results'][0]['text'].split(': ')
 
-                    print(response_text)
+                    logging.info(response_text)
                     return response_text
         except aiohttp.ClientError as e:
             err_response = f"An error occurred: {e}"
-            print(err_response)
+            logging.info(err_response)
             return err_response
