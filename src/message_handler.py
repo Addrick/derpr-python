@@ -1,3 +1,5 @@
+import re
+
 from src.engine import *
 from src.persona import *
 
@@ -74,7 +76,7 @@ class BotLogic:
         new_persona_name = self.args[1]
         if len(self.args) <= 2:
             self.args.append('you are in character as ' + new_persona_name)
-        prompt = ' '.join(self.args[1:])
+        prompt = ' '.join(self.args[2:])
         self.chat_system.add_persona(new_persona_name,
                                      DEFAULT_MODEL_NAME,
                                      prompt,
@@ -209,9 +211,8 @@ class BotLogic:
         response = 'Personas saved.'  # flag to save once back in main.py
         return response
 
-    @staticmethod
-    def _handle_update_models():
+    def _handle_update_models(self):
         from src.utils import get_model_list
         get_model_list(update=True)
-        response = 'updated models'
-        return response
+        reply = f"Model names currently available: {self.chat_system.models_available}"
+        return reply

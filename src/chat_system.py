@@ -1,3 +1,5 @@
+import os
+
 from src.message_handler import *
 from src.persona import *
 from src.utils import *
@@ -83,15 +85,17 @@ class ChatSystem:
             if persona_name != 'derpr':
                 reply = f"{persona_name}: {reply}"
             # return reply
-            # Split the response into multiple messages if it exceeds 2000 characters
-            chunks = [reply[i:i + 2000] for i in range(0, len(message), 2000)]
-            for chunk in chunks:
-                await channel.send(chunk)
+            if channel is not None:
+                # Split the response into multiple messages if it exceeds 2000 characters
+                chunks = [reply[i:i + 2000] for i in range(0, len(message), 2000)]
+                for chunk in chunks:
+                    await channel.send(chunk)
         else:
             print(f"persona '{persona_name}' does not exist.")
 
     def check_models_available(self):
         self.models_available = utils.get_model_list()
+
 
     def check_model_available(self, model_to_check):
         lowest_order_items = []
@@ -109,6 +113,4 @@ class ChatSystem:
             if DEBUG:
                 print(f"The value '{model_to_check}' is not found.")
             return False
-
-
 

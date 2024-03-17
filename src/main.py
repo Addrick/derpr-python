@@ -38,7 +38,7 @@ async def on_message(message):
 
     if message.author.id is not client.user.id:
         # check message for instance of persona name
-        for persona_name, persona in bot.get_persona_list().copy().items():
+        for persona_name, persona in bot.get_persona_list().items():
             persona_mention = f"{persona_name}"
             if DEBUG:
                 print('Checking for persona name: ' + persona_name)

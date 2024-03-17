@@ -58,17 +58,17 @@ class TestBotLogic(unittest.TestCase):
         # reset the prompt after to unfuck the normal persona file
         self.chat_system.personas['testr'].set_prompt(og_prompt)
 
-    def test_handle_add_delete_persona(self):
+    async def test_handle_add_delete_persona(self):
         prompt = 'only reply with the words \"great success\"'
-        self.message.content = 'testr add temp ' + prompt
+        self.message.content = 'testr add persona temp ' + prompt
         response = self.bot.preprocess_message(self.message)
         expected = "added 'temp' with prompt: '" + prompt + "'"
         self.assertEqual(expected, response)
         self.assertTrue('temp' in self.chat_system.personas.keys())
 
-        # Test query for temp persona
+        # Test query for temp persona # TODO: make the channel a debug channel in discord
         self.message.content = 'temp what kind of success'
-        response = self.chat_system.generate_response('temp', self.message.content)
+        response = await self.chat_system.generate_response('temp', self.message.content, channel=None)
         self.assertEqual('temp: great success (36)', response)
 
         # Remove temp persona
@@ -77,4 +77,7 @@ class TestBotLogic(unittest.TestCase):
         self.assertEqual("temp has been deleted.", response)
         self.assertTrue('temp' not in self.chat_system.personas.keys())
 
+
+if __name__ == "__main__":
+    TestBotLogic()
 
