@@ -68,16 +68,11 @@ async def on_message(message):
                         await client.change_presence(activity=activity)
 
                 if not ONLINE:
-                    with open('../stuff/logs/local_guild #local_channel.txt', 'r') as file:
-                        lines = file.readlines()
-                        # Grabs last history_length number of messages from local chat history file and joins them
-                        context = '/n'.join(lines[-1 * (GLOBAL_CONTEXT_LIMIT + 1):-1])
+                    context = fake_discord.local_history_reader()
 
                 # Check for dev commands
                 dev_response = bot.bot_logic.preprocess_message(message)
                 if dev_response is None:
-                    # thread = threading.Thread(target=bot.generate_response(persona_name, message.content, channel, context), args=(message,))
-                    # thread.start()
                     response = client.loop.create_task(bot.generate_response(persona_name, message.content, channel, context))
                 else:
                     if ONLINE:
