@@ -242,7 +242,9 @@ class TextEngine:
 
         # TODO: test me
 
-    async def _generate_local_response(self, prompt, message, context=[]):
+    async def _generate_local_response(self, prompt, message, context=None):
+        if context is None:
+            context = []
         url = 'http://localhost:5001/api/v1/generate'
 
         payload = {
@@ -262,12 +264,11 @@ class TextEngine:
             "rep_pen_range": 300,
             "rep_pen_slope": 0.7,
             "sampler_order": [6, 0, 1, 3, 4, 2, 5],
-            "memory": "",
+            "memory": prompt,
             "min_p": 0,
             "presence_penalty": 0,
             "genkey": "KCPP6857",
-            "prompt": prompt + "\nhere is the recent discussion, if any: \n"
-                      + context + ", now respond to this: " + message,
+            "prompt": "\n" + context + ",\n now respond to this: \n" + message + "\n",
             "quiet": False,
             "stop_sequence": ["You:", "\nYou"],
             "use_default_badwordsids": False
@@ -283,7 +284,7 @@ class TextEngine:
                     response_text = json_data['results'][0]['text'].split(': ')
 
                     logging.info(response_text)
-                    return response_text
+                    return response_text[0]
         except aiohttp.ClientError as e:
             err_response = f"An error occurred: {e}"
             logging.info(err_response)
