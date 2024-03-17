@@ -29,7 +29,7 @@ class TestBotLogic(unittest.TestCase):
         # Check what model is current for validation
         self.message.content = 'testr what model'
         response = self.bot.preprocess_message(self.message)
-        print(response)
+        # print(response)
         self.assertTrue("gpt-3.5-turbo" in response)  # usual default
 
         # Test setting
@@ -40,7 +40,7 @@ class TestBotLogic(unittest.TestCase):
         # Test what model
         self.message.content = 'testr what model'
         response = self.bot.preprocess_message(self.message)
-        print(response)
+        # print(response)
         self.assertTrue("gpt-4" in response)
 
     def test_handle_remember(self):

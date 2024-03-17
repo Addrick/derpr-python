@@ -242,8 +242,6 @@ class TextEngine:
 
         # TODO: test me
 
-
-
     async def _generate_local_response(self, prompt, message, context=[]):
         url = 'http://localhost:5001/api/v1/generate'
 
@@ -252,12 +250,15 @@ class TextEngine:
             "max_context_length": 2048,
             "max_length": self.max_tokens,
             "rep_pen": 1.1,
-            "temperature": self.temperature,
-            "top_p": self.top_p,
-            "top_k": self.top_k,
-            "top_a": 0,
-            "typical": 1,
-            "tfs": 1,
+            "temperature": 0.44,
+            # "temperature": self.temperature,
+            "top_p": 0.5,
+            # "top_p": self.top_p,
+            "top_k": 0,
+            # "top_k": self.top_k,
+            "top_a": 0.75,
+            "typical": 0.19,
+            "tfs": 0.97,
             "rep_pen_range": 300,
             "rep_pen_slope": 0.7,
             "sampler_order": [6, 0, 1, 3, 4, 2, 5],
@@ -265,7 +266,8 @@ class TextEngine:
             "min_p": 0,
             "presence_penalty": 0,
             "genkey": "KCPP6857",
-            "prompt": prompt + ", now respond to this chat message: " + message,
+            "prompt": prompt + "\nhere is the recent discussion, if any: \n"
+                      + context + ", now respond to this: " + message,
             "quiet": False,
             "stop_sequence": ["You:", "\nYou"],
             "use_default_badwordsids": False

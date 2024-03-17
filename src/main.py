@@ -80,10 +80,8 @@ async def on_message(message):
                     # thread.start()
                     response = client.loop.create_task(bot.generate_response(persona_name, message.content, channel, context))
                 else:
-                    response = dev_response
-                if response:  # TODO:fix
                     if ONLINE:
-                        # await send_message(channel, message)
+                        await send_message(channel, dev_response)
                         # Reset discord status to 'watching'
                         available_personas = ', '.join(list(bot.get_persona_list().keys()))
                         presence_txt = f"as {available_personas} 👀"

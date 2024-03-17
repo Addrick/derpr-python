@@ -42,7 +42,7 @@ class BotLogic:
         handler = self.command_handlers.get(command)
         if handler:
             return handler()
-        logging.debug("No commands found.")
+        logging.info("No dev commands found.")
         return None
 
     def _handle_help(self):
