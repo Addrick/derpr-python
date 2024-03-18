@@ -275,7 +275,7 @@ class TextEngine:
         }
 
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=600)) as session:
                 async with session.post(url, json=payload) as response:
                     response_data = await response.text()
                     response_data = response_data.replace('{"results": [{"text": "\nresponse:',

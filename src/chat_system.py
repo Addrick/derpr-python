@@ -80,7 +80,7 @@ class ChatSystem:
     async def generate_response(self, persona_name, message, channel, bot, client, context=''):
         if persona_name in self.personas:
             persona = self.personas[persona_name]
-            async with message.channel.typing():
+            async with channel.typing():
                 reply = await persona.generate_response(message, context)
             if persona_name != 'derpr':
                 reply = f"{persona_name}: {reply}"

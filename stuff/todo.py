@@ -5,7 +5,6 @@
 # TODO: BUG super long generation times from local models cause asyncio.exceptions.TimeoutError
 
 # Maybe Features:
-# TODO: fix 'is typing...' behavior to persist longer while request is generating
 # TODO: add multiple hyperparameter fields for personas to account for differences in models (ie openai_temp vs local_temp)
 # TODO: create new TODOs via chat interface
 # TODO: Better persona management:
@@ -32,6 +31,3 @@
 # TODO: developer commands end up in message history, usually don't want this
 # TODO: all persona settings except prompt are lost UNLESS prompt is also changed. Need to add a method to all these updates to resave. Kind of like this now as I usually don't want permanent changes but still seems not ideal behavior
 # TODO(BIG): filter history/context for dev commands so they don't pollute input (check each history line with preprocess()?)
-
-# Inefficiencies:
-# saving personas rewrites entire file

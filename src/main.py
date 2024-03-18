@@ -47,8 +47,6 @@ async def on_message(message, log_chat=True):
                     message.channel.name.startswith(persona_mention)):
                 if message.channel.name.startswith(persona_mention):
                     message.content = persona_mention + " " + message.content
-                # Send typing flag and begin message processing
-                # TODO: typing doesn't last more than like 10s
                 # Check message for dev commands
                 logger.info('Found persona name: ' + persona_name)
                 # Gather context and set status for discord
@@ -66,10 +64,10 @@ async def on_message(message, log_chat=True):
                             name=persona_name + '...',
                             url='https://www.twitch.tv/discordmakesmedothis')
                         await client.change_presence(activity=activity)
-
                 else:
                     context = fake_discord.local_history_reader()
 
+                # Message processing starts
                 # Check for dev commands
                 dev_response = bot.bot_logic.preprocess_message(message)
                 if dev_response is None:
