@@ -1,6 +1,6 @@
 import os
 import logging
-
+import discord.activity
 from src.message_handler import *
 from src.persona import *
 from src.utils import *
@@ -77,10 +77,11 @@ class ChatSystem:
         else:
             logging.info(f"persona '{persona_name}' does not exist.")
 
-    async def generate_response(self, persona_name, message, channel, context=''):
+    async def generate_response(self, persona_name, message, channel, bot, client, context=''):
         if persona_name in self.personas:
             persona = self.personas[persona_name]
-            reply = await persona.generate_response(message, context)
+            async with message.channel.typing():
+                reply = await persona.generate_response(message, context)
             if persona_name != 'derpr':
                 reply = f"{persona_name}: {reply}"
 
@@ -89,6 +90,12 @@ class ChatSystem:
                 chunks = [reply[i:i + 2000] for i in range(0, len(message), 2000)]
                 for chunk in chunks:
                     await channel.send(chunk)
+
+                # Reset discord status to 'watching'
+                available_personas = ', '.join(list(bot.get_persona_list().keys()))
+                presence_txt = f"as {available_personas} 👀"
+                await client.change_presence(
+                    activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
         else:
             logging.info(f"persona '{persona_name}' does not exist.")
 

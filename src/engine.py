@@ -268,7 +268,7 @@ class TextEngine:
             "min_p": 0,
             "presence_penalty": 0,
             "genkey": "KCPP6857",
-            "prompt": "\n" + context + ",\n now respond to this: \n" + message + "\n",
+            "prompt": "" + context + ",\n now you respond: \n" + message + "\n",
             "quiet": False,
             "stop_sequence": ["You:", "\nYou"],
             "use_default_badwordsids": False

@@ -35,7 +35,7 @@ class Client:
         self.id = name
         self.user = User(name=name)
 
-def local_history_reader(persona_name, response):
+def local_history_reader():
     with open('../stuff/logs/local_guild #local_channel.txt', 'r') as file:
         lines = file.readlines()
         # Grabs last history_length number of messages from local chat history file and joins them

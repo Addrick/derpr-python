@@ -28,11 +28,11 @@ async def on_ready():
 
 
 @client.event
-async def on_message(message):
+async def on_message(message, log_chat=True):
     if ONLINE:
         logger.info(f'{message.author}: {message.content}')
 
-    if LOG_CHAT:
+    if log_chat:
         # Log chat history
         chat_log = CHAT_LOG_LOCATION + message.guild.name + " #" + message.channel.name + ".txt"
         with open(chat_log, 'a', encoding='utf-8') as file:
@@ -67,23 +67,27 @@ async def on_message(message):
                             url='https://www.twitch.tv/discordmakesmedothis')
                         await client.change_presence(activity=activity)
 
-                if not ONLINE:
+                else:
                     context = fake_discord.local_history_reader()
 
                 # Check for dev commands
                 dev_response = bot.bot_logic.preprocess_message(message)
                 if dev_response is None:
-                    response = client.loop.create_task(bot.generate_response(persona_name, message.content, channel, context))
+                    response = client.loop.create_task(bot.generate_response(persona_name, message.content, channel, bot, client, context))
                 else:
                     if ONLINE:
                         await send_message(channel, dev_response)
-                        # Reset discord status to 'watching'
-                        available_personas = ', '.join(list(bot.get_persona_list().keys()))
-                        presence_txt = f"as {available_personas} 👀"
-                        await client.change_presence(
-                            activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
+                        await reset_discord_status(bot, client)
                     else:
-                        fake_discord.local_history_logger(persona_name, response)
+                        fake_discord.local_history_logger(persona_name, dev_response)
+
+
+async def reset_discord_status(bot, client):
+    # Reset discord status to 'watching'
+    available_personas = ', '.join(list(bot.get_persona_list().keys()))
+    presence_txt = f"as {available_personas} 👀"
+    await client.change_presence(
+        activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
 
 
 async def send_message(channel, msg):
