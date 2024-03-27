@@ -32,12 +32,6 @@ async def on_message(message, log_chat=True):
     if ONLINE:
         logger.info(f'{message.author}: {message.content}')
 
-    if log_chat:
-        # Log chat history
-        chat_log = CHAT_LOG_LOCATION + message.guild.name + " #" + message.channel.name + ".txt"
-        with open(chat_log, 'a', encoding='utf-8') as file:
-            file.write(f'{message.created_at} {message.author.name}: {message.content}\n')
-
     if message.author.id is not client.user.id:
         # check message for instance of persona name
         for persona_name, persona in bot.get_persona_list().items():
@@ -71,6 +65,15 @@ async def on_message(message, log_chat=True):
                 # Check for dev commands
                 dev_response = bot.bot_logic.preprocess_message(message)
                 if dev_response is None:
+                    # Log chat only if not a dev command. Currently does not respect deleted messages and only can read
+                    #   messages since coming online.
+                    #   TODO: maybe query discord directly for past messages and manually filter dev commands out
+                    if log_chat:  # must be true for context/chat history to work
+                        # Log chat history
+                        chat_log = CHAT_LOG_LOCATION + message.guild.name + " #" + message.channel.name + ".txt"
+                        with open(chat_log, 'a', encoding='utf-8') as file:
+                            file.write(f'{message.created_at} {message.author.name}: {message.content}\n')
+
                     response = client.loop.create_task(bot.generate_response(persona_name, message.content, channel, bot, client, context))
                 else:
                     if ONLINE:
