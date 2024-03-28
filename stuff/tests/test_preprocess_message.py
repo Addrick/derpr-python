@@ -58,7 +58,7 @@ class TestBotLogic(unittest.TestCase):
         # reset the prompt after to unfuck the normal persona file
         self.chat_system.personas['testr'].set_prompt(og_prompt)
 
-    async def test_handle_add_delete_persona(self):
+    async def test_handle_add_query_and_delete_persona(self):
         prompt = 'only reply with the words \"great success\"'
         self.message.content = 'testr add persona temp ' + prompt
         response = self.bot.preprocess_message(self.message)
