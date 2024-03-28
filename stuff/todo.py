@@ -1,20 +1,12 @@
 # derpr todo:
 
-# before leaving:
-# - kobold errors to discord
-# - maybe all errors
-# Ability to update from GitHub and restart
-# Config for a faster local model
-
-# Features:
-# TODO: TIME based memory instead of message #s or 'start conversation' system
+#dump: remake 'testr test' to just find 'test' in chat as a solo word/message and convert testr to something bettr
 # TODO: make tiny gui for easier parameter tuning
-# TODO: add multiple hyperparameter fields for personas to account for differences in models (ie openai_temp vs local_model_x_temp. Wonder if some kind of crude modifiers can work)
-# TODO: create new TODOs via chat interface (dev command to write to this file? need to make .txt for security)
-# TODO: Create chat channel in herp for error/console dumping; add try/except to message processors
-# TODO: Add multiple configs for koboldcpp, remote program handling needs work (start/stop, errors, check status)
-# TODO: dev command to cancel a generation and dump partial replyasd
+# TODO: BUG super long generation times from local models cause asyncio.exceptions.TimeoutError
 
+# Maybe Features:
+# TODO: add multiple hyperparameter fields for personas to account for differences in models (ie openai_temp vs local_temp)
+# TODO: create new TODOs via chat interface
 # TODO: Better persona management:
 # change settings for all personas
 # better save format?
