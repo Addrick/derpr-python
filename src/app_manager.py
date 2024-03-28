@@ -1,6 +1,8 @@
 import os
 import sys
+import logging
 from git import Repo
+import git
 
 
 def update():
@@ -14,20 +16,30 @@ def update():
     # Pull the latest changes from the remote repository
     origin = repo.remotes.origin
     result = origin.pull()
-    print(result[0].flags)
-    #
-    # if pull_info is None:
-    #     print("Pull successful. Changes:")
-    #     # Get the changes after the pull
-    #     changes = repo.git.diff('HEAD@{1}', 'HEAD')
-    #     print(changes)
-    # else:
-    #     print("Pull failed. Error message:", pull_info)
+
+    if (result[0].flags & 4) != 0:
+        print("Pull successful. Changed files:")
+        # Get the changes after the pull
+        # changes = repo.git.diff('HEAD@{1}', 'HEAD')
+        diff_index = repo.index.diff(None)
+        for diff_added in diff_index.iter_change_type('A'):
+            print(f"Added: {diff_added.b_path}")
+        for diff_modified in diff_index.iter_change_type('M'):
+            print(f"Modified: {diff_modified.b_path}")
+        for diff_deleted in diff_index.iter_change_type('D'):
+            print(f"Deleted: {diff_deleted.b_path}")
+
+    else:
+        print("Pull failed.")
 
 
 def restart():
     # Restart the Python program
+    logging.info('Restarting application...')
+    print('Restarting application...')
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
-update()
+# update()
+restart()
+
