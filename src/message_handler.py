@@ -3,6 +3,7 @@ import re
 
 from src.engine import *
 from src.persona import *
+from app_manager import *
 
 
 class BotLogic:
@@ -27,6 +28,8 @@ class BotLogic:
             'start_koboldcpp': self._handle_start_koboldcpp,
             'stop_koboldcpp': self._handle_stop_koboldcpp,
             'check_koboldcpp': self._handle_check_koboldcpp,
+            'restart_app': self._handle_restart_app,
+            'stop_app': self._handle_stop_app,
             # Add additional commands as needed
         }
 
@@ -63,8 +66,17 @@ class BotLogic:
                                                                  "start_koboldcpp, \n" \
                                                                  "stop_koboldcpp, \n" \
                                                                  "check_koboldcpp, \n" \
+                                                                 "restart_app, \n" \
                                                                  "dump_last"
         return help_msg
+
+    def _handle_stop_app(self):
+        response = f'App stopping...'
+        return response
+
+    def _handle_restart_app(self):
+        response = f'App restarting...'
+        return response
 
     def _handle_remember(self):
         if len(self.args) >= 2:

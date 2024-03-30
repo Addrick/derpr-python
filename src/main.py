@@ -53,6 +53,7 @@ async def on_message(message, log_chat=True):
                 if ONLINE:
                     async with message.channel.typing():
                         # Gather context (message history) from discord
+                        # TODO: Need to flag and ignore dev commands as well as bot responses to them.
                         channel = client.get_channel(message.channel.id)
                         context = [
                             f"{msg.created_at.strftime('%Y-%m-%d, %H:%M:%S')}, {msg.author.name}: {msg.content}"
@@ -71,13 +72,19 @@ async def on_message(message, log_chat=True):
                 # Check for dev commands
                 dev_response = bot.bot_logic.preprocess_message(message)
                 if dev_response is None:
-                    response = client.loop.create_task(bot.generate_response(persona_name, message.content, channel, bot, client, context))
+                    response = client.loop.create_task(
+                        bot.generate_response(persona_name, message.content, channel, bot, client, context))
                 else:
                     if ONLINE:
                         await send_message(channel, dev_response)
+                        # await send_message(channel, 'fack')
                         await reset_discord_status(bot, client)
                     else:
                         fake_discord.local_history_logger(persona_name, dev_response)
+                    if dev_response == f'App restarting...':
+                        restart_app()
+                    if dev_response == f'App stopping...':
+                        stop_app()
 
 
 async def reset_discord_status(bot, client):

@@ -1,11 +1,19 @@
+import asyncio
 import os
 import sys
 import logging
 from git import Repo
 import git
+import psutil
 
 
-def update():
+"""
+goals: 
+- update code from github
+- restart the application with new changes applied
+bonus: if it fails roll back and launch original again? 
+"""
+def update_app():
     # Path to your local repository
     repo_path = 'C:\\Users\Adam\Programming\Python\derpr-python'
     # 'https://github.com/Addrick/derpr-python/tree/master'
@@ -33,13 +41,29 @@ def update():
         print("Pull failed.")
 
 
-def restart():
-    # Restart the Python program
+def restart_app():
+    """Restarts the current program, with file objects and descriptors
+       cleanup
+    """
     logging.info('Restarting application...')
-    print('Restarting application...')
-    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    try:
+        p = psutil.Process(os.getpid())
+        for handler in p.open_files() + p.connections():
+            if handler.fd:
+                os.close(handler.fd)
+    except Exception as e:
+        logging.error(e)
+
+    python = sys.executable
+    os.execl(python, python, "\"{}\"".format(sys.argv[0]))
 
 
-# update()
-restart()
+def stop_app():
+    print("Stopping the program...")
+    sys.exit()
+
+# update_app()
+# restart_app()
+# restart_program()
 
