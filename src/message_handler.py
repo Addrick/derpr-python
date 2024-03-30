@@ -3,7 +3,7 @@ import re
 
 from src.engine import *
 from src.persona import *
-from app_manager import *
+from src.app_manager import *
 
 
 class BotLogic:
