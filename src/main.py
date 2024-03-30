@@ -38,6 +38,7 @@ async def on_message(message, log_chat=True):
         with open(chat_log, 'a', encoding='utf-8') as file:
             file.write(f'{message.created_at} {message.author.name}: {message.content}\n')
 
+
     if message.author.id is not client.user.id:
         # check message for instance of persona name
         for persona_name, persona in bot.get_persona_list().items():
@@ -54,6 +55,7 @@ async def on_message(message, log_chat=True):
                     async with message.channel.typing():
                         # Gather context (message history) from discord
                         # TODO: Need to flag and ignore dev commands as well as bot responses to them.
+                        #  Can maybe send dev response as a reply or thread to dev command and ignore both more easily
                         channel = client.get_channel(message.channel.id)
                         context = [
                             f"{msg.created_at.strftime('%Y-%m-%d, %H:%M:%S')}, {msg.author.name}: {msg.content}"
@@ -112,6 +114,7 @@ if __name__ == "__main__":
     if ONLINE:
         # Initiate discord
         client.run(api_keys.discord)
+
     else:
         client = fake_discord.Client()
         while 1:
