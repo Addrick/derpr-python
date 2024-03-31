@@ -1,6 +1,6 @@
 # eventually turn these into launch params or some shit
 
-ONLINE = 1
+DISCORD_BOT = 1
 
 DEFAULT_MODEL_NAME = 'gpt-3.5-turbo'
 GLOBAL_CONTEXT_LIMIT = 16

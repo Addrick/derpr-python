@@ -1,17 +1,17 @@
 import logging
 import os
 import sys
+from contextlib import redirect_stdout
 from datetime import datetime
 
-from src import fake_discord, global_config
-from src.chat_system import ChatSystem
-from src.discord_bot import client, on_message, on_ready
+from src import fake_discord, global_config, discord_bot
+from src.discord_bot import *
 from src.global_config import *
 
 import stuff.api_keys
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='%(asctime)s - %(message)s', datefmt='[%Y-%m-%d] %H:%M:%S')
 logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
@@ -19,9 +19,12 @@ if __name__ == "__main__":
         os.makedirs(CHAT_LOG_LOCATION)
         logger.info("Logs folder created!")
 
-    if ONLINE:
+    if DISCORD_BOT:
         # Initiate discord
         client.run(stuff.api_keys.discord)
+        channel = 1222358674127982622
+
+
 
     else:
         client = fake_discord.Client()
