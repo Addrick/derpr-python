@@ -17,21 +17,21 @@ logger = logging.getLogger(__name__)
 
 
 # Redirect stdout to special Discord channel
-class DiscordStdout:
-    def __init__(self):
-        self.debug_channel = client.get_channel(1222358674127982622)
-
-    async def send_to_discord(self, msg):
-        await self.debug_channel.send(msg)
-
-    def write(self, msg):
-        asyncio.ensure_future(self.send_to_discord(msg))
-
-    def flush(self):
-        pass  # In here you could put something to handle the "flush" command, if needed
-
-    async def DiscordExcepthook(self, type, value, traceback):
-        await self.debug_channel.send(type)
+# class DiscordStdout:
+#     def __init__(self):
+#         self.debug_channel = client.get_channel(1222358674127982622)
+#
+#     async def send_to_discord(self, msg):
+#         await self.debug_channel.send(msg)
+#
+#     def write(self, msg):
+#         asyncio.ensure_future(self.send_to_discord(msg))
+#
+#     def flush(self):
+#         pass  # In here you could put something to handle the "flush" command, if needed
+#
+#     async def DiscordExcepthook(self, type, value, traceback):
+#         await self.debug_channel.send(type)
 
 
 if __name__ == "__main__":
@@ -41,43 +41,13 @@ if __name__ == "__main__":
 
     if DISCORD_BOT:
 
-        # Redirect console output to discord for remote monitoring
-        debug_via_discord = DiscordStdout()
-        sys.stdout = debug_via_discord
-        sys.stderr = debug_via_discord
-        # sys.excepthook = debug_via_discord.DiscordExcepthook
-
         # Initiate discord
-        client.run(stuff.api_keys.discord, log_level=logging.INFO)
-
-        # ### WIP
-        # https://docs.python.org/3/library/contextlib.html#contextlib.redirect_stdout
-        # https://stackoverflow.com/questions/4675728/redirect-stdout-to-a-file-in-python
-
-        # maybe a package that does this for me? (only logging, not everything I want)
-        # https://pypi.org/project/python-logging-discord-handler/
-
-        # seems maybe easy to do with Popen but would rather have whole app
-        # could maybe try doing it per-message in on_message()
-        # # Redirect stdout to special discord channel
-        # debug_channel = client.get_channel(1222358674127982622)
-
-        # f = io.StringIO()
-        # with redirect_stderr(io.StringIO()) as f:
-        #     client.run(stuff.api_keys.discord, log_level=logging.WARNING)
-        #
-        #     asyncio.run(discord_bot.send_message(debug_channel, f.getvalue()))
-
-        # import os
-        # import sys
-        #
-        # stdout_fd = sys.stdout.fileno()
-        # with open('output.txt', 'w') as f, stdout_redirected(f):
-        #     print('redirected to a file')
-        #     os.write(stdout_fd, b'it is redirected now\n')
-        #     os.system('echo this is also redirected')
-        # print('this is goes back to stdout')
-
+        client.run(stuff.api_keys.discord, log_level=logging.WARN)
+        # Redirect console output to discord for remote monitoring
+        discord_console = discord_bot.DiscordConsoleOutput()
+        sys.stdout = discord_console
+        sys.stderr = discord_console
+        sys.excepthook = discord_console.discord_excepthook
 
 
     else:

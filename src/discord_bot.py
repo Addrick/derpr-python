@@ -4,7 +4,6 @@ from contextlib import redirect_stdout
 
 import discord
 from discord.ext import commands
-
 from src import fake_discord, global_config
 from src.chat_system import ChatSystem
 from src.message_handler import *
@@ -16,9 +15,10 @@ guild = discord.Guild
 bot = ChatSystem()
 bot.load_personas_from_file(PERSONA_SAVE_FILE)
 
-
 @client.event
 async def on_ready():
+    logger = logging.getLogger()
+    logger.addHandler(DiscordLogHandler())
     logging.info('Hello {0.user} !'.format(client))
     available_personas = ', '.join(list(bot.get_persona_list().keys()))
     presence_txt = f"as {available_personas} 👀"
@@ -27,16 +27,13 @@ async def on_ready():
 
 
 @client.event
-async def on_command_error(ctx, error):
-    if isinstance(error):
-        await ctx.send("Something broke. ¯\_(ツ)_/¯")
-
-
-@client.event
 async def on_message(message, log_chat=True):
-    # message.breakstuff
-    if DISCORD_BOT:
-        logging.info(f'{message.author}: {message.content}')
+
+    # ignored
+    if message.channel.id == 1222358674127982622:
+        return
+
+    logging.info(f'{message.author}: {message.content}')
 
     if log_chat:
         # Log chat history
@@ -94,40 +91,36 @@ async def on_message(message, log_chat=True):
                         stop_app()
 
 
-import io
-import sys
+class DiscordConsoleOutput:
+    def __init__(self):
+        self.debug_channel = client.get_channel(1222358674127982622)
 
-
-class DiscordOutput:
-    def __init__(self, channel):
-        self.channel = channel
-        self.buffer = io.StringIO()
+    async def send_to_discord(self, msg):
+        msg = f"```{msg}```"
+        await self.debug_channel.send(msg)
 
     def write(self, msg):
-        self.buffer.write(msg)
+        asyncio.ensure_future(self.send_to_discord(msg))
 
     def flush(self):
-        output = self.buffer.getvalue()
-        chunks = [output[i:i + 2000] for i in range(0, len(output), 2000)]
-        for chunk in chunks:
-            self.channel.send(chunk)
-        self.buffer.close()
+        pass
+
+    def discord_excepthook(self, type, value, traceback):
+        error_report = f'Error logged: \n ``` {type} \n {value} \n {traceback} ```'
+        asyncio.create_task(self.debug_channel.send(error_report))
 
 
-async def send_to_discord(channel, func):
-    output = DiscordOutput(channel)
-    sys.stdout = output
-    func()
-    sys.stdout = sys.__stdout__
+class DiscordLogHandler(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.debug_channel = client.get_channel(1222358674127982622)
 
-
-async def send_message_to_discord_instead():
-    with io.StringIO() as buf, redirect_stdout(buf):
-        print('it now prints to Discord')
-        await send_to_discord(1222358674127982622, lambda: print(buf.getvalue()))
-
-
+    def emit(self, record):
+        log_message = self.format(record)
+        msg = f"```{log_message}```"
+        asyncio.create_task(send_message(self.debug_channel, msg))
 # Usage
+
 
 async def reset_discord_status():
     # Reset discord status to 'watching'
