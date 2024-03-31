@@ -51,7 +51,7 @@ async def on_message(message, log_chat=True):
                 if message.channel.name.startswith(persona_mention):
                     message.content = persona_mention + " " + message.content
                 # Check message for dev commands
-                logging.info('Found persona name: ' + persona_name)
+                logging.debug('Found persona name: ' + persona_name)
                 # Gather context and set status for discord
                 if DISCORD_BOT:
                     async with message.channel.typing():

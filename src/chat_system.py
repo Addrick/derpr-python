@@ -21,7 +21,7 @@ class ChatSystem:
 
     def load_personas_from_file(self, file_path):
         if not os.path.exists(file_path):
-            logging.info(f"File '{file_path}' does not exist.")
+            logging.warning(f"File '{file_path}' does not exist.")
             return
         with open(file_path, "r") as file:
             persona_data = json.load(file)
@@ -75,7 +75,7 @@ class ChatSystem:
         if persona_name in self.personas:
             self.personas[persona_name].add_to_prompt(text_to_add)
         else:
-            logging.info(f"persona '{persona_name}' does not exist.")
+            logging.info(f"Failed to add to prompt, persona '{persona_name}' does not exist.")
 
     async def generate_response(self, persona_name, message, channel, bot, client, context=''):
         if persona_name in self.personas:
@@ -97,7 +97,7 @@ class ChatSystem:
                 await client.change_presence(
                     activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
         else:
-            logging.info(f"persona '{persona_name}' does not exist.")
+            logging.warning(f"persona '{persona_name}' does not exist.")
 
     def check_models_available(self):
         self.models_available = get_model_list()

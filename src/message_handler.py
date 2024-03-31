@@ -45,7 +45,7 @@ class BotLogic:
         handler = self.command_handlers.get(command)
         if handler:
             return handler()
-        logging.info("No dev commands found.")
+        logging.debug("No dev commands found.")
         return None
 
     def _handle_help(self):
@@ -138,15 +138,15 @@ class BotLogic:
         if self.args[0] == 'prompt':
             prompt = ' '.join(self.args[1:])
             self.current_persona.set_prompt(prompt)
-            logging.info(f"Prompt set for '{self.persona_name}'.")
-            logging.info(f"Updated save for '{self.persona_name}'.")
+            logging.debug(f"Prompt set for '{self.persona_name}'.")
+            # logging.info(f"Updated save for '{self.persona_name}'.")
             self.chat_system.save_personas_to_file()
             response = 'Personas saved.'
             return response
         if self.args[0] == 'default_prompt':
             prompt = DEFAULT_PERSONA
             self.current_persona.set_prompt(prompt)
-            logging.info(f"Prompt set for '{self.persona_name}'.")
+            logging.debug(f"Prompt set for '{self.persona_name}'.")
             self.chat_system.save_personas_to_file()
             message = DEFAULT_WELCOME_REQUEST
             response = self.current_persona.generate_response(self.persona_name, message)
