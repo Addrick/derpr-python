@@ -3,6 +3,8 @@ import datetime
 from contextlib import redirect_stdout
 
 import discord
+from discord.ext import commands
+
 from src import fake_discord, global_config
 from src.chat_system import ChatSystem
 from src.message_handler import *
@@ -25,7 +27,14 @@ async def on_ready():
 
 
 @client.event
+async def on_command_error(ctx, error):
+    if isinstance(error):
+        await ctx.send("Something broke. ¯\_(ツ)_/¯")
+
+
+@client.event
 async def on_message(message, log_chat=True):
+    # message.breakstuff
     if DISCORD_BOT:
         logging.info(f'{message.author}: {message.content}')
 
@@ -88,6 +97,7 @@ async def on_message(message, log_chat=True):
 import io
 import sys
 
+
 class DiscordOutput:
     def __init__(self, channel):
         self.channel = channel
@@ -103,16 +113,19 @@ class DiscordOutput:
             self.channel.send(chunk)
         self.buffer.close()
 
+
 async def send_to_discord(channel, func):
     output = DiscordOutput(channel)
     sys.stdout = output
     func()
     sys.stdout = sys.__stdout__
 
+
 async def send_message_to_discord_instead():
     with io.StringIO() as buf, redirect_stdout(buf):
         print('it now prints to Discord')
         await send_to_discord(1222358674127982622, lambda: print(buf.getvalue()))
+
 
 # Usage
 
