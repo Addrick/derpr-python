@@ -23,5 +23,5 @@ PERSONA_SAVE_FILE = '../stuff/personas'
 STDOUT_LOG = '../stuff/logs/stdout.txt'
 
 KOBOLDCPP_EXE = 'F:\Machine Learning\koboldcpp.exe'
-KOBOLDCPP_CONFIG = 'F:\Machine Learning\default_mistral_DPO.kcpps'
+KOBOLDCPP_CONFIG = 'F:\Machine Learning\mistral-7b.kcpps'
 
