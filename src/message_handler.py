@@ -1,6 +1,7 @@
 import logging
 import re
 
+from src import local_model
 from src.engine import *
 from src.persona import *
 from src.app_manager import *
@@ -13,6 +14,7 @@ class BotLogic:
         self.chat_system = chat_system
         self.current_persona = None
         self.koboldcpp_thread = None
+        self.local_model = local_model.LocalModel()
         self.command_handlers = {
             'help': self._handle_help,
             'update_models': self._handle_update_models,
@@ -28,9 +30,9 @@ class BotLogic:
             'start_koboldcpp': self._handle_start_koboldcpp,
             'stop_koboldcpp': self._handle_stop_koboldcpp,
             'check_koboldcpp': self._handle_check_koboldcpp,
+            'query_generation': self._handle_koboldcpp_query,
             'restart_app': self._handle_restart_app,
             'stop_app': self._handle_stop_app,
-            # Add additional commands as needed
         }
 
     def preprocess_message(self, message):
@@ -66,15 +68,18 @@ class BotLogic:
                                                                  "start_koboldcpp, \n" \
                                                                  "stop_koboldcpp, \n" \
                                                                  "check_koboldcpp, \n" \
+                                                                 "query_generation, \n" \
                                                                  "restart_app, \n" \
                                                                  "dump_last"
         return help_msg
 
     def _handle_stop_app(self):
+        # on_message picks up on this dev_response and will kill the app after sending the response to discord
         response = f'App stopping...'
         return response
 
     def _handle_restart_app(self):
+        # on_message picks up on this dev_response and will restart the app after sending the response to discord
         response = f'App restarting...'
         return response
 
@@ -190,6 +195,11 @@ class BotLogic:
         self.koboldcpp_thread.start()
 
         return "Starting koboldcpp..."
+
+    def _handle_koboldcpp_query(self):
+        # Query api for partial response
+        partial_response = self.local_model.poll_generation_results()
+        return partial_response
 
     def _handle_stop_conversation(self):
         self.current_persona.set_context_length(DEFAULT_CONTEXT_LIMIT)

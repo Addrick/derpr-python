@@ -24,4 +24,4 @@ STDOUT_LOG = '../stuff/logs/stdout.txt'
 
 KOBOLDCPP_EXE = 'F:\Machine Learning\koboldcpp.exe'
 KOBOLDCPP_CONFIG = 'F:\Machine Learning\mistral-7b.kcpps'
-
+# KOBOLDCPP_CONFIG = 'F:\Machine Learning\default_mistral_DPO.kcpps'  # leaked mistral 70B
