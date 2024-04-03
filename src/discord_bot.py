@@ -3,6 +3,8 @@ import datetime
 from contextlib import redirect_stdout
 
 import discord
+from aiohttp import ClientConnectorError
+from discord import HTTPException
 from discord.ext import commands
 from src import fake_discord, global_config
 from src.chat_system import ChatSystem
@@ -134,4 +136,10 @@ async def send_message(channel, msg):
     # Split the response into multiple messages if it exceeds 2000 characters
     chunks = [msg[i:i + 2000] for i in range(0, len(msg), 2000)]
     for chunk in chunks:
-        await channel.send(chunk)
+        try:
+            await channel.send(chunk)
+        except HTTPException as e:
+            logging.error(f'Failed to send message to discord! Error text: \n {e}')
+        except ClientConnectorError as e:
+            logging.error(f'Failed to send message to discord! Error text: \n {e}')
+
