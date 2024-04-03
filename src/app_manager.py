@@ -26,19 +26,20 @@ def update_app():
     result = origin.pull()
 
     if (result[0].flags & 4) != 0:
-        print("Pull successful. Changed files:")
+        logging.warning("Pull successful. Changed files:")
         # Get the changes after the pull
         # changes = repo.git.diff('HEAD@{1}', 'HEAD')
         diff_index = repo.index.diff(None)
         for diff_added in diff_index.iter_change_type('A'):
-            print(f"Added: {diff_added.b_path}")
+            logging.warning(f"Added: {diff_added.b_path}")
         for diff_modified in diff_index.iter_change_type('M'):
-            print(f"Modified: {diff_modified.b_path}")
+            logging.warning(f"Modified: {diff_modified.b_path}")
         for diff_deleted in diff_index.iter_change_type('D'):
-            print(f"Deleted: {diff_deleted.b_path}")
+            logging.warning(f"Deleted: {diff_deleted.b_path}")
+        return f"Pull successful, {diff_index.iter_change_type('M')} files modified."
 
     else:
-        print("Pull failed.")
+        return "Pull failed."
 
 
 def restart_app():

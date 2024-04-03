@@ -31,6 +31,7 @@ class BotLogic:
             'stop_koboldcpp': self._handle_stop_koboldcpp,
             'check_koboldcpp': self._handle_check_koboldcpp,
             'query_generation': self._handle_koboldcpp_query,
+            'update_app': self._handle_update_app,
             'restart_app': self._handle_restart_app,
             'stop_app': self._handle_stop_app,
         }
@@ -81,6 +82,11 @@ class BotLogic:
     def _handle_restart_app(self):
         # on_message picks up on this dev_response and will restart the app after sending the response to discord
         response = f'App restarting...'
+        return response
+
+    def _handle_update_app(self):
+        # on_message picks up on this dev_response and will restart the app after sending the response to discord
+        response = update_app()
         return response
 
     def _handle_remember(self):
