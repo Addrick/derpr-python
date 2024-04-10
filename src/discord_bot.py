@@ -108,6 +108,7 @@ class DiscordConsoleOutput:
         pass
 
     def discord_excepthook(self, type, value, traceback):
+        # TODO: modify to avoid backlogging connection errors and spamming discord on reconnect
         error_report = f'Error logged: \n ``` {type} \n {value} \n {traceback} ```'
         asyncio.create_task(self.debug_channel.send(error_report))
 
