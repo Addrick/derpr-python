@@ -67,13 +67,14 @@ class LocalModel:
     def poll_generation_results(self):
         url = f"{self.BASE_URL}/api/extra/generate/check"
         response = requests.get(url)
-        return response.json()
+        return response.text
 
     def poll_generation_results_multiuser(self, user_id):
+        # TODO: find how to set or get this value since it appears necessary for polling generation results w/current config
         url = f"{self.BASE_URL}/api/extra/generate/check"
         data = {"user_id": user_id}
         response = requests.get(url, json=data)
-        return response.json()
+        return response.text
 
     def token_count(self, text):
         url = f"{self.BASE_URL}/api/extra/tokencount"

@@ -22,10 +22,10 @@ if __name__ == "__main__":
         # Initiate discord
         client.run(stuff.api_keys.discord, log_level=logging.WARN)
         # Redirect console output to discord for remote monitoring
-        discord_console = discord_bot.DiscordConsoleOutput()
-        sys.stdout = discord_console
-        sys.stderr = discord_console
-        sys.excepthook = discord_console.discord_excepthook
+        # discord_console = discord_bot.DiscordConsoleOutput()
+        # sys.stdout = discord_console
+        # sys.stderr = discord_console
+        # sys.excepthook = discord_console.discord_excepthook
 
 
     else:
