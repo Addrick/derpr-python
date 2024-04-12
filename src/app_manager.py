@@ -3,16 +3,14 @@ import os
 import sys
 import logging
 from git import Repo
-import git
 import psutil
 
-
 """
-goals: 
 - update code from github
 - restart the application with new changes applied
-bonus: if it fails roll back and launch original again? 
 """
+
+
 def update_app():
     # Path to your local repository
     repo_path = 'C:\\Users\Adam\Programming\Python\derpr-python'
@@ -67,4 +65,3 @@ def stop_app():
 # update_app()
 # restart_app()
 # restart_program()
-

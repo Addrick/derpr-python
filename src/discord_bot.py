@@ -17,6 +17,9 @@ guild = discord.Guild
 bot = ChatSystem()
 bot.load_personas_from_file(PERSONA_SAVE_FILE)
 
+debug_channel = client.get_channel(1222358674127982622)
+
+
 @client.event
 async def on_ready():
     logger = logging.getLogger()
@@ -30,7 +33,6 @@ async def on_ready():
 
 @client.event
 async def on_message(message, log_chat=True):
-
     # ignored
     if message.channel.id == 1222358674127982622:
         return
@@ -95,22 +97,36 @@ async def on_message(message, log_chat=True):
 
 class DiscordConsoleOutput:
     def __init__(self):
-        self.debug_channel = client.get_channel(1222358674127982622)
-
-    async def send_to_discord(self, msg):
-        msg = f"```{msg}```"
-        await self.debug_channel.send(msg)
+        pass
 
     def write(self, msg):
-        asyncio.ensure_future(self.send_to_discord(msg))
+        asyncio.ensure_future(send_message(debug_channel, msg))
 
     def flush(self):
         pass
 
     def discord_excepthook(self, type, value, traceback):
-        # TODO: modify to avoid backlogging connection errors and spamming discord on reconnect
-        error_report = f'Error logged: \n ``` {type} \n {value} \n {traceback} ```'
-        asyncio.create_task(self.debug_channel.send(error_report))
+        if issubclass(type, ConnectionError):
+            asyncio.create_task(on_disconnect())
+        else:
+            error_report = f'Error logged: \n {type} \n {value} \n {traceback}'
+            asyncio.create_task(send_message(debug_channel, error_report))
+
+
+def on_disconnect():
+    if global_config.DISCORD_DISCONNECT_TIME is None:
+        global_config.DISCORD_DISCONNECT_TIME = datetime.datetime.now()
+    else:
+        pass
+
+
+@client.event
+def on_connect():
+    if global_config.DISCORD_DISCONNECT_TIME is not None:
+        time_offline = datetime.datetime.now() - global_config.DISCORD_DISCONNECT_TIME
+        global_config.DISCORD_DISCONNECT_TIME = None
+        offline_message = f"The bot was offline for: {time_offline}"
+        asyncio.create_task(debug_channel.send(offline_message))
 
 
 class DiscordLogHandler(logging.Handler):
@@ -119,9 +135,10 @@ class DiscordLogHandler(logging.Handler):
         self.debug_channel = client.get_channel(1222358674127982622)
 
     def emit(self, record):
-        log_message = self.format(record)
-        msg = f"```{log_message}```"
-        asyncio.create_task(send_message(self.debug_channel, msg))
+        log_message = "LOG: " + self.format(record)
+        asyncio.create_task(send_message(self.debug_channel, log_message))
+
+
 # Usage
 
 
@@ -138,9 +155,10 @@ async def send_message(channel, msg):
     chunks = [msg[i:i + 2000] for i in range(0, len(msg), 2000)]
     for chunk in chunks:
         try:
-            await channel.send(chunk)
+            await channel.send(f"'''{chunk}'''")
         except HTTPException as e:
-            logging.error(f'Failed to send message to discord! Error text: \n {e}')
-        except ClientConnectorError as e:
-            logging.error(f'Failed to send message to discord! Error text: \n {e}')
-
+            # TODO: set up fallback logging
+            pass
+        #     logging.error(f'Failed to send message to discord! Error text: \n {e}')
+        # except ClientConnectorError as e:
+        #     logging.error(f'Failed to send message to discord! Error text: \n {e}')

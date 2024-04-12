@@ -1,6 +1,7 @@
 # eventually turn these into launch params or some shit
 
 DISCORD_BOT = 1
+DISCORD_DISCONNECT_TIME = None
 
 DEFAULT_MODEL_NAME = 'gpt-3.5-turbo'
 GLOBAL_CONTEXT_LIMIT = 16
