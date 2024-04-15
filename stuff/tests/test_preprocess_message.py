@@ -4,6 +4,9 @@ from src.chat_system import *
 from src.utils import *
 import unittest
 from unittest.mock import Mock
+import tracemalloc
+
+tracemalloc.start()
 
 
 class TestBotLogic(unittest.TestCase):
@@ -12,13 +15,21 @@ class TestBotLogic(unittest.TestCase):
         self.bot = BotLogic(self.chat_system)
         self.chat_system.load_personas_from_file('test_personas')
         self.chat_system.set_persona_save_file('test_personas')
-        self.message = Mock()
+
+        class Message:
+            def __init__(self):
+                self.content = ""  # Initialize content as an empty string
+
+        # Create an instance of the Message class
+        self.message = Message()
+        self.message.context = ''
         self.maxDiff = None
 
     def test_preprocess_message_with_invalid_command(self):
         self.message.content = "testr invalid_command This is a test"
         response = self.bot.preprocess_message(self.message)
-        self.assertEqual(response, None)  # no response is the flag to generate a model response later in main(). Maybe should be more explicit
+        self.assertEqual(response,
+                         None)
 
     def test_handle_help(self):
         self.message.content = 'testr help'
