@@ -1,7 +1,7 @@
-import asynctest
-from src.message_handler import *
-from src.chat_system import *
-from src.main import *
+# import asynctest
+# from src.message_handler import *
+# from src.chat_system import *
+# from src.main import *
 
 
 # TODO: these don't work, need to recreate more parts of the discord library or implement using fake_discord.py
