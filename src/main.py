@@ -41,4 +41,4 @@ if __name__ == "__main__":
                                                              timestamp=current_time)
 
             # Process the message using your existing bot's message processing logic
-            on_message(simulated_message)
+            asyncio.create_task(on_message(simulated_message))
