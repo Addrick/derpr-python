@@ -121,7 +121,7 @@ def on_disconnect():
 
 
 @client.event
-def on_connect():
+async def on_connect():
     if global_config.DISCORD_DISCONNECT_TIME is not None:
         time_offline = datetime.datetime.now() - global_config.DISCORD_DISCONNECT_TIME
         global_config.DISCORD_DISCONNECT_TIME = None
