@@ -69,6 +69,19 @@ class TestBotLogic(unittest.TestCase):
         # reset the prompt after to unfuck the normal persona file
         self.chat_system.personas['testr'].set_prompt(og_prompt)
 
+    def test_handle_set_prompt(self):
+        # doesn't really confirm internal methods like persona.set_prompt
+        # TODO: currently reads persona info from separate persona file but the saving functions still call the default save location
+        og_prompt = self.chat_system.personas['testr'].get_prompt()
+
+        self.message.content = 'testr set prompt this is a test'
+        response = self.bot.preprocess_message(self.message)
+        expected_start = 'Personas saved.'
+        self.assertTrue(expected_start in response)
+
+        # reset the prompt after to unfuck the normal persona file
+        self.chat_system.personas['testr'].set_prompt(og_prompt)
+
     async def test_handle_add_query_and_delete_persona(self):
         prompt = 'only reply with the words \"great success\"'
         self.message.content = 'testr add persona temp ' + prompt
