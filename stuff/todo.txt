@@ -1,10 +1,5 @@
 # derpr todo:
 
-# before leaving:
-# - kobold errors to discord
-# - maybe all errors
-# Ability to update from GitHub and restart
-# Config for a faster local model
 
 # Features:
 # TODO: integrate huggingface hub for easy changing of local model weights
@@ -39,3 +34,25 @@
 # TODO: developer commands end up in message history, usually don't want this
 # TODO: all persona settings except prompt are lost UNLESS prompt is also changed. Need to add a method to all these updates to resave. Kind of like this now as I usually don't want permanent changes but still seems not ideal behavior
 # TODO(BIG): filter history/context for dev commands so they don't pollute input (check each history line with preprocess()?)
+
+LOCAL PERSONA MANAGEMENT:
+- problem: local models (all models really) have different ideal temperature ranges, but variables are only saved on a persona level
+- option: use different persona for different local models (problem: only one can be live at a time)
+    > ie one named 'mixtral', 'mistral70b', etc
+    > expand launch_kobold command to launch_<persona>, would need handler to prevent multiple instances (or check memory availability somehow)
+
+- option: use normal temps associated with persona and just modify them each time (problem: will be a pain if multiple models are used with one persona)
+    > easy to implement
+    > still would support above functionality of creating multiple personas for each different model
+    > implementing an expanded version of launch_kobold is still warranted and can be done separately
+
+- option: make temperatures tied to specific models (problem: need to redo persona saving system)
+    > create configuration for each model under each persona and default model values for the first time it was used x models as configurations
+    > would probably want to upgrade the configuration system before implementing this
+    > models update:
+        + will need to expand model so each is an object with the necessary parameters
+        + Models can no longer be dealt with entirely by name
+        + update_models()
+        + database of available models and their default values? save yaml in config for each persona?
+    > can maybe use this to configure local models that use different parameters so that they are properly called via the api
+    > example yaml: persona (name, prompt, context_limit, model (temperature, top_p, top_k, other model-specific parameters))

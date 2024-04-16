@@ -54,8 +54,8 @@ class ChatSystem:
 
     def save_personas_to_file(self):
         persona_dict = self.to_dict()
-        with open(self.persona_save_file, "w") as file:
-            file.write(json.dumps(persona_dict))
+        with open(self.persona_save_file, 'w') as file:
+            json.dump(persona_dict, file, indent=4)
         logging.info(f"Updated persona save.")
 
     def to_dict(self):
