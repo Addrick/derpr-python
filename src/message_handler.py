@@ -1,7 +1,7 @@
 import logging
 import re
 
-from src import local_model
+from src import kobold_api
 from src.engine import *
 from src.persona import *
 from src.app_manager import *
@@ -14,7 +14,7 @@ class BotLogic:
         self.chat_system = chat_system
         self.current_persona = None
         self.koboldcpp_thread = None
-        self.local_model = local_model.LocalModel()
+        self.local_model = kobold_api.LocalModel()
         self.command_handlers = {
             'help': self._handle_help,
             'update_models': self._handle_update_models,
