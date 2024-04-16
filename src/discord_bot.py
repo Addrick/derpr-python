@@ -120,13 +120,13 @@ def on_disconnect():
         pass
 
 
-@client.event
-async def on_connect():
-    if global_config.DISCORD_DISCONNECT_TIME is not None:
-        time_offline = datetime.datetime.now() - global_config.DISCORD_DISCONNECT_TIME
-        global_config.DISCORD_DISCONNECT_TIME = None
-        offline_message = f"The bot was offline for: {time_offline}"
-        asyncio.create_task(debug_channel.send(offline_message))
+# @client.event
+# async def on_connect():
+#     if global_config.DISCORD_DISCONNECT_TIME is not None:
+#         time_offline = datetime.datetime.now() - global_config.DISCORD_DISCONNECT_TIME
+#         global_config.DISCORD_DISCONNECT_TIME = None
+#         offline_message = f"The bot was offline for: {time_offline}"
+#         asyncio.create_task(debug_channel.send(offline_message))
 
 
 class DiscordLogHandler(logging.Handler):
