@@ -127,7 +127,7 @@ class BotLogic:
             response = f"{self.persona_name} is using {model_name}"
             return response
         elif self.args[0] == 'models':
-            model_names = self.chat_system.check_model_available
+            model_names = self.chat_system.models_available
             formatted_models = json.dumps(model_names, indent=2, ensure_ascii=False, separators=(',', ':')).replace(
                 '\"', '')
             response = f"Available model options: {formatted_models}"
@@ -229,6 +229,6 @@ class BotLogic:
 
     def _handle_update_models(self):
         from src.utils import get_model_list
-        get_model_list(update=True)
+        self.chat_system.models_available = get_model_list(update=True)
         reply = f"Model names currently available: {self.chat_system.models_available}"
         return reply

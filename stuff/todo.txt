@@ -1,5 +1,8 @@
 # derpr todo:
 
+- token counts in replies appears to be broken
+- exclude dev commands from context in queries (emoji codes? threads? in-code filtering?)
+
 
 # Features:
 # TODO: integrate huggingface hub for easy changing of local model weights
@@ -9,6 +12,9 @@
 # TODO: create new TODOs via chat interface (dev command to write to this file? need to make .txt for security)
 # TODO: Create chat channel in herp for error/console dumping; add try/except to message processors
 # TODO: dev command to cancel a generation and dump partial reply #/api/extra/generate/check #/api/extra/abort
+# TODO: have a 'default' model tag which uses whatever model is defined as default in config (for mass updating since most use 3.5t)
+# TODO: add local model config list to util function, ability to specify config file on local model launch
+# TODO:
 
 # TODO: Better persona management:
 # change settings for all personas
@@ -18,6 +24,7 @@
 # print all personas w/info with one command
 # record token usage
 # ui to help modify personas or view info like messages as they are being generated
+
 
 # TODO: try out various processing tricks like using LLM queries to evaluate the start/end of conversations or other lofty things
 # TODO: modify: add option to locate name anywhere in message for reply rather than first word only?
