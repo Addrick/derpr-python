@@ -178,6 +178,23 @@ class BotLogic:
             self.current_persona.set_context_length(context_limit)
             return f"Set context_limit for {self.persona_name}, now reading '{context_limit}' previous messages."
 
+        elif self.args[0] == 'temp':
+            new_temp = float(self.args[1])
+            if new_temp < 0 or new_temp > 2:
+                return f"Error: temperature value must be between 0 and 2, received {new_temp}"
+            self.current_persona.set_temperature(new_temp)
+            return f"Set temperature to {new_temp} for {self.persona_name}."
+
+        elif self.args[0] == 'top_p':
+            new_top_p = self.args[1]
+            self.current_persona.set_top_p(new_top_p)
+            return f"Set temperature to {new_top_p} for {self.persona_name}."
+
+        elif self.args[0] == 'top_k':
+            new_top_k = self.args[1]
+            self.current_persona.set_top_k(new_top_k)
+            return f"Set temperature to {new_top_k} for {self.persona_name}."
+
     def _handle_start_conversation(self):
         self.current_persona.set_context_length(0)
         self.current_persona.set_conversation_mode(True)

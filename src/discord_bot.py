@@ -135,7 +135,7 @@ class DiscordLogHandler(logging.Handler):
         self.debug_channel = client.get_channel(1222358674127982622)
 
     def emit(self, record):
-        log_message = "LOG: " + self.format(record)
+        log_message = self.format(record)
         asyncio.create_task(send_message(self.debug_channel, log_message))
 
 
@@ -155,7 +155,7 @@ async def send_message(channel, msg):
     chunks = [msg[i:i + 2000] for i in range(0, len(msg), 2000)]
     for chunk in chunks:
         try:
-            await channel.send(f"'''{chunk}'''")
+            await channel.send(f"```{chunk}```")
         except HTTPException as e:
             # TODO: set up fallback logging
             pass

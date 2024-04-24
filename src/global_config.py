@@ -22,5 +22,6 @@ PERSONA_SAVE_FILE = '../stuff/personas'
 STDOUT_LOG = '../stuff/logs/stdout.txt'
 
 KOBOLDCPP_EXE = 'F:\Machine Learning\koboldcpp.exe'
-KOBOLDCPP_CONFIG = 'F:\Machine Learning\mistral-7b.kcpps'
+KOBOLDCPP_CONFIG = 'F:\Machine Learning\dolphin-2.7-mixtral-8x7b.Q5_K_M.kcpps'
+# KOBOLDCPP_CONFIG = 'F:\Machine Learning\mistral-7b.kcpps'
 # KOBOLDCPP_CONFIG = 'F:\Machine Learning\default_mistral_DPO.kcpps'  # leaked mistral 70B

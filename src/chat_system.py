@@ -62,7 +62,7 @@ class ChatSystem:
         logging.info(f"Updated persona save.")
 
     def to_dict(self):
-        persona_dict = {'personas': []}
+        persona_dict = []
         for persona_name, persona in self.personas.items():
             persona_json = {
                 "name": persona.persona_name,
@@ -71,7 +71,7 @@ class ChatSystem:
                 "context_limit": persona.context_length,
                 "token_limit": persona.response_token_limit,
             }
-            persona_dict['personas'].append(persona_json)
+            persona_dict.append(persona_json)
         return persona_dict
 
     def add_to_prompt(self, persona_name, text_to_add):

@@ -80,6 +80,15 @@ class TextEngine:
             logging.info("Error: Input is not an integer.")
             return False
 
+    def set_temperature(self, new_temp):
+        self.temperature = new_temp
+
+    def set_top_p(self, top_p):
+        self.top_p = top_p
+
+    def set_top_k(self, top_k):
+        self.top_k = top_k
+
     # Generates response based on model_name
     async def generate_response(self, prompt, message, context):
         # route specific API and model to use based on model_name
@@ -252,12 +261,12 @@ class TextEngine:
             "max_context_length": 2048,
             "max_length": self.max_tokens,
             "rep_pen": 1.1,
-            "temperature": 0.44,
-            # "temperature": self.temperature,
-            "top_p": 0.5,
-            # "top_p": self.top_p,
-            "top_k": 0,
-            # "top_k": self.top_k,
+            # "temperature": 0.44,
+            "temperature": self.temperature,
+            # "top_p": 0.5,
+            "top_p": self.top_p,
+            # "top_k": 0,
+            "top_k": self.top_k,
             "top_a": 0.75,
             "typical": 0.19,
             "tfs": 0.97,
@@ -270,7 +279,7 @@ class TextEngine:
             "genkey": "KCPP6857",
             "prompt": "" + context + ",\n now you respond: \n" + message + "\n",
             "quiet": False,
-            "stop_sequence": ["You:", "\nYou"],
+            "stop_sequence": ["\n"],
             "use_default_badwordsids": False
         }
 
@@ -284,7 +293,7 @@ class TextEngine:
                     response_text = json_data['results'][0]['text'].split(': ')
 
                     logging.info(response_text)
-                    return response_text[0]
+                    return '\n'.join(response_text)
         except aiohttp.ClientError as e:
             err_response = f"An error occurred: {e}"
             logging.info(err_response)

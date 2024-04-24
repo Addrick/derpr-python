@@ -12,7 +12,12 @@ class Persona:
         self.prompt = prompt
         self.context_length = int(context_limit)
         self.response_token_limit = token_limit
+
         self.model = None
+        self.temperature = DEFAULT_TEMPERATURE
+        self.top_p = DEFAULT_TOP_P
+        self.top_k = DEFAULT_TOP_K
+
         self.last_json = 'none yet'
         self.conversation_mode = False
         # self.last_response = 'none yet'
@@ -36,6 +41,15 @@ class Persona:
             logging.error("Error: Input is not an integer.")
             return False
 
+    def set_temperature(self, new_temp):
+        self.model.set_temperature(new_temp)
+
+    def set_new_top_p(self, new_top_p):
+        self.model.set_new_top_p(new_top_p)
+
+    def set_new_top_k(self, new_top_k):
+        self.model.set_new_top_k(new_top_k)
+
     def set_last_json(self, last_json):
         self.last_json = last_json
 
@@ -52,8 +66,10 @@ class Persona:
         return self.prompt
 
     def set_model(self, model_name):
-        # Model name should be checked before calling this, messages will fail later if model name is invalid
-        model = engine.TextEngine(model_name, token_limit=(self.response_token_limit+1))
+        model = engine.TextEngine(model_name,
+                                  token_limit=(self.response_token_limit+1),
+                                  top_k=self.top_k,
+                                  top_p=self.top_p)
         self.model = model
         return model
 

@@ -2,7 +2,12 @@
 
 - token counts in replies appears to be broken
 - exclude dev commands from context in queries (emoji codes? threads? in-code filtering?)
-
+- explore utilizing rag
+    > RAG-tuned models can be found on HF. can chatgpt or other general models utilize this?
+    > I think RAG is done as a function within the transformer logic so it's unclear if a gguf can be used
+    > seems related to being able to run internal functions so that may be good to implement alongside
+- explore storm (wiki generator)
+- implement anthropic and google api calls since they are competitive models now and seem to be rated higher on coding tasks than gpt-4
 
 # Features:
 # TODO: integrate huggingface hub for easy changing of local model weights
@@ -14,7 +19,8 @@
 # TODO: dev command to cancel a generation and dump partial reply #/api/extra/generate/check #/api/extra/abort
 # TODO: have a 'default' model tag which uses whatever model is defined as default in config (for mass updating since most use 3.5t)
 # TODO: add local model config list to util function, ability to specify config file on local model launch
-# TODO:
+# TODO: expand 'set model' such that it can spin up any given model in koboldcpp from a preconfigured list (adding hf transformers somehow would be sweet as well)
+
 
 # TODO: Better persona management:
 # change settings for all personas
