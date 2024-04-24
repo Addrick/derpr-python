@@ -186,12 +186,12 @@ class BotLogic:
             return f"Set temperature to {new_temp} for {self.persona_name}."
 
         elif self.args[0] == 'top_p':
-            new_top_p = self.args[1]
+            new_top_p = int(self.args[1])
             self.current_persona.set_top_p(new_top_p)
             return f"Set temperature to {new_top_p} for {self.persona_name}."
 
         elif self.args[0] == 'top_k':
-            new_top_k = self.args[1]
+            new_top_k = int(self.args[1])
             self.current_persona.set_top_k(new_top_k)
             return f"Set temperature to {new_top_k} for {self.persona_name}."
 
@@ -226,8 +226,8 @@ class BotLogic:
 
     def _handle_stop_conversation(self):
         self.current_persona.set_context_length(DEFAULT_CONTEXT_LIMIT)
-        self.current_persona.set_conversation_mode(True)
-        return f"{self.persona_name}: Goodbye! Resetting context length to {GLOBAL_CONTEXT_LIMIT} previous messages..."
+        self.current_persona.set_conversation_mode(False)
+        return f"{self.persona_name}: Goodbye! Resetting context length to {DEFAULT_CONTEXT_LIMIT} previous messages..."
 
     def _handle_dump_last(self):
         raw_json_response = self.current_persona.get_last_json()

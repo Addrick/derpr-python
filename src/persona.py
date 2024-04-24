@@ -44,11 +44,11 @@ class Persona:
     def set_temperature(self, new_temp):
         self.model.set_temperature(new_temp)
 
-    def set_new_top_p(self, new_top_p):
+    def set_top_p(self, new_top_p):
         self.model.set_new_top_p(new_top_p)
 
-    def set_new_top_k(self, new_top_k):
-        self.model.set_new_top_k(new_top_k)
+    def set_top_k(self, new_top_k):
+        self.model.set_top_k(new_top_k)
 
     def set_last_json(self, last_json):
         self.last_json = last_json

@@ -270,7 +270,7 @@ class TextEngine:
             "top_a": 0.75,
             "typical": 0.19,
             "tfs": 0.97,
-            "rep_pen_range": 300,
+            "rep_pen_range": 1024,
             "rep_pen_slope": 0.7,
             "sampler_order": [6, 0, 1, 3, 4, 2, 5],
             "memory": prompt,
@@ -279,7 +279,7 @@ class TextEngine:
             "genkey": "KCPP6857",
             "prompt": "" + context + ",\n now you respond: \n" + message + "\n",
             "quiet": False,
-            "stop_sequence": ["\n"],
+            "stop_sequence": ["You:"],
             "use_default_badwordsids": False
         }
 
