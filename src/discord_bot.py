@@ -84,7 +84,7 @@ async def on_message(message, log_chat=True):
                         bot.generate_response(persona_name, message.content, channel, bot, client, context))
                 else:
                     if DISCORD_BOT:
-                        await send_message(channel, dev_response)
+                        await send_dev_message(channel, dev_response)
                         # await send_message(channel, 'fack')
                         await reset_discord_status()
                     else:
@@ -100,7 +100,7 @@ class DiscordConsoleOutput:
         pass
 
     def write(self, msg):
-        asyncio.ensure_future(send_message(debug_channel, msg))
+        asyncio.ensure_future(send_dev_message(debug_channel, msg))
 
     def flush(self):
         pass
@@ -110,7 +110,7 @@ class DiscordConsoleOutput:
             asyncio.create_task(on_disconnect())
         else:
             error_report = f'Error logged: \n {type} \n {value} \n {traceback}'
-            asyncio.create_task(send_message(debug_channel, error_report))
+            asyncio.create_task(send_dev_message(debug_channel, error_report))
 
 
 def on_disconnect():
@@ -138,13 +138,13 @@ class DiscordLogHandler(logging.Handler):
         log_message = self.format(record)
         if 'ClientConnectorError' in log_message or 'We are being rate limited.' in log_message:
             return  # Do not send message if log_message contains discord connection/rate limit errors
-        asyncio.create_task(send_message(self.debug_channel, log_message))
+        asyncio.create_task(send_dev_message(self.debug_channel, log_message))
 
 
-# Usage
-
-
+# Reset discord name and status to default
 async def reset_discord_status():
+    # Set name to derpr
+    await client.user.edit(username='derpr')
     # Reset discord status to 'watching'
     available_personas = ', '.join(list(bot.get_persona_list().keys()))
     presence_txt = f"as {available_personas} 👀"
@@ -152,7 +152,7 @@ async def reset_discord_status():
         activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
 
 
-async def send_message(channel, msg):
+async def send_dev_message(channel, msg):
     # Split the response into multiple messages if it exceeds 2000 characters
     chunks = [msg[i:i + 2000] for i in range(0, len(msg), 2000)]
     for chunk in chunks:
@@ -160,7 +160,15 @@ async def send_message(channel, msg):
             await channel.send(f"```{chunk}```")
         except HTTPException as e:
             # TODO: set up fallback logging
+            # print(f"An error occurred: {e}")
             pass
-        #     logging.error(f'Failed to send message to discord! Error text: \n {e}')
-        # except ClientConnectorError as e:
-        #     logging.error(f'Failed to send message to discord! Error text: \n {e}')
+
+
+async def send_message(channel, msg):
+    # Set name to currently speaking persona
+    # await client.user.edit(username=persona_name) #  This doesn't work as name changes are rate limited to 2/hour
+
+    # Split the response into multiple messages if it exceeds 2000 characters
+    chunks = [msg[i:i + 2000] for i in range(0, len(msg), 2000)]
+    for chunk in chunks:
+        await channel.send(f"{chunk}")
