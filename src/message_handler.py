@@ -25,7 +25,7 @@ class BotLogic:
             'what': self._handle_what,
             'set': self._handle_set,
             'hello': self._handle_start_conversation,
-            'goodbye': self._handle_start_conversation,
+            'goodbye': self._handle_stop_conversation,
             'dump_last': self._handle_dump_last,
             'start_koboldcpp': self._handle_start_koboldcpp,
             'stop_koboldcpp': self._handle_stop_koboldcpp,

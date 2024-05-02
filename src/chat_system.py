@@ -8,6 +8,7 @@ from src.utils import *
 
 # ChatSystem
 # Maintains personas, queries the engine system for responses, executes dev commands
+# TODO: move discord-specific functionality to discord_bot.py
 class ChatSystem:
     def __init__(self):
         self.persona_save_file = PERSONA_SAVE_FILE
@@ -80,6 +81,7 @@ class ChatSystem:
         else:
             logging.info(f"Failed to add to prompt, persona '{persona_name}' does not exist.")
 
+    #TODO: currently discord-specific and not properly modular
     async def generate_response(self, persona_name, message, channel, bot, client, context=''):
         if persona_name in self.personas:
             persona = self.personas[persona_name]
@@ -89,8 +91,9 @@ class ChatSystem:
                 reply = f"{persona_name}: {reply}"
 
             if channel is not None:
-                # Split the response into multiple messages if it exceeds 2000 characters
-                chunks = [reply[i:i + 2000] for i in range(0, len(message), 2000)]
+                # Split the response into multiple messages if it exceeds chunk_size number of characters
+                chunk_limit = 1980
+                chunks = [reply[i:i + chunk_limit] for i in range(0, len(reply), chunk_limit)]
                 for chunk in chunks:
                     await channel.send(chunk)
 

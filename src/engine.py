@@ -125,13 +125,12 @@ class TextEngine:
         return response
 
     async def _generate_openai_response(self, messages):
-        from openai import AsyncOpenAI
         if self.model_name not in self.openai_models_available:
             logging.info("Error: model name not found in available OpenAI models.")
             return "Error: model name not found in available OpenAI models."
         else:
             try:
-                completion = await self.openai_client.chat.completions.create(
+                completion = self.openai_client.chat.completions.create(
                     messages=messages,
                     model=self.model_name,
                     temperature=self.temperature,
@@ -152,11 +151,11 @@ class TextEngine:
                     },
                     "object": "chat.completion",
                     "id": self.model_name,
-                    "stream": True
                 }
                 self.json_response = completion
                 token_count = ' (' + str(completion.usage.total_tokens) + ')'
                 response = completion.choices[0].message.content
+                logging.info(response + token_count)
                 return response + token_count
 
             except openai.APIError as e:
