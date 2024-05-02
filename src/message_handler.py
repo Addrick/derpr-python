@@ -237,7 +237,7 @@ class BotLogic:
             from src.utils import break_and_recombine_string
             formatted_string = break_and_recombine_string(last_request, 1993, '```')
             return f"{formatted_string}"
-        return f"``` {last_request} ```"
+        return f"{last_request}"
 
     def _handle_save(self):
         self.chat_system.save_personas_to_file()

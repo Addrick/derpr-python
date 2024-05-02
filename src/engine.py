@@ -4,7 +4,7 @@ import logging
 import aiohttp
 import google.generativeai as palm
 import openai
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 from stuff import api_keys
 
 from src import utils
@@ -53,6 +53,7 @@ class TextEngine:
         # self.all_available_models
 
         # OpenAI models
+        self.openai_client = AsyncOpenAI(api_key=api_keys.openai)
         self.openai_models_available = utils.get_model_list()['From OpenAI']
         self.frequency_penalty = 0
         self.presence_penalty = 0
@@ -94,12 +95,19 @@ class TextEngine:
         # route specific API and model to use based on model_name
         # if model_name matches models found in various APIs
         if self.model_name in self.openai_models_available:
-            messages = [
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": context},  # TODO: try iterating this for 1 msg/context block
-                {"role": "user", "content": message}]
+            if context is not None:
+                messages = [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": context},
+                    # TODO: try iterating this for 1 msg/context block for better model processing
+                    {"role": "user", "content": message}]
+            else:
+                messages = [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": message}]
+
             # response = self._generate_openai_response(messages)
-            response = await self._generate_openai_response_stream(messages)
+            response = await self._generate_openai_response(messages)
             # loop = asyncio.get_event_loop()
             # response = loop.run_until_complete(self._generate_openai_response_stream(messages))
 
@@ -116,21 +124,22 @@ class TextEngine:
 
         return response
 
-    def _generate_openai_response(self, messages):
-        response = 'Error: empty/no completion.'
+    async def _generate_openai_response(self, messages):
+        from openai import AsyncOpenAI
         if self.model_name not in self.openai_models_available:
             logging.info("Error: model name not found in available OpenAI models.")
             return "Error: model name not found in available OpenAI models."
         else:
             try:
-                completion = self.openai_client.chat.completions.create(
+                completion = await self.openai_client.chat.completions.create(
                     messages=messages,
                     model=self.model_name,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                     top_p=self.top_p,
                     frequency_penalty=self.frequency_penalty,
-                    presence_penalty=self.presence_penalty)
+                    presence_penalty=self.presence_penalty,
+                )
                 self.json_request = {
                     "model": self.model_name,
                     "messages": messages,
@@ -143,21 +152,22 @@ class TextEngine:
                     },
                     "object": "chat.completion",
                     "id": self.model_name,
-                    "stream": False
+                    "stream": True
                 }
                 self.json_response = completion
                 token_count = ' (' + str(completion.usage.total_tokens) + ')'
                 response = completion.choices[0].message.content
+                return response + token_count
 
             except openai.APIError as e:
-                return e.http_status + ": \n" + e.user_message
+                return e.code + ": \n" + e.message
 
-            except openai.APIConnectionError as e:
-                return e.user_message
-
-        return response + token_count
+            except AttributeError as e:
+                return str(e)
 
     async def _generate_openai_response_stream(self, messages):
+        # TODO: finish if I ever get a use case for streamed output
+        # currently does not provide usage field for token usage reporting and provides no current benefit
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=api_keys.openai)  # TODO: put this somewhere better, may be a memory leak
         if self.model_name not in self.openai_models_available:
@@ -165,7 +175,6 @@ class TextEngine:
             return "Error: model name not found in available OpenAI models."
         else:
             completion = await client.chat.completions.create(
-                # api_key=api_keys.openai,
                 messages=messages,
                 model=self.model_name,
                 temperature=self.temperature,
@@ -173,26 +182,12 @@ class TextEngine:
                 top_p=self.top_p,
                 frequency_penalty=self.frequency_penalty,
                 presence_penalty=self.presence_penalty,
-                # stream=True,
+                stream=True
             )
-            self.json_request = {
-                "model": self.model_name,
-                "messages": messages,
-                "options": {
-                    "temperature": self.temperature,
-                    "max_tokens": self.max_tokens,
-                    "top_p": self.top_p,
-                    "frequency_penalty": self.frequency_penalty,
-                    "presence_penalty": self.presence_penalty
-                },
-                "object": "chat.completion",
-                "id": self.model_name,
-                "stream": False
-            }
-            self.json_response = completion
-            # logging.info(completion.choices[0].message.content)
 
-        return completion.choices[0].message.content
+            # Print the streamed output to the console
+            for chunk in completion:
+                print(chunk['choices'][0]['text'])
 
     def _generate_google_response(self, prompt, message, context=[], examples=[]):
         palm.configure(api_key=api_keys.google)

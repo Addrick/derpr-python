@@ -136,6 +136,8 @@ class DiscordLogHandler(logging.Handler):
 
     def emit(self, record):
         log_message = self.format(record)
+        if 'ClientConnectorError' in log_message or 'We are being rate limited.' in log_message:
+            return  # Do not send message if log_message contains discord connection/rate limit errors
         asyncio.create_task(send_message(self.debug_channel, log_message))
 
 

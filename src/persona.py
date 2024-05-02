@@ -81,10 +81,13 @@ class Persona:
 
     async def generate_response(self, message, context):
         logging.info('Querying response as ' + self.persona_name + '...')
-        context = context[1:self.context_length+1]
-        context = context[::-1]  # Reverse the history list
-        context = " \n".join(context)
-        context = 'recent chat history: \n' + context
+        if self.context_length > 0:
+            context = context[1:self.context_length+1]
+            context = context[::-1]  # Reverse the history list
+            context = " \n".join(context)
+            context = 'recent chat history: \n' + context
+        else:
+            context = None
 
         # todo: implement token limit
         #  token_limit = self.response_token_limit
