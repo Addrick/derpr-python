@@ -53,7 +53,7 @@ class TextEngine:
         # self.all_available_models
 
         # OpenAI models
-        self.openai_client = AsyncOpenAI(api_key=api_keys.openai)
+        # self.openai_client = AsyncOpenAI(api_key=api_keys.openai) # TODO: this should be here instead of re-instantiated on every _generate_openai_response call but when moving declaration here 'await' throws an error and not using await blocks code during the request
         self.openai_models_available = utils.get_model_list()['From OpenAI']
         self.frequency_penalty = 0
         self.presence_penalty = 0
@@ -125,12 +125,13 @@ class TextEngine:
         return response
 
     async def _generate_openai_response(self, messages):
+        openai_client = AsyncOpenAI(api_key=api_keys.openai)
         if self.model_name not in self.openai_models_available:
             logging.info("Error: model name not found in available OpenAI models.")
             return "Error: model name not found in available OpenAI models."
         else:
             try:
-                completion = self.openai_client.chat.completions.create(
+                completion = await openai_client.chat.completions.create(
                     messages=messages,
                     model=self.model_name,
                     temperature=self.temperature,
