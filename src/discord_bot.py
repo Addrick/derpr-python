@@ -169,6 +169,7 @@ async def send_message(channel, msg):
     # await client.user.edit(username=persona_name) #  This doesn't work as name changes are rate limited to 2/hour
 
     # Split the response into multiple messages if it exceeds 2000 characters
-    chunks = [msg[i:i + 2000] for i in range(0, len(msg), 2000)]
+    # chunks = [msg[i:i + 2000] for i in range(0, len(msg), 2000)]
+    chunks = utils.split_string_by_limit(msg, DISCORD_CHAR_LIMIT)
     for chunk in chunks:
         await channel.send(f"{chunk}")
