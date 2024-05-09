@@ -152,9 +152,12 @@ async def reset_discord_status():
         activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
 
 
-async def send_dev_message(channel, msg):
+async def send_dev_message(channel, msg: str):
+    # Escape discord code formatting instances
+    # msg.replace("```", "\```")
+    formatted_msg = re.sub('```','`\u200B``', msg)
     # Split the response into multiple messages if it exceeds 2000 characters
-    chunks = [msg[i:i + 2000] for i in range(0, len(msg), 2000)]
+    chunks = utils.split_string_by_limit(formatted_msg, DISCORD_CHAR_LIMIT)
     for chunk in chunks:
         try:
             await channel.send(f"```{chunk}```")

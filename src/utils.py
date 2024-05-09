@@ -32,7 +32,7 @@ def refresh_available_openai_models():
     client = openai.OpenAI(api_key=api_keys.openai)
     openai_models = client.models.list()
     trimmed_list = [model.id for model in openai_models if 'gpt-3' in model.id or 'gpt-4' in model.id]
-    logging.info(trimmed_list)
+    logging.debug(trimmed_list)
     return trimmed_list
 
 
@@ -71,7 +71,7 @@ def break_and_recombine_string(input_string, substring_length, bumper_string):
 
 
 def split_string_by_limit(input_string, char_limit):
-    words = input_string.split()
+    words = input_string.split(" ")
     current_line = ""
     result = []
 

@@ -231,11 +231,10 @@ class BotLogic:
 
     def _handle_dump_last(self):
         raw_json_response = self.current_persona.get_last_json()
-        last_request = json.dumps(raw_json_response, indent=2, ensure_ascii=False, separators=(',', ':')).replace(
-            "```", "").replace('\\n', '\n').replace('\\"', '\"')
+        last_request = json.dumps(raw_json_response, indent=2, ensure_ascii=False, separators=(',', ':')).replace('\\n', '\n').replace('\\"', '\"')
         if len(last_request) + 6 > 2000:
             from src.utils import break_and_recombine_string
-            formatted_string = break_and_recombine_string(last_request, 1993, '```')
+            formatted_string = break_and_recombine_string(last_request, 1993, '')
             return f"{formatted_string}"
         return f"{last_request}"
 
