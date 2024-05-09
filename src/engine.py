@@ -154,10 +154,10 @@ class TextEngine:
                     "id": self.model_name,
                 }
                 self.json_response = completion
-                token_count = ' (' + str(completion.usage.total_tokens) + ')'
+                token_count_and_model = f' ({str(completion.usage.total_tokens)} tokens using {self.model_name})'
                 response = completion.choices[0].message.content
-                logging.info(response + token_count)
-                return response + token_count
+                logging.debug(response + token_count_and_model)
+                return response + token_count_and_model
 
             except openai.APIError as e:
                 return e.code + ": \n" + e.message
