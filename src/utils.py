@@ -8,16 +8,19 @@ import src.global_config
 from src.message_handler import *
 from src.persona import *
 import openai
-
+import anthropic
+import anthropic.resources.messages
 
 # get_model_list(update=False): If the update parameter is set to True, the function queries the API to update
 # and print the list of available models from OpenAI and Google. If update is False, it will return the models
 # saved in gloabl_config
+
 def get_model_list(update=False):
     if update:
         logging.info('Updating available models from API...')
         all_available_models = {'From OpenAI': refresh_available_openai_models(),
                                 'From Google': refresh_available_google_models(),
+                                'From Anthropic': refresh_available_anthropic_models(),
                                 'Local': ['local']
                                 }
         logging.debug(all_available_models)
@@ -39,10 +42,20 @@ def refresh_available_openai_models():
 # Google (lol)
 def refresh_available_google_models():
     # TODO: add functionality as there are new model(s) like gemini
-    google_models = 'text-bison-001'  # basically only 1 model rn
+    google_models = 'None supported'  # basically only 1 model rn
     #  chat-bison uses different api syntax and isn't currently worth the time implementing because goog sucks
     # all_available_models['From Google'] = google_models
     return google_models
+
+def refresh_available_anthropic_models():
+    # TODO: can't find api call, some other way to get this information dynamically?
+    models = ["claude-3-opus-20240229",
+              "claude-3-sonnet-20240229",
+              "claude-3-haiku-20240307",
+              "claude-2.1",
+              "claude-2.0",
+              "claude-instant-1.2"]
+    return models
 
 
 def load_models_from_file():
