@@ -118,7 +118,7 @@ class TextEngine:
                     {"role": "user", "content": message}]
             response = await self._generate_openai_response(messages)
         # Anthropic request
-        if self.model_name in self.anthropic_models_available:
+        elif self.model_name in self.anthropic_models_available:
             if context is not None:
                 messages = [
                     {"role": "user", "content": f'{context} \n {message}'}]
@@ -170,7 +170,6 @@ class TextEngine:
                         "frequency_penalty": self.frequency_penalty,
                         "presence_penalty": self.presence_penalty
                     },
-                    "object": "chat.completion",
                     "id": self.model_name,
                 }
                 self.json_response = completion
@@ -279,7 +278,6 @@ class TextEngine:
                 "top_p": self.top_p,
                 "top_k": self.top_k,
             },
-            "object": "chat.completion",
             "id": self.model_name,
         }
         return message.content[0].text

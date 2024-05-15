@@ -20,7 +20,7 @@
 # TODO: have a 'default' model tag which uses whatever model is defined as default in config (for mass updating since most use 3.5t)
 # TODO: add local model config list to util function, ability to specify config file on local model launch
 # TODO: expand 'set model' such that it can spin up any given model in koboldcpp from a preconfigured list (adding hf transformers somehow would be sweet as well)
-
+# TODO: command to toggle token and model display
 
 # TODO: Better persona management:
 # change settings for all personas

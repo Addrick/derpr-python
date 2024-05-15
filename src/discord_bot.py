@@ -37,7 +37,7 @@ async def on_message(message, log_chat=True):
     if message.channel.id == 1222358674127982622:
         return
 
-    logging.info(f'{message.author}: {message.content}')
+    logging.debug(f'{message.author}: {message.content}')
 
     if log_chat:
         # Log chat history
