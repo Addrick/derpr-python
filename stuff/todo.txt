@@ -1,6 +1,7 @@
 # derpr todo:
 
-- token counts in replies appears to be broken
+- add module for voice chat functionality
+- add throttle to discord so it will delay rather than spamming until discord refuses
 - exclude dev commands from context in queries (emoji codes? threads? in-code filtering?)
 - explore utilizing rag
     > RAG-tuned models can be found on HF. can chatgpt or other general models utilize this?

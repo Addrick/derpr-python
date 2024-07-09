@@ -1,14 +1,17 @@
 import asyncio
 import datetime
+import logging
+import re
 from contextlib import redirect_stdout
 
 import discord
 from aiohttp import ClientConnectorError
 from discord import HTTPException
 from discord.ext import commands
-from src import fake_discord, global_config
+from src import fake_discord, global_config, message_handler, utils
 from src.chat_system import ChatSystem
-from src.message_handler import *
+from src.global_config import *
+from src.message_handler import BotLogic
 
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
@@ -23,7 +26,8 @@ debug_channel = client.get_channel(1222358674127982622)
 @client.event
 async def on_ready():
     logger = logging.getLogger()
-    logger.addHandler(DiscordLogHandler())
+    if global_config.DISCORD_LOGGER:
+        logger.addHandler(DiscordLogHandler())
     logging.info('Hello {0.user} !'.format(client))
     available_personas = ', '.join(list(bot.get_persona_list().keys()))
     presence_txt = f"as {available_personas} 👀"
@@ -60,13 +64,20 @@ async def on_message(message, log_chat=True):
                 if DISCORD_BOT:
                     async with message.channel.typing():
                         # Gather context (message history) from discord
-                        # TODO: Need to flag and ignore dev commands as well as bot responses to them.
-                        #  Can maybe send dev response as a reply or thread to dev command and ignore both more easily
+                        # Pulls a list of length GLOBAL_CONTEXT_LIMIT, is pruned later
+                        # Formats each message to put it into the state that preprocess_message expects, with persona name first
+                        # If preprocess_message with check_only=True returns True, the message is skipped as it is identified as a dev command
+                        # If a message begins with derpr: <persona_name> ``` the message is considered a dev message response and also skipped
                         channel = client.get_channel(message.channel.id)
-                        context = [
-                            f"{msg.created_at.strftime('%Y-%m-%d, %H:%M:%S')}, {msg.author.name}: {msg.content}"
-                            async for
-                            msg in channel.history(limit=global_config.GLOBAL_CONTEXT_LIMIT)]
+                        context = []
+                        history = channel.history(before=message, limit=global_config.GLOBAL_CONTEXT_LIMIT)
+                        async for msg in history:
+                            if msg.author is not client.user.id and msg.channel.name.startswith(persona_mention):
+                                msg.content = persona_mention + " " + msg.content
+                            if bot.bot_logic.preprocess_message(msg, check_only=True) or msg.content.startswith('derpr: ' + persona_mention + ': ```'):
+                                continue
+                            else:
+                                context.append(f"{msg.created_at.strftime('%Y-%m-%d, %H:%M:%S')}, {msg.author.name}: {msg.content}")
                         # Change discord status to 'streaming <persona>...'
                         activity = discord.Activity(
                             type=discord.ActivityType.streaming,

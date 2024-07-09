@@ -233,7 +233,7 @@ class TextEngine:
             "memory": prompt,
             "min_p": 0,
             "presence_penalty": 0,
-            "genkey": "KCPP6857",
+            "genkey": "KCPP6857",  # TODO: bug here when context (probably) is a list
             "prompt": "" + context + ",\n now you respond: \n" + message + "\n",
             "quiet": False,
             "stop_sequence": ["You:"],

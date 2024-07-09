@@ -1,4 +1,6 @@
 import logging
+import os
+import sys
 
 from src import fake_discord, global_config, discord_bot
 from src.discord_bot import *

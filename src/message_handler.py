@@ -36,18 +36,21 @@ class BotLogic:
             'stop_app': self._handle_stop_app,
         }
 
-    def preprocess_message(self, message):
+    def preprocess_message(self, message, check_only=False):
         logging.debug('Checking for dev commands...')
         self.message = message
         self.args = re.split(r'[ ]', message.content)
-        # try:
-        self.persona_name, command, self.args = self.args[0].lower(), self.args[1].lower(), self.args[2:]
-        # except IndexError as e:
-        #     self.persona_name, command = self.args[0].lower(), self.args[1].lower()
+        try:
+            self.persona_name, command, self.args = self.args[0].lower(), self.args[1].lower(), self.args[2:]
+        except IndexError:
+            return None
         self.current_persona = self.chat_system.personas.get(self.persona_name)
         handler = self.command_handlers.get(command)
         if handler:
-            return handler()
+            if check_only:
+                return True
+            else:
+                return handler()
         logging.debug("No dev commands found.")
         return None
 
