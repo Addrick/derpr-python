@@ -64,7 +64,7 @@ async def on_message(message, log_chat=True):
                 if DISCORD_BOT:
                     async with message.channel.typing():
                         # Gather context (message history) from discord
-                        # Pulls a list of length GLOBAL_CONTEXT_LIMIT, is pruned later
+                        # Pulls a list of length GLOBAL_CONTEXT_LIMIT, is pruned later based on persona context setting #TODO: can make this more efficient by pulling the persona context limit here
                         # Formats each message to put it into the state that preprocess_message expects, with persona name first
                         # If preprocess_message with check_only=True returns True, the message is skipped as it is identified as a dev command
                         # If a message begins with derpr: <persona_name> ``` the message is considered a dev message response and also skipped
