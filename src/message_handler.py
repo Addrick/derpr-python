@@ -17,7 +17,7 @@ class BotLogic:
         self.local_model = kobold_api.LocalModel()
         self.command_handlers = {
             'help': self._handle_help,
-            'update_models': self._handle_update_models,
+            'update models': self._handle_update_models,
             'remember': self._handle_remember,
             'save': self._handle_save,
             'add': self._handle_add,
@@ -58,7 +58,7 @@ class BotLogic:
         help_msg = "" \
                    "Talk to a specific persona by starting your message with their name. \n \n" \
                    "Currently active personas: \n" + \
-                   ', '.join(self.chat_system.personas.keys()) + "\n" \
+                   ', '.join(self.chat_system.personas.keys()) + "\n\n" \
                                                                  "Bot commands: \n" \
                                                                  "hello (start new conversation), \n" \
                                                                  "goodbye (end conversation), \n" \
@@ -69,12 +69,14 @@ class BotLogic:
                                                                  "delete <persona>, \n" \
                                                                  "save, \n" \
                                                                  "update_models, \n" \
+                                                                 "dump_last, \n\n" \
+                                                                 "Koboldcpp system management (WIP):, \n" \
                                                                  "start_koboldcpp, \n" \
                                                                  "stop_koboldcpp, \n" \
                                                                  "check_koboldcpp, \n" \
                                                                  "query_generation, \n" \
-                                                                 "restart_app, \n" \
-                                                                 "dump_last"
+                                                                 "restart_app"
+
         return help_msg
 
     def _handle_stop_app(self):
