@@ -117,6 +117,7 @@ class TextEngine:
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": message}]
             response = await self._generate_openai_response(messages)
+        
         # Anthropic request
         elif self.model_name in self.anthropic_models_available:
             if context is not None:
@@ -132,7 +133,7 @@ class TextEngine:
 
         # TODO: test (finish?) Google model query
         elif self.model_name in self.google_models_available:
-            response = await self._generate_google_response(prompt, message, context)
+            response = self._generate_google_response(prompt, message, context)
 
         elif self.model_name == 'local':
             response = await self._generate_local_response(prompt, message, context)
@@ -281,3 +282,22 @@ class TextEngine:
             "id": self.model_name,
         }
         return message.content[0].text
+
+    def _generate_google_response(self, prompt, message, context):
+        import vertexai
+        from vertexai.generative_models import GenerativeModel
+
+        vertexai.init(project=api_keys.google_project_id, location="us-east1")
+
+        # TODO: further test and refine context and prompt structure
+        # TODO: add model parameter customization
+
+        model = GenerativeModel(self.model_name)
+
+        request = '### Instructions: ###' + prompt + '\n### Recent chat history: ### \n' + str(context) + '\n### Now respond to the most recent message: ###\n' + message
+
+        response = model.generate_content(
+            request
+        )
+
+        return response.text

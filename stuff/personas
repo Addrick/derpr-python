@@ -38,7 +38,7 @@
         {
             "name": "testr",
             "prompt": "You are testr. You only respond with 'success'",
-            "model_name": "gpt-3.5-turbo",
+            "model_name": "gemini-1.5-flash",
             "context_limit": 0,
             "token_limit": 1024
         },
@@ -73,29 +73,31 @@
     ],
     "models": {
         "From OpenAI": [
-            "gpt-4o-2024-05-13",
-            "gpt-4o",
-            "gpt-3.5-turbo-16k",
-            "gpt-4",
-            "gpt-4-0613",
             "gpt-4-turbo-2024-04-09",
-            "gpt-3.5-turbo-1106",
             "gpt-4-turbo",
-            "gpt-3.5-turbo-instruct-0914",
-            "gpt-3.5-turbo-instruct",
-            "gpt-3.5-turbo",
-            "gpt-3.5-turbo-0301",
+            "gpt-3.5-turbo-1106",
+            "gpt-4-0613",
             "gpt-4-1106-preview",
+            "gpt-4o-2024-05-13",
             "gpt-4-0125-preview",
-            "gpt-3.5-turbo-0125",
+            "gpt-4",
             "gpt-4-turbo-preview",
-            "gpt-3.5-turbo-0613",
-            "gpt-4-1106-vision-preview",
-            "gpt-4-vision-preview",
-            "gpt-3.5-turbo-16k-0613"
+            "gpt-3.5-turbo-16k",
+            "gpt-3.5-turbo-0125",
+            "gpt-3.5-turbo",
+            "gpt-3.5-turbo-instruct",
+            "gpt-3.5-turbo-instruct-0914",
+            "gpt-4o"
         ],
-        "From Google": "None supported",
+        "From Google": [
+            "gemini-1.0-pro",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
+            "gemini-pro",
+            "gemini-pro-vision"
+        ],
         "From Anthropic": [
+            "claude-3-5-sonnet-20240620",
             "claude-3-opus-20240229",
             "claude-3-sonnet-20240229",
             "claude-3-haiku-20240307",

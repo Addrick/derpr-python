@@ -10,6 +10,8 @@ from src.persona import *
 import openai
 import anthropic
 import anthropic.resources.messages
+import vertexai
+
 
 # get_model_list(update=False): If the update parameter is set to True, the function queries the API to update
 # and print the list of available models from OpenAI and Google. If update is False, it will return the models
@@ -39,22 +41,40 @@ def refresh_available_openai_models():
     return trimmed_list
 
 
-# Google (lol)
+# Google
+# a bit hacked together as actual generation requests are using the vertexai package which lacks an api call to list models
+# instead uses google.generativeai which lists different models than what vertexai has available
+# vertexai models can be viewed at https://console.cloud.google.com/vertex-ai/model-garden
+# model garden includes tons of shit, incl non-google models if I wanted to run them on google hardware I guess. Also fine tuning
 def refresh_available_google_models():
-    # TODO: add functionality as there are new model(s) like gemini
-    google_models = 'None supported'  # basically only 1 model rn
-    #  chat-bison uses different api syntax and isn't currently worth the time implementing because goog sucks
-    # all_available_models['From Google'] = google_models
+    import google.generativeai as genai
+    genai.configure(api_key=api_keys.google)
+    google_models = []
+    for model in genai.list_models():
+        if 'generateContent' in model.supported_generation_methods: # remove non-genai models
+            version_tag = model.name.split("-")[-1]
+            if version_tag != '001' and version_tag != 'latest':
+                if model not in google_models:
+                    google_models.append(model.name.split("/")[-1]) # remove preceding 'models/' from name
+
+
+
     return google_models
 
+
+# Anthropic
 def refresh_available_anthropic_models():
     # TODO: can't find api call, some other way to get this information dynamically?
-    models = ["claude-3-opus-20240229",
-              "claude-3-sonnet-20240229",
-              "claude-3-haiku-20240307",
-              "claude-2.1",
-              "claude-2.0",
-              "claude-instant-1.2"]
+    # can maybe dig names out of the python library: https://github.com/anthropics/anthropic-sdk-python/blob/0336233fc076f20017b28433df9e3d9dd56ffa8d/src/anthropic/types/message_create_params.py#L127
+    #     anthropic-sdk-python/src/anthropic/types/message_create_params.py
+    models = [
+        "claude-3-5-sonnet-20240620",
+        "claude-3-opus-20240229",
+        "claude-3-sonnet-20240229",
+        "claude-3-haiku-20240307",
+        "claude-2.1",
+        "claude-2.0",
+        "claude-instant-1.2"]
     return models
 
 

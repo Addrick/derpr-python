@@ -249,5 +249,5 @@ class BotLogic:
     def _handle_update_models(self):
         from src.utils import get_model_list
         self.chat_system.models_available = get_model_list(update=True)
-        reply = f"Model names currently available: {self.chat_system.models_available}"
+        reply = f"Model names currently available: {json.dumps(self.chat_system.models_available, indent=4)}"
         return reply
