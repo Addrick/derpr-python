@@ -147,6 +147,18 @@ class TextEngine:
 
     async def _generate_openai_response(self, messages):
         openai_client = AsyncOpenAI(api_key=api_keys.openai)
+        self.json_request = {
+            "model": self.model_name,
+            "messages": messages,
+            "options": {
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+                "top_p": self.top_p,
+                "frequency_penalty": self.frequency_penalty,
+                "presence_penalty": self.presence_penalty
+            },
+            "id": self.model_name,
+        }
         if self.model_name not in self.openai_models_available:
             logging.info("Error: model name not found in available OpenAI models.")
             return "Error: model name not found in available OpenAI models."
@@ -161,18 +173,6 @@ class TextEngine:
                     frequency_penalty=self.frequency_penalty,
                     presence_penalty=self.presence_penalty,
                 )
-                self.json_request = {
-                    "model": self.model_name,
-                    "messages": messages,
-                    "options": {
-                        "temperature": self.temperature,
-                        "max_tokens": self.max_tokens,
-                        "top_p": self.top_p,
-                        "frequency_penalty": self.frequency_penalty,
-                        "presence_penalty": self.presence_penalty
-                    },
-                    "id": self.model_name,
-                }
                 self.json_response = completion
                 token_count_and_model = f' ({str(completion.usage.total_tokens)} tokens using {self.model_name})'
                 response = completion.choices[0].message.content
@@ -180,6 +180,7 @@ class TextEngine:
                 return response + token_count_and_model
 
             except openai.APIError as e:
+
                 return e.code + ": \n" + e.message
 
             except AttributeError as e:
