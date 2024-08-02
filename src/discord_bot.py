@@ -9,6 +9,7 @@ from aiohttp import ClientConnectorError
 from discord import HTTPException
 from discord.ext import commands
 from src import fake_discord, global_config, message_handler, utils
+from src.app_manager import restart_app, stop_app
 from src.chat_system import ChatSystem
 from src.global_config import *
 from src.message_handler import BotLogic
@@ -131,15 +132,6 @@ def on_disconnect():
         pass
 
 
-# @client.event
-# async def on_connect():
-#     if global_config.DISCORD_DISCONNECT_TIME is not None:
-#         time_offline = datetime.datetime.now() - global_config.DISCORD_DISCONNECT_TIME
-#         global_config.DISCORD_DISCONNECT_TIME = None
-#         offline_message = f"The bot was offline for: {time_offline}"
-#         asyncio.create_task(debug_channel.send(offline_message))
-
-
 class DiscordLogHandler(logging.Handler):
     def __init__(self):
         super().__init__()
@@ -162,9 +154,9 @@ async def reset_discord_status():
     await client.change_presence(
         activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
 
-
+# TODO: splitting messages will functionally alter the history length for later messages. Should account for this somehow if possible in history length calculations
 async def send_dev_message(channel, msg: str):
-    # Escape discord code formatting instances
+    # Escape discord code formatting instances, seems to require this weird hack
     # msg.replace("```", "\```")
     formatted_msg = re.sub('```','`\u200B``', msg)
     # Split the response into multiple messages if it exceeds 2000 characters
@@ -182,8 +174,7 @@ async def send_message(channel, msg):
     # Set name to currently speaking persona
     # await client.user.edit(username=persona_name) #  This doesn't work as name changes are rate limited to 2/hour
 
-    # Split the response into multiple messages if it exceeds 2000 characters
-    # chunks = [msg[i:i + 2000] for i in range(0, len(msg), 2000)]
+    # Split the response into multiple messages if it exceeds max discord message length
     chunks = utils.split_string_by_limit(msg, DISCORD_CHAR_LIMIT)
     for chunk in chunks:
         await channel.send(f"{chunk}")

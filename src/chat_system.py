@@ -95,18 +95,8 @@ class ChatSystem:
             if channel is not None:
                 # Split the response into multiple messages if it exceeds chunk_size number of characters
                 await discord_bot.send_message(channel, reply)
-
-                # chunk_limit = 2000
-                # chunks = [reply[i:i + chunk_limit] for i in range(0, len(reply), chunk_limit)]
-                # for chunk in chunks:
-                #     await channel.send(chunk)
-
                 # Reset discord status to 'watching'
                 await discord_bot.reset_discord_status()
-                # available_personas = ', '.join(list(bot.get_persona_list().keys()))
-                # presence_txt = f"as {available_personas} 👀"
-                # await client.change_presence(
-                #     activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
         else:
             logging.warning(f"persona '{persona_name}' does not exist.")
 
