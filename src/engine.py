@@ -8,6 +8,7 @@ import anthropic
 
 from openai import OpenAI, AsyncOpenAI
 from stuff import api_keys
+from vertexai.generative_models import HarmCategory, HarmBlockThreshold
 
 from src import utils
 from src.global_config import *
@@ -67,6 +68,13 @@ class TextEngine:
         # Google models
         self.google_models_available = utils.get_model_list()['From Google']
         self.top_k = top_k
+        self.unsafe_settings = {
+                                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+                                }
+
 
         # Anthropic models
         self.anthropic_models_available = utils.get_model_list()['From Anthropic']
@@ -298,7 +306,8 @@ class TextEngine:
         request = '### Instructions: ###' + prompt + '\n### Recent chat history: ### \n' + str(context) + '\n### Now respond to the most recent message: ###\n' + message
 
         response = model.generate_content(
-            request
+            request,
+            safety_settings=self.unsafe_settings
         )
 
         return response.text
