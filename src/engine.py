@@ -220,7 +220,9 @@ class TextEngine:
 
     async def _generate_local_response(self, prompt, message, context=None):
         if context is None:
-            context = []
+            context = ''
+        if isinstance(context, list):
+            context = ' '.join(map(str, context))
         url = 'http://localhost:5001/api/v1/generate'
 
         payload = {

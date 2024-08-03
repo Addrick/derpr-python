@@ -59,8 +59,8 @@
         {
             "name": "herpr",
             "prompt": "You use available race statistics of past horses performances and workouts to determine the best candidate in a race",
-            "model_name": "gemini-1.5-pro",
-            "context_limit": 8,
+            "model_name": "local",
+            "context_limit": 0,
             "token_limit": 1024
         },
         {
