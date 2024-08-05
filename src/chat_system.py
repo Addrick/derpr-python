@@ -56,6 +56,12 @@ class ChatSystem:
             self.save_personas_to_file()
 
     def save_personas_to_file(self):
+        # Check if the file exists
+        if not os.path.exists(PERSONA_SAVE_FILE):
+            # Create the file
+            with open(PERSONA_SAVE_FILE, 'w') as file:
+                pass  # Just create an empty file
+            print(f"File '{PERSONA_SAVE_FILE}' created.")
         with open(PERSONA_SAVE_FILE, 'r') as file:
             save_data = json.load(file)
         persona_dict = self.to_dict()
