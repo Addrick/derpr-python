@@ -311,5 +311,16 @@ class TextEngine:
             request,
             safety_settings=self.unsafe_settings
         )
-
+        self.json_request = {
+            "system": prompt,
+            "model": self.model_name,
+            "request": request,
+            "options": {
+                # "temperature": self.temperature,
+                # "max_tokens": self.max_tokens,
+                # "top_p": self.top_p,
+                # "top_k": self.top_k,
+            },
+            "id": self.model_name,
+        }
         return response.text

@@ -75,7 +75,8 @@ async def on_message(message, log_chat=True):
                         async for msg in history:
                             if msg.author is not client.user.id and msg.channel.name.startswith(persona_mention):
                                 msg.content = persona_mention + " " + msg.content
-                            if bot.bot_logic.preprocess_message(msg, check_only=True) or msg.content.startswith('derpr: ' + persona_mention + ': ```'):
+                            is_previous_dev_response = 'derpr: ' + persona_mention + ' `​``' in msg.content
+                            if bot.bot_logic.preprocess_message(msg, check_only=True) or is_previous_dev_response:
                                 continue
                             else:
                                 context.append(f"{msg.created_at.strftime('%Y-%m-%d, %H:%M:%S')}, {msg.author.name}: {msg.content}")

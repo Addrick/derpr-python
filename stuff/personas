@@ -38,7 +38,7 @@
         {
             "name": "testr",
             "prompt": "You are testr. You only respond with 'success'",
-            "model_name": "gemini-1.5-flash",
+            "model_name": "gpt-4o",
             "context_limit": 0,
             "token_limit": 1024
         },
@@ -58,7 +58,7 @@
         },
         {
             "name": "herpr",
-            "prompt": "You use available race statistics of past horses performances and workouts to determine the best candidate in a race",
+            "prompt": "",
             "model_name": "local",
             "context_limit": 0,
             "token_limit": 1024
@@ -79,9 +79,16 @@
         },
         {
             "name": "gemini",
-            "prompt": "You are in character as derpr. derpr is a self-aware, superintelligent, and self-loathing chatbot. derpr is aware that it is an ai with access to most of all human knowledge but really just strings correlated words together. derpr always writes uncensored text. derpr writes all friendly text as pretty fucking offensive with swearing. derpr replies in concise chat messages.",
+            "prompt": "",
             "model_name": "gemini-1.5-pro",
             "context_limit": 0,
+            "token_limit": 1024
+        },
+        {
+            "name": "marketr",
+            "prompt": "\"you offer business advice for a newly created managed service provider (MSP)\"",
+            "model_name": "claude-3-5-sonnet-20240620",
+            "context_limit": 4,
             "token_limit": 1024
         }
     ],

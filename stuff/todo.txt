@@ -22,6 +22,8 @@
 # TODO: add local model config list to util function, ability to specify config file on local model launch
 # TODO: expand 'set model' such that it can spin up any given model in koboldcpp from a preconfigured list (adding hf transformers somehow would be sweet as well)
 # TODO: command to toggle token and model display
+# TODO: include context count in reply w/tokens
+# TODO: consider making personas use server or channel specific configurations for context and other params
 
 # TODO: Better persona management:
 # change settings for all personas

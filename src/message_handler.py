@@ -237,7 +237,7 @@ class BotLogic:
     def _handle_dump_last(self):
         raw_json_response = self.current_persona.get_last_json()
         last_request = json.dumps(raw_json_response, indent=2, ensure_ascii=False, separators=(',', ':')).replace('\\n', '\n').replace('\\"', '\"')
-        return f"{last_request}"
+        return f"{self.persona_name}: {last_request}"
 
     def _handle_save(self):
         self.chat_system.save_personas_to_file()
