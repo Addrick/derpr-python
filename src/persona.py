@@ -35,7 +35,7 @@ class Persona:
 
     def set_response_token_limit(self, response_token_limit):
         if isinstance(response_token_limit, int):
-            self.context_length = response_token_limit
+            self.response_token_limit = response_token_limit
             return True
         else:
             logging.error("Error: Input is not an integer.")

@@ -175,9 +175,11 @@ class BotLogic:
             else:
                 return f"Model '{model_name}' does not exist. Currently available models are: {self.chat_system.models_available}"
         elif self.args[0] == 'tokens':
-            token_limit = self.args[1]
-            self.current_persona.set_response_token_limit(token_limit)
-            return f"Set token limit: '{token_limit}' response tokens."
+            token_limit = int(self.args[1])
+            if self.current_persona.set_response_token_limit(token_limit):
+                return f"Set token limit: '{token_limit}' response tokens."
+            else:
+                return f"Error setting response token limit."
         elif self.args[0] == 'context':
             context_limit = self.args[1]
             self.current_persona.set_context_length(context_limit)
