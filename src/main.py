@@ -2,7 +2,7 @@ import logging
 import os
 import sys
 
-from src import fake_discord, global_config, discord_bot
+from src import local_terminal, global_config, discord_bot
 from src.discord_bot import *
 from src.global_config import *
 
@@ -32,14 +32,14 @@ if __name__ == "__main__":
 
     else:
         from datetime import datetime
-        client = fake_discord.Client()
+        client = local_terminal.Client()
         while 1:
             message = input("Enter a message: ")
             # Create a simulated message object
             current_time = datetime.now().time()
-            simulated_message = fake_discord.StrippedMessage(message, author=fake_discord.User(),
-                                                             channel=fake_discord.Channel(),
-                                                             guild=fake_discord.Guild(),
+            simulated_message = local_terminal.StrippedMessage(message, author=local_terminal.User(),
+                                                             channel=local_terminal.Channel(),
+                                                             guild=local_terminal.Guild(),
                                                              timestamp=current_time)
 
             # Process the message using your existing bot's message processing logic

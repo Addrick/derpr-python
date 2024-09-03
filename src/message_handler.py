@@ -6,6 +6,10 @@ from src.engine import *
 from src.persona import *
 from src.app_manager import *
 
+# Summary:
+# Handles all dev commands and their message responses
+
+# WIP: handles koboldcpp thread and start/stopping
 
 class BotLogic:
     def __init__(self, chat_system):

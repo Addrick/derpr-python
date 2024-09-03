@@ -32,7 +32,7 @@ def get_model_list(update=False):
         return load_models_from_file()
 
 
-# OpenAI
+# OpenAI API query to get current list of active models
 def refresh_available_openai_models():
     client = openai.OpenAI(api_key=api_keys.openai)
     openai_models = client.models.list()
@@ -43,7 +43,7 @@ def refresh_available_openai_models():
 
 # Google
 # a bit hacked together as actual generation requests are using the vertexai package which lacks an api call to list models
-# instead uses google.generativeai which lists different models than what vertexai has available
+# instead uses google.generativeai which lists different models than what vertexai has available, TODO: find better way to list available Google models
 # vertexai models can be viewed at https://console.cloud.google.com/vertex-ai/model-garden
 # model garden includes tons of shit, incl non-google models if I wanted to run them on google hardware I guess. Also fine tuning
 def refresh_available_google_models():
@@ -104,6 +104,7 @@ def break_and_recombine_string(input_string, substring_length, bumper_string):
 
 
 def split_string_by_limit(input_string, char_limit):
+    """Splits a string between words for easier to read long messages"""  # TODO: maybe split after a period to only send full sentences?
     words = input_string.split(" ")
     current_line = ""
     result = []

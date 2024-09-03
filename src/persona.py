@@ -5,6 +5,10 @@ from src.message_handler import *
 from src.utils import *
 from src.global_config import *
 
+# Summary:
+# Data type to maintain discrete personas
+# Accepts name, prompt and various other parameters for customizing model outputs
+
 
 class Persona:
     def __init__(self, persona_name, model_name, prompt, context_limit=10, token_limit=100):

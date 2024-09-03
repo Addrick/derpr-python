@@ -10,7 +10,8 @@ from src.utils import *
 
 # ChatSystem
 # Maintains personas, queries the engine system for responses, executes dev commands
-# TODO: move discord-specific functionality to discord_bot.py
+# It handles loading and saving personas from/to a file, adding and deleting personas,
+# and generating responses using these personas.
 class ChatSystem:
     def __init__(self):
         self.persona_save_file = PERSONA_SAVE_FILE
@@ -19,10 +20,12 @@ class ChatSystem:
         self.bot_logic = BotLogic(self)  # Pass the instance of ChatSystem to BotLogic
 
     def set_persona_save_file(self, new_path):
+        """Update the location of the persona save file."""
         self.persona_save_file = new_path
         logging.info('persona save file location updated to ' + new_path)
 
     def load_personas_from_file(self, file_path):
+        """Load personas from a JSON-formatted file."""
         if not os.path.exists(file_path):
             logging.warning(f"File '{file_path}' does not exist.")
             return
@@ -41,9 +44,11 @@ class ChatSystem:
                     return
 
     def get_persona_list(self):
+        """Return the dictionary of personas."""
         return self.personas
 
     def add_persona(self, name, model_name, prompt, context_limit, token_limit, save_new=True):
+        """Add a new persona to the system."""
         persona = Persona(name, model_name, prompt, context_limit, token_limit)
         self.personas[name] = persona
         # add to persona bank file
@@ -51,11 +56,13 @@ class ChatSystem:
             self.save_personas_to_file()
 
     def delete_persona(self, name, save=False):
+        """Delete a persona from the system."""
         del self.personas[name]
         if save:
             self.save_personas_to_file()
 
     def save_personas_to_file(self):
+        """Save all personas to the JSON file."""
         # Check if the file exists
         if not os.path.exists(PERSONA_SAVE_FILE):
             # Create the file
@@ -71,6 +78,7 @@ class ChatSystem:
         logging.info(f"Updated persona save.")
 
     def to_dict(self):
+        """Convert personas to a list of dictionaries for JSON serialization."""
         persona_dict = []
         for persona_name, persona in self.personas.items():
             persona_json = {
@@ -84,13 +92,15 @@ class ChatSystem:
         return persona_dict
 
     def add_to_prompt(self, persona_name, text_to_add):
+        """Add text to a persona's prompt."""
         if persona_name in self.personas:
             self.personas[persona_name].add_to_prompt(text_to_add)
         else:
             logging.info(f"Failed to add to prompt, persona '{persona_name}' does not exist.")
 
-    #TODO: currently discord-specific and not properly modular
-    async def generate_response(self, persona_name, message, channel, bot, client, context=''):
+    # Send 'message' to 'channel' if discord or 'team' if teams TODO: implement teams routing
+    async def generate_response(self, persona_name, message, channel, team, bot, client, context=''):
+        """Generate a response using the specified persona and message channel."""
         if persona_name in self.personas:
             persona = self.personas[persona_name]
             async with channel.typing():
@@ -107,9 +117,11 @@ class ChatSystem:
             logging.warning(f"persona '{persona_name}' does not exist.")
 
     def check_models_available(self):
+        """Update the list of available models."""
         self.models_available = get_model_list()
 
     def check_model_available(self, model_to_check):
+        """Check if a specific model is available."""
         lowest_order_items = []
         for value in self.models_available.values():
             if isinstance(value, list):

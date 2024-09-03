@@ -6,13 +6,14 @@ from git import Repo
 import psutil
 
 """
+For use with remote development and redeployment
 - update code from github
 - restart the application with new changes applied
 """
 
 
 def update_app():
-    # Path to your local repository
+    # Path to local repository
     repo_path = 'C:\\Users\Adam\Programming\Python\derpr-python'
     # 'https://github.com/Addrick/derpr-python/tree/master'
 

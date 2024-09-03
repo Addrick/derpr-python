@@ -13,36 +13,17 @@ from vertexai.generative_models import HarmCategory, HarmBlockThreshold
 from src import utils
 from src.global_config import *
 
-
-def launch_koboldcpp():
-    import traceback
-    import subprocess
-
-    try:
-        # Launches koboldcpp with preconfigured settings file
-        command = [KOBOLDCPP_EXE, "--config", KOBOLDCPP_CONFIG]
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-        while True:
-            output = process.stdout.readline()
-            if output == b'' and process.poll() is not None:
-                break
-            if output:
-                output = output.strip().decode('utf-8')
-                logging.info("koboldcpp: " + output)  # Process the output as needed
-                if "Please connect to custom endpoint at http://localhost:5001" in output:
-                    #  report startup status to chat
-                    return True
-
-        # Get the return code of the subprocess
-        return_code = process.poll()
-        logging.info('Subprocess returned with code: %s', return_code)
-
-    except Exception:
-        traceback.print_exc()
+# Summary:
+# This code defines a TextEngine class that handles text generation using various AI models.
+# It supports OpenAI, Anthropic, Google, and local models. The class provides methods to
+# set parameters, generate responses, and handle different API calls. It also includes
+# a function to launch a local KoboldCPP instance.
+# TODO: Implement a method to validate and sanitize input parameters
+# TODO: Implement proper error handling and logging for all API calls
 
 
 class TextEngine:
+    """Initialize the TextEngine with model settings and API clients."""
     def __init__(self, model_name='none',
                  token_limit=DEFAULT_TOKEN_LIMIT,
                  temperature=DEFAULT_TEMPERATURE,
@@ -109,6 +90,7 @@ class TextEngine:
 
     # Generates response based on model_name
     async def generate_response(self, prompt, message, context):
+        """Generate a response based on the selected model."""
         # route specific API and model to use based on model_name
         # if model_name matches models found in various APIs
 
@@ -154,7 +136,8 @@ class TextEngine:
         return response
 
     async def _generate_openai_response(self, messages):
-        openai_client = AsyncOpenAI(api_key=api_keys.openai)
+        """Prepare messages for async OpenAI API call."""
+        openai_client = AsyncOpenAI(api_key=api_keys.openai)  # TODO: put this somewhere better
         self.json_request = {
             "model": self.model_name,
             "messages": messages,
@@ -219,6 +202,8 @@ class TextEngine:
                 print(chunk['choices'][0]['text'])
 
     async def _generate_local_response(self, prompt, message, context=None):
+        """Generate a response using a local model (KoboldCPP)."""
+        # Message formatting must match model's expected syntax for best results (TODO: find a way to automate the formatting)
         if context is None:
             context = ''
         if isinstance(context, list):
@@ -269,6 +254,7 @@ class TextEngine:
             return err_response
 
     async def _generate_anthropic_response(self, prompt, messages):
+        """Generate a response using Anthropic API."""
         client = anthropic.Anthropic(api_key=api_keys.anthropic)
         message = client.messages.create(
             system=prompt,
@@ -295,6 +281,7 @@ class TextEngine:
         return message.content[0].text
 
     def _generate_google_response(self, prompt, message, context):
+        """Generate a response using Google's Vertex AI."""
         import vertexai
         from vertexai.generative_models import GenerativeModel
 
@@ -324,3 +311,33 @@ class TextEngine:
             "id": self.model_name,
         }
         return response.text
+
+def launch_koboldcpp():
+    """WIP: Launch a KoboldCPP instance with preconfigured settings."""
+    # Currently will start the process successfully but can't be properly stopped or restart after (yet)
+    import traceback
+    import subprocess
+
+    try:
+        # Launches koboldcpp with preconfigured settings file
+        command = [KOBOLDCPP_EXE, "--config", KOBOLDCPP_CONFIG]
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        while True:
+            output = process.stdout.readline()
+            if output == b'' and process.poll() is not None:
+                break
+            if output:
+                output = output.strip().decode('utf-8')
+                logging.info("koboldcpp: " + output)  # Process the output as needed
+                if "Please connect to custom endpoint at http://localhost:5001" in output:
+                    #  report startup status to chat
+                    return True
+
+        # Get the return code of the subprocess
+        return_code = process.poll()
+        logging.info('Subprocess returned with code: %s', return_code)
+
+    except Exception:
+        traceback.print_exc()
+

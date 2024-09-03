@@ -8,22 +8,31 @@ import discord
 from aiohttp import ClientConnectorError
 from discord import HTTPException
 from discord.ext import commands
-from src import fake_discord, global_config, message_handler, utils
+from src import local_terminal, global_config, message_handler, utils
 from src.app_manager import restart_app, stop_app
 from src.chat_system import ChatSystem
 from src.global_config import *
 from src.message_handler import BotLogic
 
+# Summary:
+# This code implements a Discord bot using the discord.py library. The bot manages multiple personas,
+# responds to messages, and handles various commands. It includes features like logging, context
+# gathering, and dynamic status updates. The bot uses an external ChatSystem for generating responses.
+
+# Declare all discort intents and instantiating Discord client - declaring 'all' intents for simplicity while testing
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 guild = discord.Guild
 
+# Import ChatSystem for use of core bot logic, load personas from file
 bot = ChatSystem()
 bot.load_personas_from_file(PERSONA_SAVE_FILE)
 
+# Discord channel to dump log messages for remote debugging
 debug_channel = client.get_channel(1222358674127982622)
 
 
+# Connects to discord, sets up logging and sets status to list of available personas
 @client.event
 async def on_ready():
     logger = logging.getLogger()
@@ -38,20 +47,21 @@ async def on_ready():
 
 @client.event
 async def on_message(message, log_chat=True):
-    # ignored
+    # ignore debug channel
     if message.channel.id == 1222358674127982622:
         return
 
     logging.debug(f'{message.author}: {message.content}')
 
     if log_chat:
-        # Log chat history
+        # Log chat history to local text file
         chat_log = CHAT_LOG_LOCATION + message.guild.name + " #" + message.channel.name + ".txt"
         with open(chat_log, 'a', encoding='utf-8') as file:
             file.write(f'{message.created_at} {message.author.name}: {message.content}\n')
 
+    # check new discord message for instance of persona name
     if message.author.id is not client.user.id:
-        # check message for instance of persona name
+        # check for persona mention in message
         for persona_name, persona in bot.get_persona_list().items():
             persona_mention = f"{persona_name}"
             logging.debug('Checking for persona name: ' + persona_name)
@@ -75,7 +85,7 @@ async def on_message(message, log_chat=True):
                         async for msg in history:
                             if msg.author is not client.user.id and msg.channel.name.startswith(persona_mention):
                                 msg.content = persona_mention + " " + msg.content
-                            is_previous_dev_response = 'derpr: ' + persona_mention + ' `​``' in msg.content
+                            is_previous_dev_response = 'derpr: ' + persona_mention + ' `​``' in msg.content  # zero-width space is a hack used in dev commands to escape internal code commenting
                             if bot.bot_logic.preprocess_message(msg, check_only=True) or is_previous_dev_response:
                                 continue
                             else:
@@ -87,30 +97,30 @@ async def on_message(message, log_chat=True):
                             url='https://www.twitch.tv/discordmakesmedothis')
                         await client.change_presence(activity=activity)
                 else:
-                    context = fake_discord.local_history_reader()
+                    context = local_terminal.local_history_reader()
 
                 # Message processing starts
                 # Check for dev commands
                 dev_response = bot.bot_logic.preprocess_message(message)
                 if dev_response is None:
+                    # If no dev response found, process as a bot request
                     response = client.loop.create_task(
                         bot.generate_response(persona_name, message.content, channel, bot, client, context))
-                else:
+                else:  # If dev message found, send it now and reset status
                     if DISCORD_BOT:
                         await send_dev_message(channel, dev_response)
-                        # await send_message(channel, 'fack')
                         await reset_discord_status()
-                    else:
-                        fake_discord.local_history_logger(persona_name, dev_response)
-                    if dev_response == f'App restarting...':
+                    else:  # local terminal operation if discord_bot=false TODO: move all local logic to its own file
+                        local_terminal.local_history_logger(persona_name, dev_response)
+                    if dev_response == f'App restarting...':  # hooks to start/stop koboldcpp TODO: move out of discord file
                         restart_app()
                     if dev_response == f'App stopping...':
                         stop_app()
 
-
+# Module to forward console messages to discord
 class DiscordConsoleOutput:
     def __init__(self):
-        pass
+        self.DISCORD_DISCONNECT_TIME = None
 
     def write(self, msg):
         asyncio.ensure_future(send_dev_message(debug_channel, msg))
@@ -120,17 +130,16 @@ class DiscordConsoleOutput:
 
     def discord_excepthook(self, type, value, traceback):
         if issubclass(type, ConnectionError):
-            asyncio.create_task(on_disconnect())
+            asyncio.create_task(self.on_disconnect())
         else:
             error_report = f'Error logged: \n {type} \n {value} \n {traceback}'
             asyncio.create_task(send_dev_message(debug_channel, error_report))
 
-
-def on_disconnect():
-    if global_config.DISCORD_DISCONNECT_TIME is None:
-        global_config.DISCORD_DISCONNECT_TIME = datetime.datetime.now()
-    else:
-        pass
+    def on_disconnect(self):  # Disconnects must be handled as a special case so it does not flood the channel on reconnect and cause another disconnect
+        if self.DISCORD_DISCONNECT_TIME is None:
+            self.DISCORD_DISCONNECT_TIME = datetime.datetime.now()
+        else:
+            pass
 
 
 class DiscordLogHandler(logging.Handler):
@@ -157,7 +166,7 @@ async def reset_discord_status():
 
 # TODO: splitting messages will functionally alter the history length for later messages. Should account for this somehow if possible in history length calculations
 async def send_dev_message(channel, msg: str):
-    # Escape discord code formatting instances, seems to require this weird hack
+    # Escape discord code formatting instances, seems to require this weird hack with a zero-width space
     # msg.replace("```", "\```")
     formatted_msg = re.sub('```','`\u200B``', msg)
     # Split the response into multiple messages if it exceeds 2000 characters
@@ -171,6 +180,7 @@ async def send_dev_message(channel, msg: str):
             pass
 
 
+# Sends msg to specified discord channel, breaks message into chunks if too long
 async def send_message(channel, msg):
     # Set name to currently speaking persona
     # await client.user.edit(username=persona_name) #  This doesn't work as name changes are rate limited to 2/hour
