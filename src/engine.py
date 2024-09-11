@@ -12,6 +12,8 @@ from vertexai.generative_models import HarmCategory, HarmBlockThreshold
 
 from src import utils
 from src.global_config import *
+from src.utils import models
+
 
 # Summary:
 # This code defines a TextEngine class that handles text generation using various AI models.
@@ -36,18 +38,18 @@ class TextEngine:
         self.top_p = top_p
         self.json_request = None
         self.json_response = None
-        # self.all_available_models
+        self.all_available_models = models.get_model_list()
 
         # OpenAI models
         # self.openai_client = AsyncOpenAI(api_key=api_keys.openai) # TODO: this should be here instead of
         #  re-instantiated on every _generate_openai_response call but when moving declaration here 'await' throws an
         #  error and not using await blocks code during the request
-        self.openai_models_available = utils.get_model_list()['From OpenAI']
+        self.openai_models_available = self.all_available_models['From OpenAI']
         self.frequency_penalty = 0
         self.presence_penalty = 0
 
         # Google models
-        self.google_models_available = utils.get_model_list()['From Google']
+        self.google_models_available = self.all_available_models['From Google']
         self.top_k = top_k
         self.unsafe_settings = {
                                     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
@@ -56,9 +58,8 @@ class TextEngine:
                                     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
                                 }
 
-
         # Anthropic models
-        self.anthropic_models_available = utils.get_model_list()['From Anthropic']
+        self.anthropic_models_available = self.all_available_models['From Anthropic']
 
         self.openai_client = OpenAI(api_key=api_keys.openai)
 

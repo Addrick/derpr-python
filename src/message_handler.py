@@ -5,6 +5,9 @@ from src import kobold_api
 from src.engine import *
 from src.persona import *
 from src.app_manager import *
+from src.utils import config
+from src.utils.models import get_model_list
+
 
 # Summary:
 # Handles all dev commands and their message responses
@@ -160,20 +163,20 @@ class BotLogic:
             self.current_persona.set_prompt(prompt)
             logging.debug(f"Prompt set for '{self.persona_name}'.")
             # logging.info(f"Updated save for '{self.persona_name}'.")
-            self.chat_system.save_personas_to_file()
+            config.save_personas_to_file(self.chat_system.personas)
             response = 'Personas saved.'
             return response
         if self.args[0] == 'default_prompt':
             prompt = DEFAULT_PERSONA
             self.current_persona.set_prompt(prompt)
             logging.debug(f"Prompt set for '{self.persona_name}'.")
-            self.chat_system.save_personas_to_file()
+            config.save_personas_to_file(self.chat_system.personas)
             message = DEFAULT_WELCOME_REQUEST
             response = self.current_persona.generate_response(self.persona_name, message)
             return response
         elif self.args[0] == 'model':
             model_name = self.args[1]
-            if self.chat_system.check_model_available(model_name):
+            if models.check_model_available(model_name):
                 self.current_persona.set_model(model_name)
                 return f"Model set to '{model_name}'."
             else:
@@ -246,12 +249,11 @@ class BotLogic:
         return f"{self.persona_name}: {last_request}"
 
     def _handle_save(self):
-        self.chat_system.save_personas_to_file()
+        config.save_personas_to_file(self.chat_system.personas)
         response = 'Personas saved.'
         return response
 
     def _handle_update_models(self):
-        from src.utils import get_model_list
         self.chat_system.models_available = get_model_list(update=True)
         reply = f"Model names currently available: {json.dumps(self.chat_system.models_available, indent=4)}"
         return reply

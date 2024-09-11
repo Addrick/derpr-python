@@ -1,18 +1,13 @@
 import asyncio
 import datetime
 import logging
-import re
-from contextlib import redirect_stdout
 
 import discord
-from aiohttp import ClientConnectorError
-from discord import HTTPException
-from discord.ext import commands
-from src import local_terminal, global_config, message_handler, utils
+from src import local_terminal, global_config
 from src.app_manager import restart_app, stop_app
 from src.chat_system import ChatSystem
 from src.global_config import *
-from src.message_handler import BotLogic
+from src.utils.messages import send_dev_message
 
 # Summary:
 # This code implements a Discord bot using the discord.py library. The bot manages multiple personas,
@@ -24,9 +19,9 @@ intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 guild = discord.Guild
 
-# Import ChatSystem for use of core bot logic, load personas from file
+# Import ChatSystem for use of core bot logic
 bot = ChatSystem()
-bot.load_personas_from_file(PERSONA_SAVE_FILE)
+# bot.load_personas_from_file(PERSONA_SAVE_FILE)
 
 # Discord channel to dump log messages for remote debugging
 debug_channel = client.get_channel(1222358674127982622)
@@ -105,7 +100,7 @@ async def on_message(message, log_chat=True):
                 if dev_response is None:
                     # If no dev response found, process as a bot request
                     response = client.loop.create_task(
-                        bot.generate_response(persona_name, message.content, channel, bot, client, context))
+                        bot.generate_response(persona_name, message.content, channel=channel, bot=bot, client=client, context=context))
                 else:  # If dev message found, send it now and reset status
                     if DISCORD_BOT:
                         await send_dev_message(channel, dev_response)
@@ -156,7 +151,7 @@ class DiscordLogHandler(logging.Handler):
 
 # Reset discord name and status to default
 async def reset_discord_status():
-    # Set name to derpr
+    """# Set name to derpr"""
     await client.user.edit(username='derpr')
     # Reset discord status to 'watching'
     available_personas = ', '.join(list(bot.get_persona_list().keys()))
@@ -164,28 +159,3 @@ async def reset_discord_status():
     await client.change_presence(
         activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
 
-# TODO: splitting messages will functionally alter the history length for later messages. Should account for this somehow if possible in history length calculations
-async def send_dev_message(channel, msg: str):
-    # Escape discord code formatting instances, seems to require this weird hack with a zero-width space
-    # msg.replace("```", "\```")
-    formatted_msg = re.sub('```','`\u200B``', msg)
-    # Split the response into multiple messages if it exceeds 2000 characters
-    chunks = utils.split_string_by_limit(formatted_msg, DISCORD_CHAR_LIMIT)
-    for chunk in chunks:
-        try:
-            await channel.send(f"```{chunk}```")
-        except HTTPException as e:
-            # TODO: set up fallback logging
-            # print(f"An error occurred: {e}")
-            pass
-
-
-# Sends msg to specified discord channel, breaks message into chunks if too long
-async def send_message(channel, msg):
-    # Set name to currently speaking persona
-    # await client.user.edit(username=persona_name) #  This doesn't work as name changes are rate limited to 2/hour
-
-    # Split the response into multiple messages if it exceeds max discord message length
-    chunks = utils.split_string_by_limit(msg, DISCORD_CHAR_LIMIT)
-    for chunk in chunks:
-        await channel.send(f"{chunk}")
