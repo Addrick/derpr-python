@@ -1,3 +1,4 @@
+import logging
 import re
 
 from discord import HTTPException
@@ -21,7 +22,7 @@ def split_string_by_limit(input_string, char_limit):
 
     for word in words:
         # Check if adding the next word would exceed the limit
-        if len(current_line) + len(word) + 1 > char_limit:
+        if len(current_line) + len(word) + 1 > char_limit-1:
             result.append(current_line.strip())
             current_line = word
         else:
@@ -44,8 +45,7 @@ async def send_dev_message(channel, msg: str):
         try:
             await channel.send(f"```{chunk}```")
         except HTTPException as e:
-            # TODO: set up fallback logging
-            # print(f"An error occurred: {e}")
+            logging.error(f"An error occurred: {e}")
             pass
 
 
