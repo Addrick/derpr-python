@@ -3,7 +3,6 @@ import logging
 import discord.activity
 
 import src.utils.messages
-from src import discord_bot
 from src.message_handler import *
 from src.persona import *
 from src.utils.config import save_personas_to_file, load_personas_from_file
@@ -48,6 +47,7 @@ class ChatSystem:
 
     # Send 'message' to 'channel' if discord or 'team' if teams TODO: implement teams routing
     async def generate_response(self, persona_name, message, channel, bot, client, context=''):
+
         """Generate a response using the specified persona and message channel."""
         if persona_name in self.personas:
             persona = self.personas[persona_name]
@@ -57,6 +57,7 @@ class ChatSystem:
                 reply = f"{persona_name}: {reply}"
 
             if channel is not None:
+                from src import discord_bot
                 # Split the response into multiple messages if it exceeds chunk_size number of characters
                 await src.utils.messages.send_message(channel, reply, DISCORD_CHAR_LIMIT)
                 # Reset discord status to 'watching'
