@@ -43,7 +43,7 @@ class BotLogic:
             'stop_app': self._handle_stop_app,
         }
 
-    def preprocess_message(self, message, check_only=False):
+    def preprocess_message(self, message, check_only=False):  # TODO: add persona field and pass in when generating: allows messages to be used that don't start with persona name (better?)
         logging.debug('Checking for dev commands...')
         self.message = message
         self.args = re.split(r'[ ]', message.content)

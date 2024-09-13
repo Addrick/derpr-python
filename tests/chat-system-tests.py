@@ -20,7 +20,6 @@ class TestChatSystem(IsolatedAsyncioTestCase):
         self.chat_system.delete_persona("test_persona", save=True)
         self.assertNotIn("test_persona", self.chat_system.get_persona_list())
 
-
     async def test_generate_response(self):
         with patch('src.persona.Persona.generate_response') as mock_generate_response:
             mock_generate_response.return_value = "This is a test response."
@@ -52,8 +51,6 @@ class TestPersona(IsolatedAsyncioTestCase):
             self.assertEqual(response, "This is a test response.")
 
 
-
-
 class TestTextEngine(IsolatedAsyncioTestCase):
     def setUp(self):
         self.text_engine = TextEngine("gpt-3.5-turbo")
@@ -75,7 +72,8 @@ class TestTextEngine(IsolatedAsyncioTestCase):
             mock_completion.usage.total_tokens = 10
             mock_openai.return_value.chat.completions.create.return_value = mock_completion
 
-            response = await self.text_engine._generate_openai_response([{"role": "user", "content": "please reply 'Test successful'"}])
+            response = await self.text_engine._generate_openai_response(
+                [{"role": "user", "content": "please reply 'Test successful'"}])
             self.assertIn("Test successful", response)
 
 

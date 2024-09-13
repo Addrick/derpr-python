@@ -44,7 +44,6 @@ class ChatSystem:
         else:
             logging.info(f"Failed to add to prompt, persona '{persona_name}' does not exist.")
 
-    # Send 'message' to 'channel' if discord or 'team' if teams TODO: implement teams routing
     async def generate_response(self, persona_name, message, context=''):
 
         """Generate a response using the specified persona and message channel.
