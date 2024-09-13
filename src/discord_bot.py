@@ -1,13 +1,17 @@
 import asyncio
 import datetime
 import logging
+import re
 
 import discord
+from discord import HTTPException
+
 from src import local_terminal, global_config
 from src.app_manager import restart_app, stop_app
 from src.chat_system import ChatSystem
 from src.global_config import *
-from src.utils.messages import send_dev_message, send_message
+from src.global_config import DISCORD_CHAR_LIMIT
+from src.utils.messages import split_string_by_limit
 
 
 # Summary:
@@ -39,7 +43,7 @@ def create_discord_bot(chat_system):
     intents = discord.Intents.default()
     intents.message_content = True
     client = CustomDiscordBot(chat_system, intents=intents)
-    debug_channel = client.get_channel(1222358674127982622)
+    debug_channel = client.get_channel(DISCORD_DEBUG_CHANNEL)
 
     @client.event
     async def on_ready():
@@ -49,7 +53,6 @@ def create_discord_bot(chat_system):
         logging.info('Hello {0.user} !'.format(client))
         available_personas = ', '.join(list(bot.get_persona_list().keys()))
         presence_txt = f"as {available_personas} 👀"
-        await asyncio.sleep(1)
         await client.change_presence(
             activity=discord.Activity(name=presence_txt, type=discord.ActivityType.watching))
 
@@ -77,36 +80,32 @@ def create_discord_bot(chat_system):
                         message.channel.name.startswith(persona_mention)):
                     if message.channel.name.startswith(persona_mention):
                         message.content = persona_mention + " " + message.content
-                    # Check message for dev commands
                     logging.debug('Found persona name: ' + persona_name)
-                    # Gather context and set status for discord
-                    if DISCORD_BOT:
-                        async with message.channel.typing():
-                            # Gather context (message history) from discord
-                            # Pulls a list of length GLOBAL_CONTEXT_LIMIT, is pruned later based on persona context setting #TODO: can make this more efficient by pulling the persona context limit here
-                            # Formats each message to put it into the state that preprocess_message expects, with persona name first
-                            # If preprocess_message with check_only=True returns True, the message is skipped as it is identified as a dev command
+                    async with message.channel.typing():
+                        # Gather context (message history) from discord
+                        # Pulls a list of length GLOBAL_CONTEXT_LIMIT, is pruned later based on persona context setting #TODO: can make this more efficient by pulling the persona context limit here
+                        # Formats each message to put persona name first # TODO: add persona field to preprocess_message and pass in when generating: allows messages to be used that don't start with persona name (better?)
+                        # If preprocess_message with check_only=True returns True, the message is skipped as it is identified as a dev command
+                        channel = client.get_channel(message.channel.id)
+                        context = []
+                        history = channel.history(before=message, limit=global_config.GLOBAL_CONTEXT_LIMIT)
+                        async for msg in history:
+                            if msg.author is not client.user.id and msg.channel.name.startswith(persona_mention):
+                                msg.content = persona_mention + " " + msg.content
                             # If a message begins with derpr: <persona_name> ``` the message is considered a dev message response and also skipped
-                            channel = client.get_channel(message.channel.id)
-                            context = []
-                            history = channel.history(before=message, limit=global_config.GLOBAL_CONTEXT_LIMIT)
-                            async for msg in history:
-                                if msg.author is not client.user.id and msg.channel.name.startswith(persona_mention):
-                                    msg.content = persona_mention + " " + msg.content
-                                is_previous_dev_response = 'derpr: ' + persona_mention + ' `​``' in msg.content  # zero-width space is a hack used in dev commands to escape internal code commenting
-                                if bot.bot_logic.preprocess_message(msg, check_only=True) or is_previous_dev_response:
-                                    continue
-                                else:
-                                    context.append(
-                                        f"{msg.created_at.strftime('%Y-%m-%d, %H:%M:%S')}, {msg.author.name}: {msg.content}")
-                            # Change discord status to 'streaming <persona>...'
-                            activity = discord.Activity(
-                                type=discord.ActivityType.streaming,
-                                name=persona_name + '...',
-                                url='https://www.twitch.tv/discordmakesmedothis')
-                            await client.change_presence(activity=activity)
-                    else:
-                        context = local_terminal.local_history_reader()
+                            # # zero-width space is a hack used in send_dev_command to escape existing code commenting
+                            is_previous_dev_response = 'derpr: ' + persona_mention + ' `​``' in msg.content
+                            if bot.bot_logic.preprocess_message(msg, check_only=True) or is_previous_dev_response:
+                                continue
+                            else:
+                                context.append(
+                                    f"{msg.created_at.strftime('%Y-%m-%d, %H:%M:%S')}, {msg.author.name}: {msg.content}")
+                        # Change discord status to 'streaming <persona>...'
+                        activity = discord.Activity(
+                            type=discord.ActivityType.streaming,
+                            name=persona_name + '...',
+                            url='https://www.twitch.tv/discordmakesmedothis')
+                        await client.change_presence(activity=activity)
 
                     # Message processing starts
                     # Check for dev commands
@@ -119,7 +118,7 @@ def create_discord_bot(chat_system):
                             await reset_discord_status()
 
                     else:  # If dev message found, send it now and reset status
-                        await send_dev_message(channel, dev_response)
+                        await send_discord_dev_message(channel, dev_response)
                         await reset_discord_status()
 
     async def reset_discord_status():
@@ -135,6 +134,11 @@ def create_discord_bot(chat_system):
 
 
 # # Module to forward console messages to discord
+    #     # Redirect console output to discord for remote monitoring
+    #     discord_console = discord_bot.DiscordConsoleOutput()
+    #     # sys.stdout = discord_console
+    #     # sys.stderr = discord_console
+    #     # sys.excepthook = discord_console.discord_excepthook
 # class DiscordConsoleOutput:
 #     def __init__(self):
 #         self.DISCORD_DISCONNECT_TIME = None
@@ -171,4 +175,25 @@ def create_discord_bot(chat_system):
 #         asyncio.create_task(send_dev_message(self.debug_channel, log_message))
 
 
+async def send_discord_dev_message(channel, msg: str):
+    """Escape discord code formatting instances, seems to require this weird hack with a zero-width space"""
+    # msg.replace("```", "\```")
+    formatted_msg = re.sub('```', '`\u200B``', msg)
+    # Split the response into multiple messages if it exceeds 2000 characters
+    chunks = split_string_by_limit(formatted_msg, DISCORD_CHAR_LIMIT)
+    for chunk in chunks:
+        try:
+            await channel.send(f"```{chunk}```")
+        except HTTPException as e:
+            logging.error(f"An error occurred: {e}")
+            pass
 
+
+async def send_message(channel, msg, char_limit):
+    """# Set name to currently speaking persona"""
+    # await client.user.edit(username=persona_name) #  This doesn't work as name changes are rate limited to 2/hour
+
+    # Split the response into multiple messages if it exceeds max discord message length
+    chunks = split_string_by_limit(msg, char_limit)
+    for chunk in chunks:
+        await channel.send(f"{chunk}")
