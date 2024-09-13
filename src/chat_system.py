@@ -1,6 +1,5 @@
 import os
 import logging
-import discord.activity
 
 import src.utils.messages
 from src.message_handler import *
@@ -46,23 +45,18 @@ class ChatSystem:
             logging.info(f"Failed to add to prompt, persona '{persona_name}' does not exist.")
 
     # Send 'message' to 'channel' if discord or 'team' if teams TODO: implement teams routing
-    async def generate_response(self, persona_name, message, channel, bot, client, context=''):
+    async def generate_response(self, persona_name, message, context=''):
 
-        """Generate a response using the specified persona and message channel."""
+        """Generate a response using the specified persona and message channel.
+        TODO: extract the discord code below and put it in discord_bot.py"""
         if persona_name in self.personas:
             persona = self.personas[persona_name]
-            async with channel.typing():
-                reply = await persona.generate_response(message, context)
+            reply = await persona.generate_response(message, context)
             if persona_name != 'derpr':
                 reply = f"{persona_name}: {reply}"
+            return reply
 
-            if channel is not None:
-                from src import discord_bot
-                # Split the response into multiple messages if it exceeds chunk_size number of characters
-                await src.utils.messages.send_message(channel, reply, DISCORD_CHAR_LIMIT)
-                # Reset discord status to 'watching'
-                await discord_bot.reset_discord_status()
         else:
             logging.warning(f"persona '{persona_name}' does not exist.")
-
+            return "Error in chat_system generate_response"
 

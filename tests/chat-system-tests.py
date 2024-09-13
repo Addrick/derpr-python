@@ -20,24 +20,14 @@ class TestChatSystem(IsolatedAsyncioTestCase):
         self.chat_system.delete_persona("test_persona", save=True)
         self.assertNotIn("test_persona", self.chat_system.get_persona_list())
 
-    # @patch('src.persona.Persona.generate_response')
-    # @patch('src.utils.messages.send_message')
-    # @patch('src.discord_bot.reset_discord_status')
+
     async def test_generate_response(self):
-        with patch('src.persona.Persona.generate_response') as mock_generate_response, \
-                patch('src.utils.messages.send_message') as mock_send_message, \
-                patch('src.discord_bot.reset_discord_status') as mock_reset_status:
+        with patch('src.persona.Persona.generate_response') as mock_generate_response:
             mock_generate_response.return_value = "This is a test response."
 
-            mock_channel = MagicMock()
-            mock_bot = MagicMock()
-            mock_client = MagicMock()
-
-            await self.chat_system.generate_response("testr", "Hello", mock_channel, mock_bot, mock_client)
+            await self.chat_system.generate_response("testr", "Hello")
 
             mock_generate_response.assert_called_once()
-            mock_send_message.assert_called_once()
-            mock_reset_status.assert_called_once()
 
 
 class TestPersona(IsolatedAsyncioTestCase):

@@ -67,7 +67,7 @@
             "name": "claude",
             "prompt": "",
             "model_name": "claude-3-5-sonnet-20240620",
-            "context_limit": 0,
+            "context_limit": 2,
             "token_limit": 1024
         },
         {
