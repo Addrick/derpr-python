@@ -1,14 +1,11 @@
 # derpr todo:
 
 - add module for voice chat functionality
-- add throttle to discord so it will delay rather than spamming until discord refuses
-- exclude dev commands from context in queries (emoji codes? threads? in-code filtering?)
 - explore utilizing rag
     > RAG-tuned models can be found on HF. can chatgpt or other general models utilize this?
     > I think RAG is done as a function within the transformer logic so it's unclear if a gguf can be used
     > seems related to being able to run internal functions so that may be good to implement alongside
 - explore storm (wiki generator)
-- implement anthropic and google api calls since they are competitive models now and seem to be rated higher on coding tasks than gpt-4
 
 # Features:
 # TODO: integrate huggingface hub for easy changing of local model weights
@@ -16,7 +13,6 @@
 # TODO: make tiny gui for easier parameter tuning
 # TODO: add multiple hyperparameter fields for personas to account for differences in models (ie openai_temp vs local_model_x_temp. Wonder if some kind of crude modifiers can work)
 # TODO: create new TODOs via chat interface (dev command to write to this file? need to make .txt for security)
-# TODO: Create chat channel in herp for error/console dumping; add try/except to message processors
 # TODO: dev command to cancel a generation and dump partial reply #/api/extra/generate/check #/api/extra/abort
 # TODO: have a 'default' model tag which uses whatever model is defined as default in config (for mass updating since most use 3.5t)
 # TODO: add local model config list to util function, ability to specify config file on local model launch
@@ -51,6 +47,7 @@
 # TODO: all persona settings except prompt are lost UNLESS prompt is also changed. Need to add a method to all these updates to resave. Kind of like this now as I usually don't want permanent changes but still seems not ideal behavior
 # TODO(BIG): filter history/context for dev commands so they don't pollute input (check each history line with preprocess()?)
 # TODO: koboldcpp console messages are not pushed to the debug discord channel for some reason
+# reset_discord_status sometimes doesn't work (on dev commands?), not repeatable
 
 LOCAL PERSONA MANAGEMENT:
 - problem: local models (all models really) have different ideal temperature ranges, but variables are only saved on a persona level
