@@ -106,6 +106,19 @@ def _err(message: str) -> Dict[str, Any]:
     return {"status": "error", "message": message}
 
 
+def _gb(size_bytes: Optional[int]) -> str:
+    """``"21.9 GB "`` for a known size, ``""`` for an unknown one.
+
+    Trailing space and empty-on-None so the caller can interpolate it straight
+    into a sentence that has to read correctly either way — the tier script is
+    the only source of the size and it is allowed to be absent (a pre-DP-340
+    node has no tier inventory at all).
+    """
+    if not isinstance(size_bytes, int) or size_bytes <= 0:
+        return ""
+    return f"{size_bytes / 1_000_000_000:.1f} GB "
+
+
 def _detail(res: Dict[str, Any]) -> str:
     """The most useful failure text a ``_run`` result carries."""
     return " — ".join(
@@ -958,12 +971,38 @@ class ProxmoxToolHandler:
         ])
         if res.get("status") != "ok":
             return res
+        # What just happened is "the unit was started", NOT "the model is
+        # serving", and the difference is minutes (DP-353). `systemctl enable
+        # --now` on a Type=simple unit returns the instant koboldcpp is forked
+        # — the node reports ActiveEnterTimestamp == ExecMainStartTimestamp —
+        # while koboldcpp then reads the whole gguf and uploads it to VRAM, and
+        # binds :5001 only after that. A bare `status: ok` here is what let a
+        # persona announce a 22 GB model as live while the port was still
+        # closed. Same reasoning as `_promote_model`: say it in the result,
+        # where the numbers are, not in a persona prompt.
+        entry = tiers.get(self._gguf_basename(specs[name])) if tiers else None
         result: Dict[str, Any] = {
             "status": "ok",
+            "state": "loading",
             "active_model": name,
             "unit": target,
             "host_vmid": vmid,
         }
+        size = entry.get("size_bytes") if entry else None
+        if size:
+            result["size_bytes"] = size
+        result["note"] = (
+            f"The swap has STARTED, not finished: the {target} unit is up and "
+            f"koboldcpp is now loading {_gb(size)}into VRAM. :5001 answers "
+            "nothing until that completes — expect a minute or more, and "
+            "longer for a large gguf or one just promoted off the archive "
+            "HDD. This call cannot tell you when it is ready and neither can "
+            "list_models: its `state` is `systemctl is-active`, which already "
+            "says active. Do NOT re-run set_active_model and do not tell the "
+            "user the model is live yet — poll gpu_status and wait for VRAM "
+            "used to stop climbing near the size above, which is the only "
+            "readiness signal these tools have."
+        )
         if unreadable:
             result["warnings"] = [
                 f"could not read ExecStart for {unit}; stopped it anyway in case "
