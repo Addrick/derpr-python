@@ -27,10 +27,14 @@ subsystems already broke:
 `ParkedWrite` carries `user_identifier`, `persona_name`, `channel` and
 `server_id`, taken from the turn that raised the deferral. A kind that has to be
 *told* which persona or channel to answer in has discarded state it was already
-handed — that is what `MODEL_JOB_WAKE_PERSONA`, `MODEL_JOB_WAKE_CHANNEL`,
-`MODEL_JOB_WAKE_USER`, `CC_FIXR_PERSONA` and `CC_FIXR_CHANNEL` were, and why
-DP-345 deletes rather than generalizes them.
+handed. `MODEL_JOB_WAKE_PERSONA`, `MODEL_JOB_WAKE_CHANNEL` and
+`MODEL_JOB_WAKE_USER` were exactly that, and they are **deleted** in this change
+rather than generalized — the node job's park row already knows all three.
+`CC_FIXR_PERSONA` / `CC_FIXR_CHANNEL` are the same defect in fixr and go the
+same way when fixr moves onto this mechanism.
 """
+
+from typing import Any, Dict, Optional, Tuple
 
 # A human clicking approve/deny. The original kind. Every kind is addressed by
 # TOKEN, including the ones answered by an outside authority: derpr mints the
@@ -44,4 +48,75 @@ DP-345 deletes rather than generalizes them.
 # of them was an approval.
 DEFERRAL_KIND_APPROVAL = "approval"
 
-__all__ = ["DEFERRAL_KIND_APPROVAL"]
+#: A job running on the pve node — a model install or a cold-tier promotion.
+#: Both are detached under `systemd-run` so they outlive the SSH call that
+#: started them, and both POST their job id back when they reach a terminal
+#: state. That id IS the park token; see the note above.
+DEFERRAL_KIND_NODE_JOB = "node_job"
+
+#: Key a tool result uses to say "this is not my final answer".
+#:
+#: A handler that kicks off out-of-band work returns an ordinary result dict
+#: (so a caller with no deferral support still reads something sensible) with
+#: this one extra key naming the kind that will answer it and the token that
+#: answer will arrive under. `declare_deferral` writes it; `declared_deferral`
+#: reads it back.
+#:
+#: Underscore-prefixed because it is plumbing between the handler and the park
+#: store, not content: `_settle_deferral` strips it before the result is
+#: patched into history, so it never reaches the model.
+DEFERRAL_DECLARATION_KEY = "_deferral"
+
+
+def declare_deferral(result: Dict[str, Any], kind: str,
+                     token: str) -> Dict[str, Any]:
+    """Mark a tool result as awaiting an external event. Returns `result`.
+
+    Mutates and returns the same dict so a handler can `return
+    declare_deferral({...}, KIND, job_id)` in one expression.
+
+    The token must be the identifier the outside world will use to report back
+    — for a node job, the `job_id` handed to the node script. It becomes the
+    park token verbatim, which is the whole point: nothing has to map one
+    namespace onto another later.
+    """
+    result[DEFERRAL_DECLARATION_KEY] = {"kind": kind, "token": token}
+    return result
+
+
+def declared_deferral(result: Any) -> Optional[Tuple[str, str]]:
+    """`(kind, token)` a result declared, or None. Never raises.
+
+    Tolerant on purpose. It reads the return value of an arbitrary tool
+    handler, reached through `apply()`, whose job is to not blow up after an
+    irreversible write has already run. A malformed declaration means the
+    result is treated as final — the same behaviour as a handler that declared
+    nothing, which is the pre-DP-345 behaviour and is safe: the work still
+    happened, the operator still sees the result, and the only thing lost is
+    the automatic resume.
+    """
+    if not isinstance(result, dict):
+        return None
+    declared = result.get(DEFERRAL_DECLARATION_KEY)
+    if not isinstance(declared, dict):
+        return None
+    kind = declared.get("kind")
+    token = declared.get("token")
+    if not isinstance(kind, str) or not isinstance(token, str):
+        return None
+    kind, token = kind.strip(), token.strip()
+    if not kind or not token or kind == DEFERRAL_KIND_APPROVAL:
+        # An `approval` declaration would mean a tool asking to be re-gated by
+        # a human after it already ran. Nothing constructs that, and honouring
+        # it would put an approve/deny button on an executed write.
+        return None
+    return kind, token
+
+
+__all__ = [
+    "DEFERRAL_KIND_APPROVAL",
+    "DEFERRAL_KIND_NODE_JOB",
+    "DEFERRAL_DECLARATION_KEY",
+    "declare_deferral",
+    "declared_deferral",
+]

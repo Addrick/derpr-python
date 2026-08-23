@@ -50,6 +50,7 @@ from src.proxmox.ssh import SSHError, SSHRunner
 if TYPE_CHECKING:
     from src.tools.tool_manager import ToolManager
 
+from src.deferral_kinds import DEFERRAL_KIND_NODE_JOB, declare_deferral
 logger = logging.getLogger(__name__)
 
 #: The one node-side verb this whole feature is allowed to run. Absolute because
@@ -86,6 +87,13 @@ _MAX_CONTEXTSIZE = 1048576
 _STATUS_FIELDS: Dict[str, type] = {
     "job_id": str,
     "state": str,
+    # DP-343: `derpr-model-tier` stamps "promote" here and the installer stamps
+    # nothing, which is how one job document says which of the two node scripts
+    # wrote it. Whitelisted rather than inferred from the other fields, because
+    # "repo is empty" happening to mean "this was a promotion" is the kind of
+    # inference that survives right up until the installer learns a case where
+    # repo is empty too.
+    "kind": str,
     "step": str,
     "reason": str,
     "repo": str,
@@ -193,7 +201,7 @@ class HuggingFaceToolHandler:
         manager.register(
             "install_model", self._install_model, self._enrich_install_model
         )
-        manager.register("install_status", self._install_status)
+        manager.register("install_status", self.job_status)
 
     # -- guards --------------------------------------------------------------
 
@@ -285,7 +293,17 @@ class HuggingFaceToolHandler:
             ),
         }
 
-    async def _install_status(self, job_id: str) -> Dict[str, Any]:
+    async def job_status(self, job_id: str) -> Dict[str, Any]:
+        """One job's verified state — the `install_status` tool, and the read
+        the DP-343 completion callback answers a node ping with.
+
+        Public because it has a second caller that is not the tool loop:
+        `completion.JobCompletionBridge` re-reads the job here rather than
+        trusting the POST body, so a ping is a doorbell and the facts still come
+        from the SSH transport derpr already trusts. Promote jobs
+        (`derpr-model-tier`) write into the same JOBS_DIR under the same schema,
+        so this reads both kinds.
+        """
         logger.info("Tool install_status: %s", job_id)
         if not self._enabled():
             return self._disabled_error()
@@ -374,7 +392,11 @@ class HuggingFaceToolHandler:
         ])
         if res.get("status") != "ok":
             return res
-        return {
+        # DP-345: the node owns this job now and it outlives the call. Declaring
+        # the deferral re-parks this executed write under `job_id`, so the
+        # node's completion ping resolves it in the conversation that asked —
+        # no configuration names a persona, channel or user anywhere.
+        return declare_deferral({
             "status": "ok",
             "job_id": job_id,
             "repo": repo_id,
@@ -397,7 +419,7 @@ class HuggingFaceToolHandler:
                 "set_active_model call, and the contextsize should be checked "
                 "against gpu_status first."
             ),
-        }
+        }, DEFERRAL_KIND_NODE_JOB, job_id)
 
 
 def _kv_budget_note(job: Dict[str, Any]) -> Optional[str]:

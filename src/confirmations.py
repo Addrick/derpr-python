@@ -23,7 +23,9 @@ from config.global_config import (
     PARK_PURGE_INTERVAL, PARK_REEXECUTION_GUARD_WINDOW, PARK_ROW_RETENTION,
     PENDING_ACTION_TTL,
 )
-from src.deferral_kinds import DEFERRAL_KIND_APPROVAL
+from src.deferral_kinds import (
+    DEFERRAL_DECLARATION_KEY, DEFERRAL_KIND_APPROVAL, declared_deferral,
+)
 from src.memory.memory_manager import (
     PARK_DB_CLAIMED, PARK_DB_EXPIRED, PARK_DB_INTERRUPTED, PARK_DB_LIVE,
     PARK_DB_PENDING, PARK_DB_QUARANTINED, PARK_DB_RESOLVED, PARK_DB_UNKNOWN,
@@ -34,7 +36,7 @@ from src.tools.definitions import get_tool_capabilities
 from src.tools.tool_loop import (
     PARK_STATUS_APPROVED, PARK_STATUS_AWAITING, PARK_STATUS_DENIED,
     PARK_STATUS_EXPIRED, PARK_STATUS_FAILED, PARK_STATUS_INTERRUPTED,
-    PARK_STATUS_QUARANTINED, write_call_identity_hash,
+    PARK_STATUS_QUARANTINED, awaiting_status, write_call_identity_hash,
 )
 from src.tools.tool_manager import ToolManager, tool_error
 
@@ -998,9 +1000,12 @@ class ConfirmationManager:
         # False rather than at its optimistic default — `_render_resolution_nudge`
         # keys off it to tell the model not to trust the tool context.
         decision.patched = False
+        redeferred = self._maybe_redefer(decision)
         try:
             decision.patched = self.patch_parked_entry(
-                park, decision.status, decision.result,
+                park,
+                awaiting_status(redeferred) if redeferred else decision.status,
+                decision.result,
             )
         finally:
             # Terminal, durably, in a `finally`: the row survives (the duplicate
@@ -1040,6 +1045,74 @@ class ConfirmationManager:
                 "Audit row carries the real outcome (executed_ok=%s).",
                 tool_name, park.token, decision.ok,
             )
+
+    def _maybe_redefer(self, decision: Decision) -> Optional[str]:
+        """Re-park an approved write that started work instead of finishing it.
+
+        `install_model` and the cold-tier promotion both hand the node a job id
+        and return immediately, so the honest history entry is
+        `awaiting:<kind>` rather than a completed call. Returns the kind that
+        now owns this call, or None to patch it as done.
+
+        Only on the approval path, and only when the call actually succeeded: a
+        denial ran nothing, and a failed start has no job to wait for. Strips
+        the declaration itself, which is plumbing between the handler and this
+        store — the model gets the handler's own note about what it started.
+        """
+        park = decision.park
+        if not (park.kind == DEFERRAL_KIND_APPROVAL
+                and decision.approved and decision.ok):
+            return None
+        declared = declared_deferral(decision.result)
+        if declared is None or not self._redefer(park, *declared):
+            return None
+        decision.result = {k: v for k, v in decision.result.items()
+                           if k != DEFERRAL_DECLARATION_KEY}
+        return declared[0]
+
+    def _redefer(self, park: "ParkedWrite", kind: str, token: str) -> bool:
+        """Re-park an executed write that is waiting on an external event.
+
+        The approval and the deferral are two parks, not one, and they must be:
+        the approval is already `resolved` by the time this runs (the write DID
+        run — it started the job), which is what the DP-319 re-execution guard
+        reads to recognize a re-proposal. Rewriting that row instead would make
+        an executed irreversible call look pending again.
+
+        Everything else is copied off the approval park, because the approval
+        park is the turn that raised it. That is what lets the node's ping
+        answer in the operator's own channel with nothing configured — see
+        `deferral_kinds`.
+
+        Returns False if the row could not be stored, in which case the caller
+        patches the entry as complete instead: a deferral nobody can resolve
+        would leave history reading `awaiting:<kind>` forever.
+        """
+        deferred = ParkedWrite(
+            token=token,
+            # The SAME write_call, so `call_id` still identifies the tool entry
+            # this deferral has to patch when it settles — it is the same call.
+            write_call=park.write_call,
+            audit_info=park.audit_info,
+            confirmation_text="",
+            user_identifier=park.user_identifier,
+            persona_name=park.persona_name,
+            channel=park.channel,
+            server_id=park.server_id,
+            kind=kind,
+            turn_tainted=park.turn_tainted,
+            parked_assistant_id=park.parked_assistant_id,
+        )
+        if not self._persist_new(deferred):
+            logger.error(
+                "%s deferral %s for %s could not be stored; reporting the "
+                "call as complete instead of leaving history awaiting an "
+                "answer that can never be claimed.", kind, token,
+                park.write_call.get("name") or "unknown",
+            )
+            return False
+        self._reinstate(deferred)
+        return True
 
     def patch_parked_entry(self, park: ParkedWrite, status: str,
                            result: Any) -> bool:
