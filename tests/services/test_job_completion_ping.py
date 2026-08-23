@@ -55,7 +55,20 @@ def _fake_bin(tmp_path: Path, *, curl_exit: int = 0) -> Path:
         f"exit {curl_exit}\n",
         encoding="utf-8",
     )
-    for name in ("pct", "logger", "systemd-run", "systemctl"):
+    # DP-349: the installer now demands a POSITIVE answer from the box rather
+    # than reading a failed `pct exec` as "absent"/"loaded". A shim that exits 0
+    # and says nothing is exactly the "cannot tell" case it refuses on, so the
+    # fake container has to actually answer the two probes.
+    (bindir / "pct").write_text(
+        "#!/bin/bash\n"
+        'case "$*" in\n'
+        '  *LoadState*) echo loaded ;;\n'
+        '  *"echo present"*) echo absent ;;\n'
+        "esac\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    for name in ("logger", "systemd-run", "systemctl", "flock"):
         (bindir / name).write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
     for f in bindir.iterdir():
         f.chmod(0o755)
@@ -260,7 +273,6 @@ def _install_env(tmp_path: Path, bindir: Path, payload: bytes) -> dict:
         "JOBS_DIR": "archive/.jobs",
         "TEMPLATE": "unit.in",
         "GGUF_HEADER": "no-such-header.py",
-        "TOKEN_FILE": "no-such-hf.token",
         "PROGRESS_INTERVAL": "1",
         "HF_BASE": "https://hf.invalid",
     })

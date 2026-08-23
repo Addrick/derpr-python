@@ -89,6 +89,17 @@ _MAX_KV = 100_000
 #: Same guard for the tensor index. The largest model here has 866 tensors.
 _MAX_TENSORS = 1_000_000
 
+#: Cap on an array's ELEMENT COUNT, which is a different quantity from
+#: ``_MAX_LEN``'s bytes and needs its own, much smaller, bound (DP-349).
+#: Bounding a count with the byte cap let a header declaring 60 million elements
+#: enter a 60-million-pass read loop, and because a real gguf has tens of GB of
+#: tensor data behind the header those reads keep succeeding on garbage instead
+#: of hitting the truncated-file exit — so the install hung for minutes with its
+#: status frozen rather than failing. The largest legitimate array is a tokenizer
+#: vocabulary (~250k on today's big models), so 4M is generous by more than an
+#: order of magnitude.
+_MAX_ARRAY = 4_000_000
+
 #: The tensor that proves a block caches K. A block without one contributes
 #: nothing per token, whatever `block_count` says it is.
 _K_TENSOR = "attn_k.weight"
@@ -168,7 +179,9 @@ def _value(fh: BinaryIO, type_id: int) -> Any:
     if type_id == _ARRAY:
         (elem_type,) = struct.unpack("<I", _read(fh, 4))
         (count,) = struct.unpack("<Q", _read(fh, 8))
-        if count > _MAX_LEN:
+        # _MAX_ARRAY, not _MAX_LEN: this is a count of elements, not a count of
+        # bytes, and the two differ by whatever an element costs.
+        if count > _MAX_ARRAY:
             raise _Bad(f"implausible array count {count}")
         for _ in range(count):
             _value(fh, elem_type)

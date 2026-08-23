@@ -54,13 +54,22 @@ KCPP_DIR="${KCPP_DIR:-/opt/koboldcpp}"
 KCPP_PORT="${KCPP_PORT:-5001}"
 TEMPLATE="${TEMPLATE:-/usr/local/share/derpr/koboldcpp-model.service.in}"
 GGUF_HEADER="${GGUF_HEADER:-/usr/local/share/derpr/gguf_header.py}"
-TOKEN_FILE="${TOKEN_FILE:-/etc/derpr-model-install.token}"
 HF_BASE="${HF_BASE:-https://huggingface.co}"
 # Headroom kept free beyond the model itself: the larger of 2 GiB and 5% of the
 # download, on the archive disk.
 MIN_MARGIN_BYTES="${MIN_MARGIN_BYTES:-2147483648}"
 # How often the download loop republishes downloaded_bytes.
 PROGRESS_INTERVAL="${PROGRESS_INTERVAL:-5}"
+# DP-349: the free-space precheck and the reservation ledger are one
+# critical section. Without the lock, N concurrent installs each verify the
+# same free bytes against themselves and are all admitted into space that
+# fits one. The ledger is what makes a concurrent job subtract what is
+# already promised rather than only what is already written.
+LOCK_FILE="${LOCK_FILE:-$JOBS_DIR/.install.lock}"
+RESERVE_DIR="${RESERVE_DIR:-$JOBS_DIR/.reservations}"
+# How long to wait for the lock before refusing. A precheck is milliseconds
+# of `df`; anything near this means something is wedged holding it.
+LOCK_WAIT="${LOCK_WAIT:-60}"
 # DP-343 completion ping. Empty URL = no ping, which is the pre-DP-343 behaviour
 # and the correct state for a node whose derpr cannot be reached.
 DERPR_CALLBACK_URL="${DERPR_CALLBACK_URL:-}"
@@ -130,6 +139,66 @@ ping_derpr() {
   return 0
 }
 
+# ---------------------------------------------------------------------------
+# space reservations (DP-349)
+# ---------------------------------------------------------------------------
+# One file per in-flight job, named for the job id:
+#   line 1  bytes this job has promised to write
+#   line 2  the .part path to delete if the job dies
+#   line 3  the unit NAME it is installing
+# Read and written only while the install lock is held.
+
+# A reservation whose systemd unit is gone belongs to a job that crashed or
+# was killed by a reboot mid-download. Its bytes are not coming, and its
+# .part is occupying the space it claimed, so both go. `is-active` is asked
+# about the transient unit systemd-run created, which outlives the process
+# only while the job is genuinely running.
+prune_reservations() {
+  local f job part
+  [ -d "$RESERVE_DIR" ] || return 0
+  for f in "$RESERVE_DIR"/*; do
+    [ -e "$f" ] || continue
+    job="$(basename "$f")"
+    systemctl is-active --quiet "modelinstall-$job" 2>/dev/null && continue
+    part="$(sed -n 2p "$f")"
+    case "$part" in
+      "$ARCHIVE_DIR"/*.part) rm -f "$part" ;;
+    esac
+    rm -f "$f"
+    log "pruned stale reservation job=$job"
+  done
+}
+
+# Bytes promised by jobs that are still running. Added to what THIS job needs
+# so the last admitted job is the one that no longer fits.
+reserved_bytes() {
+  local f n sum=0
+  [ -d "$RESERVE_DIR" ] || { echo 0; return 0; }
+  for f in "$RESERVE_DIR"/*; do
+    [ -e "$f" ] || continue
+    n="$(sed -n 1p "$f" | tr -dc "0-9")"
+    [ -n "$n" ] && sum=$(( sum + n ))
+  done
+  echo "$sum"
+}
+
+# Two jobs installing the same NAME would race for one destination file and
+# one unit stem. The unit check upstream cannot see this: the second job
+# starts before the first has written a unit at all.
+name_in_flight() {
+  local f
+  [ -d "$RESERVE_DIR" ] || return 1
+  for f in "$RESERVE_DIR"/*; do
+    [ -e "$f" ] || continue
+    [ "$(sed -n 3p "$f")" = "$NAME" ] && return 0
+  done
+  return 1
+}
+
+release_reservation() {
+  rm -f "$RESERVE_DIR/$JOB"
+}
+
 write_status() {
   local state="$1" step="$2" reason="$3" downloaded="$4"
   local tmp="$JOBS_DIR/.$JOB.$$"
@@ -149,7 +218,7 @@ write_status() {
   # the job just left. Terminal states are written only from `run` (the detached
   # half), so this never delays the SSH-facing verbs.
   case "$state" in
-    done|failed) ping_derpr ;;
+    done|failed) release_reservation; ping_derpr ;;
   esac
 }
 
@@ -167,21 +236,20 @@ parse_job_args() {
   [[ "$SIZE" =~ $re_num  ]] || die "invalid size"
   [[ "$SHA"  =~ $re_sha  ]] || die "invalid sha256"
   [[ "$JOB"  =~ $re_job  ]] || die "invalid job id"
-  # The destination basename is derived from the repo path's last segment, and
-  # the regexes above already exclude "/" and ".." from reaching it — the model
-  # never names a path, only a file inside a repo.
-  BASENAME="${FILE##*/}"
+  # The destination basename comes from $NAME, not from the repo file name.
+  # Two unrelated repos both publishing `model-Q4_K_M.gguf` is ordinary, and
+  # under a repo-derived basename the second is uninstallable while its
+  # `.part` clobbers the first's in-flight download. $NAME is unique by
+  # construction: the unit stem `koboldcpp-$NAME.service` must not already
+  # exist. re_name excludes "/" and ".", so the directory stays flat, which
+  # the wrapper's allowlist requires - it pins the model path to
+  # <dir>/<file>.gguf with no subdirectory.
+  BASENAME="$NAME.gguf"
   DEST="$ARCHIVE_DIR/$BASENAME"
   UNIT="koboldcpp-$NAME.service"
   STARTED="${STARTED:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
   FINISHED=""
   HEADER_JSON=""
-}
-
-curl_auth() {
-  if [ -r "$TOKEN_FILE" ]; then
-    printf -- '--header\nAuthorization: Bearer %s\n' "$(cat "$TOKEN_FILE")"
-  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -193,12 +261,36 @@ cmd_install() {
   [ -r "$TEMPLATE" ] || die "unit template missing at $TEMPLATE"
   [ -d "$ARCHIVE_DIR" ] || die "models dir $ARCHIVE_DIR does not exist"
 
-  # Refuse to shadow an existing unit. Overwriting one would silently repoint a
-  # name list_models already publishes, which is the sort of change that gets
-  # discovered by a swap serving the wrong model.
-  if pct exec "$CT_VMID" -- test -f "/etc/systemd/system/$UNIT" 2>/dev/null; then
-    die "unit $UNIT already exists on CT $CT_VMID; choose another name"
+  # Everything from here to systemd-run is one critical section. The whole
+  # defect is that the precheck and the commit were separable: two jobs both
+  # read the same `avail`, both decided they fit, and both started.
+  mkdir -p "$JOBS_DIR" "$RESERVE_DIR" || die "could not create $RESERVE_DIR"
+  exec 9>"$LOCK_FILE" || die "could not open lock file $LOCK_FILE"
+  flock -w "$LOCK_WAIT" 9 || die "timed out waiting for the install lock"
+  # Drop claims belonging to jobs that are no longer running, so a crash or a
+  # reboot mid-download does not permanently shrink the disk on paper.
+  prune_reservations
+  if name_in_flight; then
+    die "another install job is already installing $NAME"
   fi
+
+  # Refuse to shadow an existing unit. Overwriting one would silently repoint
+  # a name list_models already publishes, which is the sort of change that
+  # gets discovered by a swap serving the wrong model.
+  #
+  # The probe must return a POSITIVE "absent". A failing `pct exec test -f`
+  # is not evidence the unit is absent -- it is equally "container stopped,
+  # locked, or unreachable", and reading that as absent disarms the guard at
+  # exactly the moment the box cannot be consulted.
+  local unit_probe
+  unit_probe="$(pct exec "$CT_VMID" -- sh -c \
+    "test -f /etc/systemd/system/$UNIT && echo present || echo absent" \
+    2>/dev/null)"
+  case "$unit_probe" in
+    absent)  : ;;
+    present) die "unit $UNIT already exists on CT $CT_VMID; choose another name" ;;
+    *) die "could not determine whether $UNIT exists on CT $CT_VMID" ;;
+  esac
   if [ -e "$JOBS_DIR/$JOB.json" ]; then
     die "job $JOB already exists"
   fi
@@ -211,15 +303,27 @@ cmd_install() {
     have="$(sha256sum "$DEST" | cut -d' ' -f1)"
     [ "$have" = "$SHA" ] || die "$BASENAME already exists with a different sha256"
   else
-    local avail need
+    local avail need promised
     avail="$(df -B1 --output=avail "$ARCHIVE_DIR" | tail -n1 | tr -dc '0-9')"
     [ -n "$avail" ] || die "could not read free space on $ARCHIVE_DIR"
     need=$(( SIZE + (SIZE / 20) ))
     [ "$need" -ge $(( SIZE + MIN_MARGIN_BYTES )) ] || need=$(( SIZE + MIN_MARGIN_BYTES ))
+    # Space already promised by running jobs is space this one cannot have,
+    # even though `df` still reports it free: their bytes are in flight, not
+    # yet written. Subtracting only what is on disk is what let N jobs share
+    # one job's worth of room.
+    promised="$(reserved_bytes)"
+    need=$(( need + promised ))
     if [ "$avail" -lt "$need" ]; then
-      die "insufficient space on $ARCHIVE_DIR: need $need bytes, have $avail"
+      die "insufficient space on $ARCHIVE_DIR: need $need bytes (including $promised reserved by running jobs), have $avail"
     fi
   fi
+
+  # Claim the space before releasing the lock. A reservation written after
+  # systemd-run would leave a window in which the job is running and its
+  # bytes are invisible to the next precheck -- the same race, moved.
+  printf '%s\n%s\n%s\n' "$SIZE" "$DEST.part" "$NAME" > "$RESERVE_DIR/$JOB" \
+    || die "could not write reservation for job $JOB"
 
   write_status queued starting "" 0 || die "could not write job file"
   # --collect so a finished unit does not linger in a failed state and block the
@@ -228,7 +332,7 @@ cmd_install() {
   systemd-run --collect --unit="modelinstall-$JOB" \
     --setenv=STARTED="$STARTED" \
     "$0" run "$REPO" "$FILE" "$NAME" "$CTX" "$SIZE" "$SHA" "$JOB" >/dev/null 2>&1 \
-    || die "could not start background job"
+    || { release_reservation; die "could not start background job"; }
   log "ALLOW install $REPO/$FILE as $NAME job=$JOB"
   cat "$JOBS_DIR/$JOB.json"
 }
@@ -259,10 +363,12 @@ cmd_run() {
     write_status running download "" 0
     local url="$HF_BASE/$REPO/resolve/main/$FILE"
     rm -f "$part"
-    local auth=()
-    mapfile -t auth < <(curl_auth)
+    # --max-filesize bounds the write by the size a human approved. Without
+    # it a repo serving more bytes than it advertised fills the disk FIRST
+    # and fails the digest check afterwards, which is the wrong order to
+    # find out. Anonymous: no token, no Authorization header (DP-347).
     curl -fL --retry 3 --retry-delay 5 --silent --show-error \
-      "${auth[@]}" -o "$part" "$url" &
+      --max-filesize "$SIZE" -o "$part" "$url" &
     local pid=$!
     while kill -0 "$pid" 2>/dev/null; do
       local got
@@ -277,6 +383,19 @@ cmd_run() {
       FINISHED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
       write_status failed download "download_failed" 0
       log "FAIL job=$JOB download rc=$rc"
+      exit 1
+    fi
+
+    # A pre-filter, never the check: hashing 30 GB to learn what `stat`
+    # already knew costs minutes of node I/O, and a byte count that
+    # disagrees cannot possibly hash correctly.
+    local got_bytes
+    got_bytes="$(stat -c %s "$part" 2>/dev/null || echo 0)"
+    if [ "$got_bytes" != "$SIZE" ]; then
+      rm -f "$part"
+      FINISHED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      write_status failed verify "size_mismatch" 0
+      log "FAIL job=$JOB size mismatch: got $got_bytes want $SIZE"
       exit 1
     fi
 
@@ -328,14 +447,45 @@ cmd_run() {
   rm -f "$tmp"
 
   # The shared logging drop-in: kcpp's progress records end in CR, and without
-  # this they land in the journal as one line per byte-batch.
-  pct exec "$CT_VMID" -- mkdir -p "/etc/systemd/system/$UNIT.d" >/dev/null 2>&1
+  # this they land in the journal as one line per byte-batch. Cosmetic, so a
+  # failure here is RECORDED and not fatal -- but it is no longer invisible.
+  # Silently discarding the exit status is how a step gets reported done on
+  # the strength of having been attempted.
   local dropin="/tmp/derpr-log-$NAME.$$"
   printf '[Service]\nStandardOutput=append:/var/log/kobold/current.log\nStandardError=append:/var/log/kobold/current.log\n' > "$dropin"
-  pct push "$CT_VMID" "$dropin" "/etc/systemd/system/$UNIT.d/log.conf" --perms 644 >/dev/null 2>&1
+  if pct exec "$CT_VMID" -- mkdir -p "/etc/systemd/system/$UNIT.d" >/dev/null 2>&1 \
+     && pct push "$CT_VMID" "$dropin" "/etc/systemd/system/$UNIT.d/log.conf" \
+          --perms 644 >/dev/null 2>&1; then
+    :
+  else
+    log "WARN job=$JOB logging drop-in not installed for $UNIT (cosmetic)"
+  fi
   rm -f "$dropin"
 
-  pct exec "$CT_VMID" -- systemctl daemon-reload >/dev/null 2>&1
+  # A unit systemd has not re-read does not exist to `systemctl
+  # list-unit-files`, which is exactly where list_models discovers units. So
+  # the reload is checked, and then the box is ASKED whether the unit is
+  # actually loaded -- reporting this step done off a discarded exit status
+  # is how an install lands "done" with nothing to show for it.
+  if ! pct exec "$CT_VMID" -- systemctl daemon-reload >/dev/null 2>&1; then
+    FINISHED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    write_status failed unit "daemon_reload_failed" "$SIZE"
+    log "FAIL job=$JOB daemon-reload on CT $CT_VMID"
+    exit 1
+  fi
+
+  # A POSITIVE answer, for the same reason the pre-install probe demands one:
+  # a failing `pct exec` is not evidence about the unit, it is evidence about
+  # the container.
+  local loaded
+  loaded="$(pct exec "$CT_VMID" -- systemctl show -p LoadState --value \
+    "$UNIT" 2>/dev/null)"
+  if [ "$loaded" != "loaded" ]; then
+    FINISHED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    write_status failed unit "unit_not_loaded" "$SIZE"
+    log "FAIL job=$JOB $UNIT LoadState=${loaded:-unknown} after daemon-reload"
+    exit 1
+  fi
 
   # Deliberately NOT enabled and NOT started. Taking :5001 is a separate,
   # separately-approved action.
