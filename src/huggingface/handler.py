@@ -243,7 +243,11 @@ class HuggingFaceToolHandler:
         try:
             capped = max(1, min(int(limit), global_config.HF_SEARCH_LIMIT_MAX))
         except (TypeError, ValueError):
-            capped = 10
+            # The fallback goes through the ceiling too. A model that emits
+            # limit="ten" must not end up with a bigger page than the operator's
+            # configured maximum allows — that is the one case where a garbage
+            # argument would buy more untrusted text than a valid one.
+            capped = max(1, min(10, global_config.HF_SEARCH_LIMIT_MAX))
         try:
             models = await self._hf.search_models(query, capped)
         except HFError as e:
@@ -279,21 +283,40 @@ class HuggingFaceToolHandler:
         if not self._enabled():
             return self._disabled_error()
         try:
-            files = await self._hf.list_gguf_files(validate_repo_id(repo))
+            files, truncated = await self._hf.list_gguf_files(validate_repo_id(repo))
         except HFError as e:
             return _err(str(e))
+        # Capped for the same reason hf_search is, and over the same kind of
+        # text: every row is a path and a digest chosen by whoever uploaded the
+        # repo, and a repo publishing every quant of a sharded model is several
+        # thousand tokens of third-party text in one tool result.
+        cap = max(1, global_config.HF_FILES_LIMIT_MAX)
+        elided = max(0, len(files) - cap)
+        # Said out loud rather than left to inference, in both directions: a
+        # repo with no gguf is a normal answer and must not read as "the read
+        # failed", and an incomplete listing must never read as a complete one.
+        notes = [
+            "Sizes are bytes as HuggingFace reports them. A file with "
+            "sha256: null cannot be installed — install_model refuses "
+            "anything it cannot pin to a digest."
+        ]
+        if elided:
+            notes.append(
+                f"{elided} further gguf file(s) were elided at the "
+                f"HF_FILES_LIMIT_MAX cap of {cap}, so this list is INCOMPLETE."
+            )
+        if truncated:
+            notes.append(
+                "The repo's file tree is larger than this listing walked, so "
+                "this list is INCOMPLETE — a file missing from it may still "
+                "exist. Do not report a file as absent on the strength of it."
+            )
         return {
             "status": "ok",
             "repo": repo,
-            "files": [f.to_dict() for f in files],
-            # Said out loud rather than left to inference: a repo with no gguf
-            # is a normal answer, and "the list came back empty" must not read
-            # as "the read failed" (or vice versa).
-            "note": (
-                "Sizes are bytes as HuggingFace reports them. A file with "
-                "sha256: null cannot be installed — install_model refuses "
-                "anything it cannot pin to a digest."
-            ),
+            "files": [f.to_dict() for f in files[:cap]],
+            "truncated": bool(truncated or elided),
+            "note": " ".join(notes),
         }
 
     async def job_status(self, job_id: str) -> Dict[str, Any]:

@@ -1277,11 +1277,26 @@ but nothing is posted to announce it.
 Disabled by default. Enable with `HF_TOOLS_ENABLED=true` **and** deploy the
 node-side artifacts (`services/pve/README.md` has the steps, including the
 forced-command allowlist entry). Config knobs: `HF_API_BASE`,
-`HF_HTTP_TIMEOUT`, `HF_SEARCH_LIMIT_MAX`. Hub reads are anonymous — derpr holds
-no HuggingFace credential, so gated and private repos are not supported; the
-public gguf repos this exists for need no auth. The
+`HF_HTTP_TIMEOUT`, `HF_SEARCH_LIMIT_MAX`, `HF_FILES_LIMIT_MAX`. Hub reads are
+anonymous — derpr holds no HuggingFace credential, so gated and private repos
+are not supported; the public gguf repos this exists for need no auth. The
 transport settings are the proxmox ones (`PVE_SSH_*`). When disabled, every tool
 returns a clear "disabled" error instead of reaching the Hub or the node.
+
+Both read tools are page-capped, because every row they return is text an
+uploader chose and the model then reads: `HF_SEARCH_LIMIT_MAX` (default 20)
+bounds `hf_search`, and `HF_FILES_LIMIT_MAX` (default 60) bounds how many gguf
+rows `hf_files` republishes — higher, because a real quant repo carries dozens
+of files and the model has to pick between them.
+
+**A short listing always says it is short.** If `hf_files` had to stop early —
+either at that cap or because the repo's file tree ran past the pages the
+listing walks — the result carries `truncated: true` and a note saying the list
+is incomplete. Nothing is elided quietly: a partial listing that reads as a
+complete one makes a file that exists look like a typo, and the model then
+spends its turn re-spelling a name that was right the first time. For the same
+reason, `install_model` **refuses** rather than reporting "no such file" when
+the file it was asked for is missing from a listing that was cut short.
 
 ⚠️ **The persona holding this binding reads attacker-authored text and can write
 to the node.** That composition is checked, not assumed: the Hub reads and
