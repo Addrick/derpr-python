@@ -111,6 +111,12 @@ def make(hf: Optional[FakeHF] = None, runner: Optional[FakeRunner] = None):
 def enabled(monkeypatch):
     monkeypatch.setattr(global_config, "HF_TOOLS_ENABLED", True)
     monkeypatch.setattr(global_config, "HF_SEARCH_LIMIT_MAX", 20)
+    # DP-348: the node transport is gated separately, and it is set here rather
+    # than inherited from the environment. Before the gate existed these tests
+    # reached the runner with `PVE_TOOLS_ENABLED` left at whatever a developer's
+    # `.env` happened to say — passing locally on a box that sets it and failing
+    # on a clean checkout. A test that needs the transport now says so.
+    monkeypatch.setattr(global_config, "PVE_TOOLS_ENABLED", True)
 
 
 # -- disabled guard ----------------------------------------------------------

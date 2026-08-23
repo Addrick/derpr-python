@@ -45,7 +45,7 @@ from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from config import global_config
 from src.huggingface.client import HFClient, HFError, validate_file_path, validate_repo_id
-from src.proxmox.ssh import SSHError, SSHRunner
+from src.proxmox.ssh import SSHRunner, run_node_command
 
 if TYPE_CHECKING:
     from src.tools.tool_manager import ToolManager
@@ -217,19 +217,22 @@ class HuggingFaceToolHandler:
         )
 
     async def _run(self, argv: list[str]) -> Dict[str, Any]:
-        """Run the one node-side verb, mapping transport/exit errors to dicts."""
-        try:
-            res = await self._ssh.run(argv)
-        except SSHError as e:
-            return _err(f"ssh failed: {e}")
-        if res.returncode != 0:
-            return {
-                "status": "error",
-                "message": f"node script exited {res.returncode}",
-                "stderr": res.stderr,
-                "stdout": res.stdout,
-            }
-        return {"status": "ok", "stdout": res.stdout, "stderr": res.stderr}
+        """Run the one node-side verb through the shared node gate (DP-348).
+
+        This used to be a second, independent implementation of
+        ``ProxmoxToolHandler._run``, and the two had drifted in the two ways that
+        mattered: it checked no ``PVE_TOOLS_ENABLED``, so ``install_model``
+        shelled out to the box while every proxmox tool correctly reported itself
+        disabled; and it held no in-flight cap, so HF connections were invisible
+        to the limit that exists to keep the node under sshd's MaxStartups.
+        Both are properties of the key and the box, not of a handler, so both now
+        live behind ``ssh.run_node_command``.
+
+        ``HF_TOOLS_ENABLED`` stays where it is — it is the *feature* switch for
+        these four tools, checked per tool before any argv is built. The gate is
+        the *transport* switch.
+        """
+        return await run_node_command(self._ssh, argv, exit_label="node script")
 
     # -- read tools ----------------------------------------------------------
 

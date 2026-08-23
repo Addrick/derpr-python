@@ -53,7 +53,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from config import global_config
-from src.proxmox.ssh import SSHError, SSHRunner
+from src.proxmox.ssh import SSHRunner, run_node_command
 
 if TYPE_CHECKING:
     from src.tools.tool_manager import ToolManager
@@ -86,14 +86,6 @@ _KCPP_PORT = "5001"
 #: A DRM card directory under /sys/class/drm — ``card1``, not the connector
 #: nodes (``card1-DP-1``) or ``renderD128`` that sit beside it.
 _CARD_RE = re.compile(r"card\d+")
-
-#: Cap on SSH calls in flight at once. Every ``_run`` is a fresh ``ssh`` process
-#: doing a full auth handshake — there is no ControlMaster here — and sshd's
-#: default MaxStartups (10:30:100) begins randomly dropping connections past ten
-#: unauthenticated ones. The per-unit probes fan out over however many units the
-#: box holds, a number DP-332 deliberately stopped bounding in config, so the
-#: cap belongs at the transport rather than at each call site.
-_MAX_INFLIGHT_SSH = 4
 
 _MIB = 1024 * 1024
 
@@ -214,7 +206,6 @@ def _parse_table(text: str) -> List[Dict[str, str]]:
 class ProxmoxToolHandler:
     def __init__(self, runner: SSHRunner | None = None) -> None:
         self._ssh = runner or SSHRunner()
-        self._inflight = asyncio.Semaphore(_MAX_INFLIGHT_SSH)
 
     def register(self, manager: "ToolManager") -> None:
         manager.register("pve_status", self._pve_status)
@@ -232,25 +223,15 @@ class ProxmoxToolHandler:
         return bool(global_config.PVE_TOOLS_ENABLED)
 
     async def _run(self, argv: List[str]) -> Dict[str, Any]:
-        """Run one remote argv, mapping transport/exit errors to result dicts."""
-        if not self._enabled():
-            return _err(
-                "Proxmox tools are disabled (set PVE_TOOLS_ENABLED=true and mount "
-                "the pve SSH key to enable)."
-            )
-        try:
-            async with self._inflight:
-                res = await self._ssh.run(argv)
-        except SSHError as e:
-            return _err(f"ssh failed: {e}")
-        if res.returncode != 0:
-            return {
-                "status": "error",
-                "message": f"remote command exited {res.returncode}",
-                "stderr": res.stderr,
-                "stdout": res.stdout,
-            }
-        return {"status": "ok", "stdout": res.stdout, "stderr": res.stderr}
+        """Run one remote argv through the shared node gate (DP-348).
+
+        The ``PVE_TOOLS_ENABLED`` check and the in-flight cap used to live here.
+        They are properties of the key and of the node's sshd rather than of this
+        handler, so they now live in ``ssh.run_node_command`` where every caller
+        that reaches the box gets them — the HuggingFace tools had their own copy
+        of this method and inherited neither.
+        """
+        return await run_node_command(self._ssh, argv, exit_label="remote command")
 
     # -- guest inventory / name resolution (DP-327) ---------------------------
 
