@@ -563,7 +563,6 @@ class ChatSystem:
                             channel=ctx.channel,
                             server_id=ctx.server_id,
                             kind=ev.kind,
-                            handle=ev.handle,
                             turn_tainted=ev.turn_tainted,
                         ))
                         if ev.kind == DEFERRAL_KIND_APPROVAL:
@@ -951,7 +950,7 @@ class ChatSystem:
                 yield ev
 
     async def stream_resolve_deferral(
-            self, kind: str, handle: str, *, status: str, result: Any,
+            self, token: str, *, kind: str, status: str, result: Any,
             note: Optional[str] = None,
     ) -> AsyncGenerator[GenerationEvent, None]:
         """Settle a non-approval deferral, then summarize (DP-345).
@@ -963,27 +962,64 @@ class ChatSystem:
         never approval-specific, and rebuilding them per subsystem is what this
         ticket exists to undo.
 
-        Only the CLAIM differs, and it has to. An operator click needs the
-        conversation-ownership, TTL and persona checks; an authority ping needs
-        none of them (nobody is late, and the ping does not choose a
-        conversation — the row does) but does need addressing by
-        `(kind, handle)`, because the node knows a job id and has never seen a
-        token.
+        Addressed by TOKEN, like every other kind. The authority is not handed
+        some identifier of its own that we then have to map back: derpr mints
+        the park token and passes that same string outward as the job id, so
+        the thing the node names in its callback IS the park. A second
+        namespace plus an index to join it was state this call already had.
+
+        `kind` is what the CALLER EXPECTS to be answering, not a lookup key —
+        the claim is `take(token)` and the kind is checked against the row
+        afterwards. Both directions fail closed, because a token that resolves
+        the wrong mechanism is the failure this whole ticket is about:
+
+        * an `approval` park reached here would execute a human-gated write
+          with nobody in the loop;
+        * a mismatch against `kind` means the caller believes it is answering
+          a different authority than the one that parked this, so its `status`
+          and `result` describe some other piece of work.
+
+        Both restore the park rather than dropping it, exactly as the persona
+        check below does.
 
         `status` and `result` are the *re-read* outcome, per DP-343's rule that
-        the trigger carries a handle and never facts: the caller asks the
+        the trigger carries an identifier and never facts: the caller asks the
         authority what happened and passes that in. Nothing here trusts the
         ping's own payload.
         """
-        parked = self.confirmations.take_by_handle(kind, handle)
+        parked = self.confirmations.take(token)
         if parked is None:
             # Already settled (the node retries its ping ~6s apart), expired, or
             # never registered. Not an error, and deliberately silent: there is
             # no conversation to interrupt with a message about a job the model
             # has already been told about.
             logger.info(
-                "deferral %s/%s: nothing pending to settle — already resolved, "
-                "expired, or never registered", kind, handle,
+                "deferral %s (%s): nothing pending to settle — already "
+                "resolved, expired, or never registered", token, kind,
+            )
+            return
+
+        if parked.kind == DEFERRAL_KIND_APPROVAL:
+            # The mirror of `stream_resolve_park`'s non-approval refusal, and
+            # the more dangerous half: an approval park gates an irreversible
+            # write behind a human, and settling it here would run it on an
+            # authority's say-so with no human having decided anything.
+            self.confirmations.restore(parked)
+            logger.error(
+                "deferral %s: refusing to settle an approval park as a %r "
+                "deferral — a gated write is answered by a human, never by an "
+                "authority ping", token, kind,
+            )
+            return
+
+        if parked.kind != kind:
+            # The caller is answering a different authority than the one that
+            # parked this, so its `status` and `result` are about other work.
+            self.confirmations.restore(parked)
+            logger.error(
+                "deferral %s: caller expected kind %r but the park is %r; "
+                "leaving it pending rather than settling it with another "
+                "authority's outcome", token, kind, parked.kind,
             )
             return
 
@@ -994,9 +1030,9 @@ class ChatSystem:
             # left to patch it.
             self.confirmations.restore(parked)
             logger.error(
-                "deferral %s/%s: persona %r no longer exists; leaving it "
+                "deferral %s (%s): persona %r no longer exists; leaving it "
                 "pending rather than settling into nowhere",
-                kind, handle, parked.persona_name,
+                token, kind, parked.persona_name,
             )
             return
 

@@ -32,10 +32,12 @@ handed — that is what `MODEL_JOB_WAKE_PERSONA`, `MODEL_JOB_WAKE_CHANNEL`,
 DP-345 deletes rather than generalizes them.
 """
 
-# A human clicking approve/deny. The original kind, and the only one whose
-# external event carries the token itself — every other kind is addressed by
-# `(kind, handle)` because its authority knows a job id and has never heard of
-# a token.
+# A human clicking approve/deny. The original kind. Every kind is addressed by
+# TOKEN, including the ones answered by an outside authority: derpr mints the
+# park token and hands that same string outward as the job id, so there is no
+# second namespace to map back from. Same rule as the coordinates above — a
+# kind that has to be handed an identifier the parking call already had is
+# discarding state it was given.
 #
 # Also the value of the `Parked_Writes.kind` DDL default, which is what makes
 # the migration a no-op for rows written before the column existed: every one

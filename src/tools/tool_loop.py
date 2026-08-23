@@ -77,9 +77,9 @@ class ToolDeferredEvent:
     A capability nothing can find by its own vocabulary gets built twice.
 
     `kind` says which external event will answer the call, and it is what
-    `resolve` dispatches on. `handle` is that kind's identifier for the pending
-    thing (a node job id, an agent id); `None` for `approval`, whose external
-    event is a human clicking a token.
+    `resolve` dispatches on. There is no companion handle naming the pending
+    thing the way that event knows it, because `token` already is that name:
+    derpr mints it and hands the same string outward as the job id.
     """
     token: str
     write_call: Dict[str, Any]
@@ -87,7 +87,6 @@ class ToolDeferredEvent:
     confirmation_text: str
     turn_tainted: bool = False
     kind: str = DEFERRAL_KIND_APPROVAL
-    handle: Optional[str] = None
 
 
 @dataclass

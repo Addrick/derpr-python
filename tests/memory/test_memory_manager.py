@@ -2962,7 +2962,7 @@ def test_migration_creates_parked_writes_table(legacy_mem_manager):
     assert {'token', 'created_at', 'status', 'user_identifier', 'persona_name',
             'channel', 'server_id', 'write_call', 'call_identity', 'audit_info',
             'confirmation_text', 'turn_tainted', 'parked_assistant_id',
-            'duplicate_refs', 'kind', 'handle', 'resolved_at', 'resolution',
+            'duplicate_refs', 'kind', 'resolved_at', 'resolution',
             'resolution_reason'} == columns
 
     cursor.execute("PRAGMA index_list(Parked_Writes)")
@@ -3009,10 +3009,10 @@ def test_migration_parked_writes_idempotent(legacy_mem_manager):
             legacy_mem_manager.load_parked_writes(("pending",))] == ["a"]
 
 
-# --- Parked_Writes kind/handle migration (DP-345) ---
+# --- Parked_Writes kind migration (DP-345) ---
 #
 # `test_migration_creates_parked_writes_table` above covers the DB that predates
-# the TABLE. This block covers the one that predates the COLUMNS — a database
+# the TABLE. This block covers the one that predates the COLUMN — a database
 # that has been running parks since DP-319 and now has to carry deferrals of
 # other kinds. That population is the live production DB, and a `:memory:` DB
 # can never represent it: it is built from the current DDL, so `kind` is there
@@ -3020,7 +3020,7 @@ def test_migration_parked_writes_idempotent(legacy_mem_manager):
 
 @pytest.fixture
 def pre_kind_mem_manager(tmp_path):
-    """MemoryManager on a DB whose Parked_Writes predates `kind`/`handle`.
+    """MemoryManager on a DB whose Parked_Writes predates `kind`.
 
     The table is the post-DP-319 shape verbatim, holding one live park and one
     already-resolved one, so the migration has real rows to preserve and the
@@ -3084,19 +3084,18 @@ def pre_kind_mem_manager(tmp_path):
     manager.close()
 
 
-def test_migration_adds_kind_and_handle_columns(pre_kind_mem_manager):
-    """create_schema() ALTERs the two DP-345 columns onto an existing table."""
+def test_migration_adds_the_kind_column(pre_kind_mem_manager):
+    """create_schema() ALTERs the one DP-345 column onto an existing table."""
     pre_kind_mem_manager.create_schema()
 
     cursor = pre_kind_mem_manager._get_connection().cursor()
     cursor.execute("PRAGMA table_info(Parked_Writes)")
     columns = {row['name'] for row in cursor.fetchall()}
     assert 'kind' in columns
-    assert 'handle' in columns
 
 
 def test_migration_backfills_existing_rows_as_approvals(pre_kind_mem_manager):
-    """Every pre-DP-345 row reads back as `kind='approval'`, handle NULL.
+    """Every pre-DP-345 row reads back as `kind='approval'`.
 
     This is the whole safety argument for the column DEFAULT. Rows written
     before deferral kinds existed were, without exception, writes awaiting a
@@ -3107,9 +3106,9 @@ def test_migration_backfills_existing_rows_as_approvals(pre_kind_mem_manager):
     pre_kind_mem_manager.create_schema()
 
     cursor = pre_kind_mem_manager._get_connection().cursor()
-    cursor.execute("SELECT token, kind, handle FROM Parked_Writes ORDER BY token")
-    rows = {r['token']: (r['kind'], r['handle']) for r in cursor.fetchall()}
-    assert rows == {'live': ('approval', None), 'old': ('approval', None)}
+    cursor.execute("SELECT token, kind FROM Parked_Writes ORDER BY token")
+    rows = {r['token']: r['kind'] for r in cursor.fetchall()}
+    assert rows == {'live': 'approval', 'old': 'approval'}
 
 
 def test_migration_preserves_existing_park_payloads(pre_kind_mem_manager):
@@ -3126,22 +3125,6 @@ def test_migration_preserves_existing_park_payloads(pre_kind_mem_manager):
     assert loaded[0]["kind"] == "approval"
 
 
-def test_migration_creates_the_kind_handle_index(pre_kind_mem_manager):
-    """The index is built AFTER the ALTER, not in the CREATE TABLE script.
-
-    Order is the entire point. `CREATE TABLE IF NOT EXISTS` is a no-op against
-    this database, so an index over `kind` declared in that script would run
-    before the column existed and take `create_schema()` — i.e. boot — down with
-    it on every deployment that already had parks.
-    """
-    pre_kind_mem_manager.create_schema()
-
-    cursor = pre_kind_mem_manager._get_connection().cursor()
-    cursor.execute("SELECT count(*) FROM sqlite_master "
-                   "WHERE type='index' AND name='idx_parked_kind_handle'")
-    assert cursor.fetchone()[0] == 1
-
-
 def test_migration_makes_deferral_kinds_usable(pre_kind_mem_manager):
     """A non-approval deferral can be stored and found on the migrated DB."""
     pre_kind_mem_manager.create_schema()
@@ -3152,21 +3135,20 @@ def test_migration_makes_deferral_kinds_usable(pre_kind_mem_manager):
         write_call={"id": "c9", "name": "install_model", "arguments": {}},
         call_identity="ident-job", audit_info={}, confirmation_text="",
         turn_tainted=False, parked_assistant_id=7, duplicate_refs=[],
-        kind="node_job", handle="modelinstall-42",
+        kind="node_job",
     ) is True
 
     loaded = {r["token"]: r for r in
               pre_kind_mem_manager.load_parked_writes(("pending",))}
     assert loaded["job"]["kind"] == "node_job"
-    assert loaded["job"]["handle"] == "modelinstall-42"
     # And the pre-existing park is still an approval beside it.
     assert loaded["live"]["kind"] == "approval"
 
 
-def test_migration_kind_and_handle_idempotent(pre_kind_mem_manager):
+def test_migration_kind_idempotent(pre_kind_mem_manager):
     """A second create_schema() re-runs cleanly and keeps the rows.
 
-    The ALTERs are guarded on `PRAGMA table_info`, so an unguarded second run
+    The ALTER is guarded on `PRAGMA table_info`, so an unguarded second run
     would raise "duplicate column name" out of create_schema() — which happens
     on every boot after the first, not in some rare path.
     """
@@ -3177,7 +3159,7 @@ def test_migration_kind_and_handle_idempotent(pre_kind_mem_manager):
         write_call={"id": "c9", "name": "install_model", "arguments": {}},
         call_identity="ident-job", audit_info={}, confirmation_text="",
         turn_tainted=False, parked_assistant_id=7, duplicate_refs=[],
-        kind="node_job", handle="modelinstall-42",
+        kind="node_job",
     )
 
     pre_kind_mem_manager.create_schema()
@@ -3185,7 +3167,7 @@ def test_migration_kind_and_handle_idempotent(pre_kind_mem_manager):
     loaded = {r["token"]: r for r in
               pre_kind_mem_manager.load_parked_writes(("pending",))}
     assert set(loaded) == {"live", "job"}
-    assert loaded["job"]["handle"] == "modelinstall-42"
+    assert loaded["job"]["kind"] == "node_job"
     assert loaded["live"]["kind"] == "approval"
 
 

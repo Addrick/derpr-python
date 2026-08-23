@@ -109,12 +109,14 @@ class ParkedWrite:
     server_id: Optional[str] = None
     # Which external event answers this call. `approval` is a human clicking a
     # token; other kinds are answered by whatever authority owns the work.
+    #
+    # There is no companion `handle` field naming the pending thing the way
+    # that authority knows it, because there is no second identifier: derpr
+    # mints the token and hands that same string outward as the job id (the
+    # node validates it against `^[a-z0-9][a-z0-9-]{0,63}$`, which a 32-char
+    # lowercase-hex token satisfies). The handle IS the token, so every kind
+    # is claimed with plain `take(token)`.
     kind: str = DEFERRAL_KIND_APPROVAL
-    # That kind's own identifier for the pending thing (node job id, agent id).
-    # None for `approval`, whose external event carries the token itself.
-    # Non-approval kinds are looked up by `(kind, handle)`, because the outside
-    # world knows the job, not the token — see `take_by_handle`.
-    handle: Optional[str] = None
     turn_tainted: bool = False
     # The assistant row whose sealed tool_context holds this call's
     # `awaiting_human_approval` entry — the row patched when it resolves.
@@ -221,7 +223,6 @@ class ParkedWrite:
             # migration have no such column, and the whole population they
             # represent is approvals.
             kind=str(row.get("kind") or DEFERRAL_KIND_APPROVAL),
-            handle=row.get("handle"),
             turn_tainted=bool(row.get("turn_tainted")),
             parked_assistant_id=row.get("parked_assistant_id"),
             duplicate_refs=kept,
@@ -296,12 +297,12 @@ class ConfirmationManager:
         # Insertion-ordered token list per conversation — drives the portal's
         # pending list and Discord's ordering.
         self._by_key: Dict[ConversationKey, List[str]] = {}
-        # `(kind, handle) -> token`, for the kinds whose external event knows a
-        # job id rather than a token. Rebuilt from the durable rows at boot by
-        # `rebuild_from_store`, exactly like `_by_key` — which is what makes a
-        # ping that arrives after a restart still findable. DP-343's in-process
-        # `OrderedDict` was the thing this replaces, and it was lost on restart.
-        self._by_handle: Dict[Tuple[str, str], str] = {}
+        # No second index keyed by the external event's own name for the work:
+        # the token IS that name (see `ParkedWrite.kind`), so a ping resolves
+        # through `self.pending` like a click does. DP-343's in-process
+        # `OrderedDict` of job ids is what that replaces, and it was lost on
+        # restart; `rebuild_from_store` reloads `pending` from the rows.
+
         # Decisions acted on but not yet folded into a continuation turn.
         self._queued: Dict[ConversationKey, List[Decision]] = {}
         # One lock per conversation. Serializes execute -> patch -> continue, so
@@ -380,15 +381,6 @@ class ConfirmationManager:
             tokens.remove(token)
             if not tokens:
                 self._by_key.pop(parked.key, None)
-        if parked.handle is not None:
-            # Compared before popping: a *later* deferral may already own this
-            # `(kind, handle)` (the same node job re-proposed and re-deferred),
-            # and dropping the entry unconditionally would unregister the live
-            # one, so its ping would find nothing and the model would wait
-            # forever on a job that had already answered.
-            hkey = (parked.kind, parked.handle)
-            if self._by_handle.get(hkey) == token:
-                self._by_handle.pop(hkey, None)
         return parked
 
     def take(self, token: str) -> Optional[ParkedWrite]:
@@ -417,35 +409,6 @@ class ConfirmationManager:
                 "terminal); resolving from memory only", token,
             )
         return parked
-
-    def take_by_handle(self, kind: str, handle: str) -> Optional[ParkedWrite]:
-        """`take`, addressed the way a non-approval kind's authority knows it.
-
-        The outside world holds a job id, not a token: the node's callback names
-        the install it just finished, an agent event names the agent. This is
-        the exactly-once claim for those kinds, and it is `take` underneath — a
-        synchronous pop plus a durable row claim — so a node that retries its
-        ping (DP-343's does, ~6s apart) cannot run two continuations, and a ping
-        that arrives after a restart still resolves because `rebuild_from_store`
-        put the row back in the index.
-
-        Refuses `approval` outright. Approvals carry no handle, so the lookup
-        could only ever match on a `(kind, None)` key that is never written —
-        but answering None quietly would make a mis-wired caller look like a
-        missing park rather than a bug, and the mis-wire it is most likely to
-        hide is a path that resolves a human-gated write with nobody in the
-        loop.
-        """
-        if kind == DEFERRAL_KIND_APPROVAL:
-            raise ValueError(
-                "approvals are resolved by token, not by handle: an approval "
-                "is answered by a human, and a handle lookup here would mean "
-                "something resolved a gated write without one"
-            )
-        token = self._by_handle.get((kind, handle))
-        if token is None:
-            return None
-        return self.take(token)
 
     def restore(self, parked: ParkedWrite) -> None:
         """Put a taken park back (a claim that turned out to be invalid).
@@ -509,8 +472,6 @@ class ConfirmationManager:
         tokens = self._by_key.setdefault(parked.key, [])
         if parked.token not in tokens:
             tokens.append(parked.token)
-        if parked.handle is not None:
-            self._by_handle[(parked.kind, parked.handle)] = parked.token
 
     def list_for(self, user_identifier: str, persona_name: str,
                  kind: str = DEFERRAL_KIND_APPROVAL) -> List[ParkedWrite]:
@@ -581,7 +542,6 @@ class ConfirmationManager:
             parked_assistant_id=parked.parked_assistant_id,
             duplicate_refs=[list(r) for r in parked.duplicate_refs],
             kind=parked.kind,
-            handle=parked.handle,
         )
 
     def note_duplicate_ref(self, parked: ParkedWrite,

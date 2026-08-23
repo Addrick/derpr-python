@@ -914,9 +914,9 @@ async def test_disallowed_origin_never_reaches_the_tool_loop(mocked_chat_system)
 # pin the properties that make a second kind unnecessary to re-derive.
 
 async def _defer_one(chat_system, *, user, channel, kind="node_job",
-                     handle="job-1", closing_text="Install started."):
+                     closing_text="Install started."):
     """Drive a turn that gates a write, then convert that park into a `kind`
-    deferral bound to `handle`.
+    deferral. Returns the token, which is also what the authority pings with.
 
     Mutating the park stands in for a tool handler returning a deferral — the
     wiring that arrives with the first real consumer (PR #209). What is under
@@ -931,25 +931,24 @@ async def _defer_one(chat_system, *, user, channel, kind="node_job",
     )
     park = chat_system.confirmations.pending[token]
     park.kind = kind
-    park.handle = handle
     chat_system.confirmations._reinstate(park)
     return token
 
 
 @pytest.mark.asyncio
-async def test_a_deferral_resolves_by_handle_and_summarizes(mocked_chat_system):
-    """The authority pings with a job id; one continuation turn reports it."""
+async def test_a_deferral_resolves_by_token_and_summarizes(mocked_chat_system):
+    """The authority pings with the token it was given as the job id; one
+    continuation turn reports it."""
     chat_system, _ = mocked_chat_system
     _confirm_persona(chat_system)
     executed = _recording_tool_manager(chat_system)
 
-    await _defer_one(chat_system, user="d1", channel="ops",
-                     handle="modelinstall-7")
+    token = await _defer_one(chat_system, user="d1", channel="ops")
 
     _set_engine(chat_system, [_text("The install finished.")])
     events = await _drain(chat_system.stream_resolve_deferral(
-        "node_job", "modelinstall-7", status="done",
-        result={"job": "modelinstall-7", "state": "done"},
+        token, kind="node_job", status="done",
+        result={"job": token, "state": "done"},
     ))
 
     done = [e for e in events if isinstance(e, DoneEvent)]
@@ -965,7 +964,7 @@ async def test_a_deferrals_outcome_is_patched_into_history(mocked_chat_system):
     _confirm_persona(chat_system)
     _recording_tool_manager(chat_system)
 
-    await _defer_one(chat_system, user="d2", channel="ops", handle="job-2")
+    token = await _defer_one(chat_system, user="d2", channel="ops")
 
     conn = mem_manager._get_connection()
     cursor = conn.cursor()
@@ -979,7 +978,7 @@ async def test_a_deferrals_outcome_is_patched_into_history(mocked_chat_system):
 
     _set_engine(chat_system, [_text("Done.")])
     await _drain(chat_system.stream_resolve_deferral(
-        "node_job", "job-2", status="failed",
+        token, kind="node_job", status="failed",
         result={"error": "sha mismatch"},
     ))
 
@@ -1010,7 +1009,7 @@ async def test_a_deferral_resume_persists_no_synthetic_user_row(
     _confirm_persona(chat_system)
     _recording_tool_manager(chat_system)
 
-    await _defer_one(chat_system, user="d3", channel="ops", handle="job-3")
+    token = await _defer_one(chat_system, user="d3", channel="ops")
 
     conn = mem_manager._get_connection()
     cursor = conn.cursor()
@@ -1022,7 +1021,7 @@ async def test_a_deferral_resume_persists_no_synthetic_user_row(
 
     _set_engine(chat_system, [_text("Reported.")])
     await _drain(chat_system.stream_resolve_deferral(
-        "node_job", "job-3", status="done", result={"state": "done"},
+        token, kind="node_job", status="done", result={"state": "done"},
     ))
 
     cursor.execute(
@@ -1045,13 +1044,13 @@ async def test_a_repeated_ping_settles_the_deferral_only_once(
     _confirm_persona(chat_system)
     _recording_tool_manager(chat_system)
 
-    await _defer_one(chat_system, user="d4", channel="ops", handle="job-4")
+    token = await _defer_one(chat_system, user="d4", channel="ops")
 
     _set_engine(chat_system, [_text("First.")])
     first = await _drain(chat_system.stream_resolve_deferral(
-        "node_job", "job-4", status="done", result={"state": "done"}))
+        token, kind="node_job", status="done", result={"state": "done"}))
     second = await _drain(chat_system.stream_resolve_deferral(
-        "node_job", "job-4", status="done", result={"state": "done"}))
+        token, kind="node_job", status="done", result={"state": "done"}))
 
     assert [e for e in first if isinstance(e, DoneEvent)]
     assert second == [], "a retried ping ran a second continuation turn"
@@ -1069,12 +1068,11 @@ async def test_a_deferral_answers_in_the_turns_own_channel(mocked_chat_system):
     _confirm_persona(chat_system)
     _recording_tool_manager(chat_system)
 
-    await _defer_one(chat_system, user="d5", channel="ops-room",
-                     handle="job-5")
+    token = await _defer_one(chat_system, user="d5", channel="ops-room")
 
     _set_engine(chat_system, [_text("Install done.")])
     await _drain(chat_system.stream_resolve_deferral(
-        "node_job", "job-5", status="done", result={"state": "done"},
+        token, kind="node_job", status="done", result={"state": "done"},
     ))
 
     conn = mem_manager._get_connection()
