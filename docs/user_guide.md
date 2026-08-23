@@ -1276,8 +1276,10 @@ but nothing is posted to announce it.
 
 Disabled by default. Enable with `HF_TOOLS_ENABLED=true` **and** deploy the
 node-side artifacts (`services/pve/README.md` has the steps, including the
-forced-command allowlist entry). Config knobs: `HF_API_BASE`, `HF_API_TOKEN`
-(only needed for gated repos), `HF_HTTP_TIMEOUT`, `HF_SEARCH_LIMIT_MAX`. The
+forced-command allowlist entry). Config knobs: `HF_API_BASE`,
+`HF_HTTP_TIMEOUT`, `HF_SEARCH_LIMIT_MAX`. Hub reads are anonymous — derpr holds
+no HuggingFace credential, so gated and private repos are not supported; the
+public gguf repos this exists for need no auth. The
 transport settings are the proxmox ones (`PVE_SSH_*`). When disabled, every tool
 returns a clear "disabled" error instead of reaching the Hub or the node.
 

@@ -58,6 +58,11 @@ _MAX_TREE_PAGES = 10
 #: How many of a search hit's tags survive into the payload the model reads.
 _MAX_SEARCH_TAGS = 12
 
+#: The only request headers these reads need. There is no auth header: the Hub
+#: serves public gguf repos anonymously, and derpr deliberately holds no HF
+#: credential (DP-347) — gated/private repos are out of scope, not degraded.
+_JSON_HEADERS: Dict[str, str] = {"Accept": "application/json"}
+
 _GIB = 1024 ** 3
 
 
@@ -145,20 +150,12 @@ class HFClient:
         self,
         *,
         base_url: Optional[str] = None,
-        token: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> None:
         self._base = (base_url or global_config.HF_API_BASE).rstrip("/")
-        self._token = token if token is not None else global_config.HF_API_TOKEN
         self._timeout = (
             timeout if timeout is not None else global_config.HF_HTTP_TIMEOUT
         )
-
-    def _headers(self) -> Dict[str, str]:
-        headers = {"Accept": "application/json"}
-        if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
-        return headers
 
     async def _get_json(self, url: str, params: Optional[Dict[str, Any]] = None) -> Any:
         """One GET returning parsed JSON, or HFError. Never raises aiohttp."""
@@ -166,7 +163,7 @@ class HFClient:
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(
-                    url, params=params, headers=self._headers()
+                    url, params=params, headers=_JSON_HEADERS
                 ) as resp:
                     if resp.status != 200:
                         body = (await resp.text())[:200]
@@ -257,7 +254,7 @@ class HFClient:
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(
-                    url, params=params, headers=self._headers()
+                    url, params=params, headers=_JSON_HEADERS
                 ) as resp:
                     if resp.status == 404:
                         raise HFError(
