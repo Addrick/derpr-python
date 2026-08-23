@@ -123,7 +123,7 @@ async def test_every_tool_short_circuits_when_disabled(monkeypatch):
         h._hf_search("q"),
         h._hf_files("owner/model-GGUF"),
         h._install_model("owner/model-GGUF", "model-Q6_K.gguf", "newmodel"),
-        h._install_status("newmodel-abc123"),
+        h.job_status("newmodel-abc123"),
     ):
         res = await coro
         assert res["status"] == "error"
@@ -358,7 +358,7 @@ async def test_enricher_says_unverified_rather_than_returning_nothing(enabled):
 @pytest.mark.asyncio
 async def test_status_refuses_a_malformed_job_id_locally(enabled):
     runner = FakeRunner()
-    res = await make(runner=runner)._install_status("../../etc/passwd")
+    res = await make(runner=runner).job_status("../../etc/passwd")
     assert res["status"] == "error"
     assert runner.calls == []
 
@@ -374,7 +374,7 @@ async def test_status_returns_the_nodes_job_document(enabled):
         "n_layer": 48, "n_kv_head": 8, "head_dim": 128,
     }
     runner = FakeRunner(SSHResult(0, json.dumps(payload), ""))
-    res = await make(runner=runner)._install_status("newmodel-abc123")
+    res = await make(runner=runner).job_status("newmodel-abc123")
     assert res["status"] == "ok"
     assert res["job"]["state"] == "running"
     assert res["job"]["downloaded_bytes"] == 1024
@@ -396,7 +396,7 @@ async def test_status_whitelists_what_it_republishes(enabled):
         "stderr": "<html>…</html>",
     }
     runner = FakeRunner(SSHResult(0, json.dumps(payload), ""))
-    res = await make(runner=runner)._install_status("j1")
+    res = await make(runner=runner).job_status("j1")
     assert res["job"] == {"job_id": "j1", "state": "failed", "reason": "sha256_mismatch"}
 
 
@@ -404,14 +404,14 @@ async def test_status_whitelists_what_it_republishes(enabled):
 async def test_status_truncates_an_overlong_field(enabled):
     payload = {"job_id": "j1", "state": "failed", "reason": "x" * 5000}
     runner = FakeRunner(SSHResult(0, json.dumps(payload), ""))
-    res = await make(runner=runner)._install_status("j1")
+    res = await make(runner=runner).job_status("j1")
     assert len(res["job"]["reason"]) == 200
 
 
 @pytest.mark.asyncio
 async def test_status_of_an_unwritten_job_reads_as_not_ready(enabled):
     runner = FakeRunner(SSHResult(0, "", ""))
-    res = await make(runner=runner)._install_status("j1")
+    res = await make(runner=runner).job_status("j1")
     assert res["status"] == "error"
     assert "may not exist yet" in res["message"]
 
@@ -450,7 +450,7 @@ async def test_status_computes_the_kv_budget_from_the_header_numbers(enabled):
     bytes — 32 int8 plus one f16 scale.
     """
     runner = FakeRunner(SSHResult(0, json.dumps(_done_job()), ""))
-    res = await make(runner=runner)._install_status("newmodel-abc123")
+    res = await make(runner=runner).job_status("newmodel-abc123")
     note = res["note"]
     assert "104448 bytes per token" in note
     assert "816 MiB" in note
@@ -464,7 +464,7 @@ async def test_status_computes_the_kv_budget_from_the_header_numbers(enabled):
 async def test_status_kv_note_scales_linearly_with_contextsize(enabled):
     """The claim the note makes about itself has to be true of the note."""
     runner = FakeRunner(SSHResult(0, json.dumps(_done_job(contextsize=4096)), ""))
-    res = await make(runner=runner)._install_status("newmodel-abc123")
+    res = await make(runner=runner).job_status("newmodel-abc123")
     assert "408 MiB" in res["note"]
 
 
@@ -486,7 +486,7 @@ async def test_status_kv_note_matches_koboldcpp_on_a_real_measured_model(enabled
     for n_layer, expected in ((16, 34816), (24, 52224)):
         payload = _done_job(n_layer=n_layer, n_kv_head=4, head_dim=256)
         runner = FakeRunner(SSHResult(0, json.dumps(payload), ""))
-        res = await make(runner=runner)._install_status("newmodel-abc123")
+        res = await make(runner=runner).job_status("newmodel-abc123")
         assert f"{expected} bytes per token" in res["note"], n_layer
 
 
@@ -508,7 +508,7 @@ async def test_status_reports_the_nodes_reason_when_the_formula_cannot_apply(
                       "stops growing at the window",
     )
     runner = FakeRunner(SSHResult(0, json.dumps(payload), ""))
-    res = await make(runner=runner)._install_status("newmodel-abc123")
+    res = await make(runner=runner).job_status("newmodel-abc123")
     note = res["note"]
     assert "sliding-window attention" in note
     assert "bytes per token" not in note
@@ -524,7 +524,7 @@ async def test_a_shape_note_wins_over_header_numbers_that_are_also_present(
     numbers that are, by the node's own determination, not applicable."""
     payload = _done_job(kv_shape_note="per-layer attention.head_count_kv")
     runner = FakeRunner(SSHResult(0, json.dumps(payload), ""))
-    res = await make(runner=runner)._install_status("newmodel-abc123")
+    res = await make(runner=runner).job_status("newmodel-abc123")
     assert "bytes per token" not in res["note"]
 
 
@@ -539,7 +539,7 @@ async def test_a_node_older_than_dp344_still_gets_the_absent_shape_message(
     payload.pop("head_dim")
     assert "kv_shape_note" not in payload
     runner = FakeRunner(SSHResult(0, json.dumps(payload), ""))
-    res = await make(runner=runner)._install_status("newmodel-abc123")
+    res = await make(runner=runner).job_status("newmodel-abc123")
     assert "did not publish" in res["note"]
 
 
@@ -555,7 +555,7 @@ async def test_status_of_a_running_job_carries_no_kv_note(enabled):
     for k in ("n_layer", "n_kv_head", "head_dim"):
         payload.pop(k)
     runner = FakeRunner(SSHResult(0, json.dumps(payload), ""))
-    res = await make(runner=runner)._install_status("newmodel-abc123")
+    res = await make(runner=runner).job_status("newmodel-abc123")
     assert "note" not in res
     assert res["job"]["state"] == "running"
 
@@ -568,7 +568,7 @@ async def test_status_says_so_when_a_finished_gguf_published_no_shape(enabled):
     payload = _done_job()
     payload.pop("head_dim")
     runner = FakeRunner(SSHResult(0, json.dumps(payload), ""))
-    res = await make(runner=runner)._install_status("newmodel-abc123")
+    res = await make(runner=runner).job_status("newmodel-abc123")
     note = res["note"]
     assert "did not publish" in note
     assert "bytes per token" not in note
@@ -580,7 +580,7 @@ async def test_status_note_survives_a_partial_shape_of_zeroes(enabled):
     """A zero from the node is a parse artefact, not a real dimension — it
     would divide the budget into nonsense rather than fail loudly."""
     runner = FakeRunner(SSHResult(0, json.dumps(_done_job(n_kv_head=0)), ""))
-    res = await make(runner=runner)._install_status("newmodel-abc123")
+    res = await make(runner=runner).job_status("newmodel-abc123")
     assert "did not publish" in res["note"]
 
 
