@@ -1549,3 +1549,59 @@ async def test_generate_response_round_trips_through_orchestrate(chat_system_wit
     assert rtype == ResponseType.LLM_GENERATION
     assert aid == 22
     assert uid == 11
+
+
+@pytest.mark.asyncio
+async def test_an_approve_click_cannot_resolve_a_non_approval_deferral(
+        chat_system_with_mocks):
+    """DP-345: only an `approval` deferral answers to approve/deny.
+
+    Every other kind is waiting on an authority that already ran the tool — a
+    node install job, an agent dispatch — so `apply()` here would execute the
+    deferred call a SECOND time, which is the one outcome this subsystem exists
+    to prevent. `list_for` does not surface these, so reaching the resolve path
+    at all means a token arrived by some other route; it must fail closed and
+    leave the deferral live for its real authority.
+    """
+    system, _, _, _, tool_manager_mock = chat_system_with_mocks
+
+    deferral = ParkedWrite(
+        token="job-token",
+        write_call={"id": "c1", "name": "install_model", "arguments": {}},
+        audit_info={"actions": []},
+        confirmation_text="",
+        user_identifier="user",
+        persona_name="test_persona",
+        kind="node_job",
+        handle="modelinstall-42",
+        parked_assistant_id=1,
+    )
+    system.confirmations.park(deferral)
+
+    text, rtype, _, _ = await system.resolve_park(
+        'user', 'test_persona', "job-token", approved=True,
+    )
+
+    assert rtype == ResponseType.DEV_COMMAND
+    assert 'No such pending action' in text
+    tool_manager_mock.execute_tool.assert_not_called()
+    # Still live, and still claimable by the authority that owns it.
+    assert system.confirmations.take_by_handle(
+        "node_job", "modelinstall-42") is not None
+
+
+@pytest.mark.asyncio
+async def test_a_non_approval_deferral_is_never_offered_to_the_operator(
+        chat_system_with_mocks):
+    """It is not in the approval list, so no surface renders a button for it."""
+    system, _, _, _, _ = chat_system_with_mocks
+
+    system.confirmations.park(ParkedWrite(
+        token="job-token",
+        write_call={"id": "c1", "name": "install_model", "arguments": {}},
+        audit_info={"actions": []}, confirmation_text="",
+        user_identifier="user", persona_name="test_persona",
+        kind="node_job", handle="modelinstall-42", parked_assistant_id=1,
+    ))
+
+    assert system.confirmations.list_for('user', 'test_persona') == []

@@ -13,6 +13,7 @@ from pathlib import Path
 
 # --- NEW: Import the global embedding model variable ---
 from config.global_config import EMBEDDING_MODEL, EMBEDDING_DIMENSION, SEMANTIC_BACKEND, HINDSIGHT_URL
+from src.deferral_kinds import DEFERRAL_KIND_APPROVAL
 from src.memory.backend.base import MemoryHit, Experience, MentalModel, ReflectResult
 from src.security.scrubber import get_scrubber
 import sqlite_vec
@@ -386,6 +387,21 @@ class MemoryManager:
                 turn_tainted INTEGER NOT NULL DEFAULT 0,
                 parked_assistant_id INTEGER,
                 duplicate_refs TEXT NOT NULL DEFAULT '[]',
+                -- DP-345: which external event answers this call, and that
+                -- event's own identifier for it. `approval` is a human clicking
+                -- the token, and it is the DEFAULT precisely so every row
+                -- written before this column existed reads back correctly —
+                -- they were all approvals. `handle` stays NULL for that kind:
+                -- an approval is addressed by token, because the human is
+                -- handed the token. Everything else is addressed by
+                -- `(kind, handle)`, because the authority that answers it knows
+                -- a job id and has never heard of a token.
+                --
+                -- `confirmation_text`, `call_identity` and `duplicate_refs`
+                -- remain approval-only and are unused by other kinds; they are
+                -- not worth a second table.
+                kind TEXT NOT NULL DEFAULT '{DEFERRAL_KIND_APPROVAL}',
+                handle TEXT,
                 resolved_at REAL,
                 -- Two columns, not one. `resolution` is a machine-readable
                 -- outcome the duplicate guard filters on; `resolution_reason`
@@ -401,6 +417,12 @@ class MemoryManager:
                 ON Parked_Writes (user_identifier, persona_name, status, created_at);
             CREATE INDEX IF NOT EXISTS idx_parked_write_status
                 ON Parked_Writes (status, created_at);
+            -- NOTE: `idx_parked_kind_handle` is deliberately NOT here. This
+            -- script runs before the ALTER TABLE migrations below, and on an
+            -- existing database `CREATE TABLE IF NOT EXISTS` is a no-op — so the
+            -- index would be built over a `kind` column that does not exist yet
+            -- and take `create_schema()` (i.e. boot) down with it. It is created
+            -- alongside its migration instead.
 
             CREATE TABLE IF NOT EXISTS Standing_Orders (
                 order_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -418,6 +440,31 @@ class MemoryManager:
             conn.commit()
 
             cursor = conn.cursor()
+
+            # Parked_Writes migrations (DP-345): the park table became the
+            # store for *any* deferred tool result, so a row now says which
+            # external event answers it and what that event calls it.
+            #
+            # Additive and backfill-free by construction: `kind` defaults to
+            # `approval`, which is what every pre-DP-345 row is, and `handle`
+            # is NULL for exactly that kind. A database that skips this
+            # migration entirely still reads correctly, because
+            # `ParkedWrite.from_row` defaults the same way.
+            cursor.execute("PRAGMA table_info(Parked_Writes)")
+            parked_cols = {row['name'] for row in cursor.fetchall()}
+            if 'kind' not in parked_cols:
+                conn.execute(
+                    "ALTER TABLE Parked_Writes ADD COLUMN kind TEXT NOT NULL "
+                    f"DEFAULT '{DEFERRAL_KIND_APPROVAL}'"
+                )
+            if 'handle' not in parked_cols:
+                conn.execute("ALTER TABLE Parked_Writes ADD COLUMN handle TEXT")
+            # After the ALTERs, never in `schema_sql` — see the note there.
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_parked_kind_handle "
+                "ON Parked_Writes (kind, handle)"
+            )
+
             # Agent_Actions migrations
             cursor.execute("PRAGMA table_info(Agent_Actions)")
             agent_actions_cols = {row['name'] for row in cursor.fetchall()}
@@ -1859,7 +1906,9 @@ class MemoryManager:
                             audit_info: Dict[str, Any],
                             confirmation_text: str, turn_tainted: bool,
                             parked_assistant_id: Optional[int],
-                            duplicate_refs: List[Any]) -> bool:
+                            duplicate_refs: List[Any],
+                            kind: str = DEFERRAL_KIND_APPROVAL,
+                            handle: Optional[str] = None) -> bool:
         """Persist a newly parked write as `pending`. Returns False on failure.
 
         `INSERT OR REPLACE` so a token re-registered after a restore is not an
@@ -1906,14 +1955,14 @@ class MemoryManager:
                        (token, created_at, status, user_identifier, persona_name,
                         channel, server_id, write_call, call_identity, audit_info,
                         confirmation_text, turn_tainted, parked_assistant_id,
-                        duplicate_refs)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        duplicate_refs, kind, handle)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (token, created_at, PARK_DB_PENDING, user_identifier,
                      persona_name, channel,
                      server_id, write_call_json, call_identity,
                      audit_json, confirmation_text,
                      1 if turn_tainted else 0, parked_assistant_id,
-                     refs_json),
+                     refs_json, kind, handle),
                 )
                 conn.commit()
                 return True

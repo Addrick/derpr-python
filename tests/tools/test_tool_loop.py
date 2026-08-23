@@ -13,7 +13,7 @@ from src.generation_events import (
 )
 from src.persona import ExecutionMode
 from src.tools.tool_loop import (
-    PARK_STATUS_AWAITING, PARK_STATUS_DUPLICATE, ToolLoop, WriteParkedEvent,
+    PARK_STATUS_AWAITING, PARK_STATUS_DUPLICATE, ToolLoop, ToolDeferredEvent,
     _ApiPayloadEvent, _LoopFinishedEvent, _ToolContextEvent,
     render_call_summary_footer, render_max_iteration_text, write_call_identity,
 )
@@ -400,7 +400,7 @@ async def test_a_batch_that_crosses_the_budget_still_runs_whole():
 
 @pytest.mark.asyncio
 async def test_confirm_mode_parks_write_calls():
-    """A write tool is gated via a WriteParkedEvent, not executed."""
+    """A write tool is gated via a ToolDeferredEvent, not executed."""
     engine = _make_engine([
         [
             {"type": "tool_calls", "calls": [
@@ -420,7 +420,7 @@ async def test_confirm_mode_parks_write_calls():
         conversation_history=[], params=MagicMock(), tools=[],
     ))
 
-    parks = [e for e in events if isinstance(e, WriteParkedEvent)]
+    parks = [e for e in events if isinstance(e, ToolDeferredEvent)]
     assert len(parks) == 1
     assert parks[0].write_call["name"] == "create_ticket"
     assert parks[0].token
@@ -460,7 +460,7 @@ async def test_park_does_not_end_the_turn():
         conversation_history=[], params=MagicMock(), tools=[],
     ))
 
-    parks = [e for e in events if isinstance(e, WriteParkedEvent)]
+    parks = [e for e in events if isinstance(e, ToolDeferredEvent)]
     assert [p.write_call["name"] for p in parks] == [
         "create_ticket", "update_ticket",
     ]
@@ -500,7 +500,7 @@ async def test_parked_write_is_answered_inline_in_history():
         persona=_make_persona(execution_mode=ExecutionMode.CONFIRM),
         conversation_history=history, params=MagicMock(), tools=[],
     ))
-    token = [e for e in events if isinstance(e, WriteParkedEvent)][0].token
+    token = [e for e in events if isinstance(e, ToolDeferredEvent)][0].token
 
     result_msg = next(m for m in history
                       if m.get("role") == "tool" and m.get("tool_call_id") == "w1")
@@ -783,11 +783,11 @@ async def test_reproposed_write_is_answered_but_not_parked_twice():
         conversation_history=history, params=MagicMock(), tools=[],
         pending_lookup=pending_lookup,
     ):
-        if isinstance(ev, WriteParkedEvent):
+        if isinstance(ev, ToolDeferredEvent):
             parked.append({"call": ev.write_call, "token": ev.token})
         events.append(ev)
 
-    parks = [e for e in events if isinstance(e, WriteParkedEvent)]
+    parks = [e for e in events if isinstance(e, ToolDeferredEvent)]
     assert len(parks) == 1, "the re-proposal must not create a second park"
 
     # The duplicate call is still ANSWERED — an assistant tool_calls block with
@@ -833,11 +833,11 @@ async def test_distinct_writes_in_one_iteration_all_park():
         conversation_history=[], params=MagicMock(), tools=[],
         pending_lookup=pending_lookup,
     ):
-        if isinstance(ev, WriteParkedEvent):
+        if isinstance(ev, ToolDeferredEvent):
             parked.append({"call": ev.write_call, "token": ev.token})
         events.append(ev)
 
-    parks = [e for e in events if isinstance(e, WriteParkedEvent)]
+    parks = [e for e in events if isinstance(e, ToolDeferredEvent)]
     assert len(parks) == 3
     assert len({p.token for p in parks}) == 3
 
@@ -862,7 +862,7 @@ async def test_no_pending_lookup_parks_everything():
         persona=_make_persona(execution_mode=ExecutionMode.CONFIRM),
         conversation_history=[], params=MagicMock(), tools=[],
     ))
-    assert len([e for e in events if isinstance(e, WriteParkedEvent)]) == 2
+    assert len([e for e in events if isinstance(e, ToolDeferredEvent)]) == 2
 
 
 def test_write_call_identity_never_matches_when_arguments_are_unserializable():
@@ -1478,7 +1478,58 @@ async def test_one_shot_prose_reaches_the_park_audit_reasoning():
         conversation_history=[], params=MagicMock(), tools=[],
     ))
 
-    park = [e for e in events if isinstance(e, WriteParkedEvent)][0]
+    park = [e for e in events if isinstance(e, ToolDeferredEvent)][0]
     assert park.audit_info["model_reasoning"] == (
         "Filing this so the outage is tracked."
     )
+
+
+# ---- deferral placeholder statuses (DP-345) ------------------------------
+
+def test_approval_keeps_its_legacy_awaiting_literal():
+    """The value is frozen because it is already on disk.
+
+    `awaiting_human_approval` is written into durable `tool_context` blobs. If
+    generalizing the mechanism had renamed it to `awaiting:approval`, every park
+    already stored would stop being recognized — `_summarize_outcome` would
+    report a live proposal as a completed call and the resolve path's patch
+    target would look like an entry that had already resolved.
+    """
+    from src.tools.tool_loop import PARK_STATUS_AWAITING, awaiting_status
+
+    assert awaiting_status("approval") == "awaiting_human_approval"
+    assert PARK_STATUS_AWAITING == "awaiting_human_approval"
+
+
+def test_other_kinds_get_a_prefixed_awaiting_status():
+    from src.tools.tool_loop import awaiting_status
+
+    assert awaiting_status("node_job") == "awaiting:node_job"
+    assert awaiting_status("agent_event") == "awaiting:agent_event"
+
+
+def test_is_awaiting_status_recognizes_every_kind():
+    """The predicate exists so no consumer writes `== PARK_STATUS_AWAITING`.
+
+    An `==` check answers False for every non-approval kind, which reads as
+    "this call completed" — so the model would be told a still-running install
+    had returned.
+    """
+    from src.tools.tool_loop import is_awaiting_status
+
+    assert is_awaiting_status("awaiting_human_approval")
+    assert is_awaiting_status("awaiting:node_job")
+    assert not is_awaiting_status("approved")
+    assert not is_awaiting_status(None)
+    assert not is_awaiting_status({"status": "awaiting:node_job"})
+
+
+def test_a_non_approval_deferral_is_summarized_without_asking_for_a_click():
+    """`_summarize_outcome` must not tell the user a node job wants approval."""
+    import json as _json
+    from src.tools.tool_loop import _summarize_outcome
+
+    assert _summarize_outcome(_json.dumps(
+        {"status": "awaiting_human_approval"})) == "waiting for your approval"
+    assert _summarize_outcome(_json.dumps(
+        {"status": "awaiting:node_job"})) == "waiting on node_job"

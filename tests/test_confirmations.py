@@ -1488,3 +1488,146 @@ def test_a_malformed_duplicate_ref_does_not_destroy_the_park(
     assert counts["quarantined"] == 0
     assert revived.pending["a"].duplicate_refs == [(1, "c2")], \
         "the usable pointer is kept; the malformed ones are dropped"
+
+
+# ---- deferral kinds (DP-345) ---------------------------------------------
+#
+# The store stopped being approval-only. These cover the three properties that
+# make it safe to put another kind in the same table: a non-approval deferral is
+# never offered to a human, it is claimable exactly once by its own authority's
+# handle, and that addressability survives a restart — which is the property
+# DP-343's in-process `OrderedDict` did not have.
+
+def _deferral(token="d1", kind="node_job", handle="job-1", user="u",
+              persona="p", tool="install_model", call_id="c1"):
+    return ParkedWrite(
+        token=token,
+        write_call={"id": call_id, "name": tool, "arguments": {"x": 1}},
+        audit_info={"actions": [{"tool": tool}]},
+        confirmation_text="",
+        user_identifier=user,
+        persona_name=persona,
+        kind=kind,
+        handle=handle,
+        parked_assistant_id=7,
+    )
+
+
+def test_list_for_hides_non_approval_kinds(manager):
+    """Every caller of `list_for` renders an approve/deny affordance.
+
+    A node job has no decision for a human to make, and `apply()` on one would
+    run the deferred call a second time — the tool already ran, which is why it
+    is waiting on a job at all. So the default must be approval-only rather than
+    everything.
+    """
+    manager.park(_park(token="a"))
+    manager.park(_deferral(token="d1"))
+
+    assert [p.token for p in manager.list_for("u", "p")] == ["a"]
+    assert [p.token for p in manager.list_for("u", "p", kind="node_job")] == ["d1"]
+
+
+def test_take_by_handle_claims_the_deferral_exactly_once(manager):
+    """The node retries its ping; only the first one may resolve."""
+    manager.park(_deferral(token="d1", handle="job-1"))
+
+    first = manager.take_by_handle("node_job", "job-1")
+    assert first is not None and first.token == "d1"
+    assert manager.take_by_handle("node_job", "job-1") is None, \
+        "a retried ping must not run a second continuation"
+
+
+def test_take_by_handle_is_scoped_by_kind(manager):
+    """Two kinds may legitimately use the same identifier string."""
+    manager.park(_deferral(token="d1", kind="node_job", handle="x"))
+    manager.park(_deferral(token="d2", kind="agent_event", handle="x",
+                           call_id="c2"))
+
+    taken = manager.take_by_handle("agent_event", "x")
+    assert taken is not None and taken.token == "d2"
+    assert manager.take_by_handle("node_job", "x").token == "d1"
+
+
+def test_take_by_handle_refuses_approvals(manager):
+    """Loud, not None. A handle lookup that answered an approval would mean
+    something resolved a human-gated write with no human in the loop, and a
+    quiet None would make that mis-wire look like an ordinary missing park."""
+    manager.park(_park(token="a"))
+    with pytest.raises(ValueError, match="approval"):
+        manager.take_by_handle("approval", "a")
+
+
+def test_taking_a_deferral_unregisters_its_handle_only_if_it_still_owns_it(
+        manager):
+    """A re-deferred job re-points `(kind, handle)` at the newer token.
+
+    Resolving the older one must not unregister the live entry — the ping would
+    then find nothing and the model would wait forever on a job that answered.
+    """
+    manager.park(_deferral(token="old", handle="job-1"))
+    manager.park(_deferral(token="new", handle="job-1", call_id="c2"))
+
+    assert manager.take("old") is not None
+    still = manager.take_by_handle("node_job", "job-1")
+    assert still is not None and still.token == "new"
+
+
+def test_a_deferral_is_still_addressable_by_handle_after_a_restart(
+        manager, mem_manager):
+    """The exactly-once claim has to be durable, not an in-process set.
+
+    DP-343 kept its seen-set in an `OrderedDict` that a restart emptied, so the
+    node's ping after a restart resolved nothing at all — the model was left
+    reading `awaiting` forever. `rebuild_from_store` repopulates the handle index
+    from the same rows it repopulates the token index from.
+    """
+    manager.park(_deferral(token="d1", handle="job-1"))
+
+    revived = _fresh_manager(mem_manager)
+    assert revived.take_by_handle("node_job", "job-1") is None, \
+        "nothing is addressable until rebuild"
+
+    revived.rebuild_from_store()
+    taken = revived.take_by_handle("node_job", "job-1")
+    assert taken is not None and taken.token == "d1"
+    assert taken.kind == "node_job"
+    assert taken.handle == "job-1"
+
+
+def test_a_restored_deferral_keeps_its_turn_coordinates(manager, mem_manager):
+    """The row is what makes config-free resumes possible.
+
+    If these did not round-trip, resolving after a restart would have to be told
+    which persona and channel to answer in — which is exactly the five env vars
+    DP-345 deletes.
+    """
+    park = _deferral(token="d1", user="operator#1", persona="hypr")
+    park.channel = "ops"
+    park.server_id = "guild-9"
+    manager.park(park)
+
+    revived = _fresh_manager(mem_manager)
+    revived.rebuild_from_store()
+
+    back = revived.pending["d1"]
+    assert (back.user_identifier, back.persona_name, back.channel,
+            back.server_id) == ("operator#1", "hypr", "ops", "guild-9")
+
+
+def test_a_legacy_row_with_no_kind_column_rebuilds_as_an_approval(manager):
+    """`from_row` defaults the same way the DDL does.
+
+    A production row written before DP-345 has no `kind` key at all, and reading
+    it as anything but `approval` would rebuild a live gated write as a kind no
+    operator can click.
+    """
+    row = {
+        "token": "legacy", "created_at": 1000.0,
+        "write_call": {"id": "c1", "name": "update_ticket", "arguments": {}},
+        "user_identifier": "u", "persona_name": "p", "channel": "c",
+        "audit_info": {}, "confirmation_text": "Run it?",
+    }
+    park = ParkedWrite.from_row(row)
+    assert park.kind == "approval"
+    assert park.handle is None

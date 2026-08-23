@@ -19,7 +19,7 @@ from src.generation_events import (
 )
 from src.persona import ExecutionMode
 from src.tools.tool_loop import (
-    ToolLoop, WriteParkedEvent, _ApiPayloadEvent, _LoopFinishedEvent,
+    ToolLoop, ToolDeferredEvent, _ApiPayloadEvent, _LoopFinishedEvent,
 )
 
 # Reuse the helpers from the sibling test module via direct import.
@@ -154,7 +154,7 @@ async def test_retry_confirm_mode_with_tools():
         conversation_history=history, params=MagicMock(), tools=[],
     ))
 
-    parks = [e for e in events if isinstance(e, WriteParkedEvent)]
+    parks = [e for e in events if isinstance(e, ToolDeferredEvent)]
     assert len(parks) == 1
     assert parks[0].write_call["name"] == "update_ticket"
     tools.execute_tool.assert_not_called()
@@ -186,7 +186,7 @@ async def test_resume_taint_propagation():
         turn_tainted=True, initial_taint_sources=["memory_recall"],
     ))
 
-    park = next(e for e in events if isinstance(e, WriteParkedEvent))
+    park = next(e for e in events if isinstance(e, ToolDeferredEvent))
     assert park.turn_tainted is True
     assert park.audit_info["tainted"] is True
     assert "memory_recall" in park.audit_info["taint_sources"]
@@ -222,7 +222,7 @@ async def test_audit_info_flag_combinations():
         conversation_history=[], params=MagicMock(), tools=[],
     ))
 
-    park = next(e for e in events if isinstance(e, WriteParkedEvent))
+    park = next(e for e in events if isinstance(e, ToolDeferredEvent))
     audit = park.audit_info
     assert audit["execution_mode"] == "CONFIRM"
     # One action per park since DP-297, not one list per turn.

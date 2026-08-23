@@ -15,7 +15,7 @@ import pytest
 from src.generation_events import ResponseType
 from src.persona import ExecutionMode
 from src.tools.tool_loop import (
-    ToolLoop, WriteParkedEvent, _LoopFinishedEvent,
+    ToolLoop, ToolDeferredEvent, _LoopFinishedEvent,
 )
 
 
@@ -91,7 +91,7 @@ async def test_initial_taint_sources_propagates_to_park_event():
         initial_taint_sources=["memory_recall"],
     ))
 
-    park = next(e for e in events if isinstance(e, WriteParkedEvent))
+    park = next(e for e in events if isinstance(e, ToolDeferredEvent))
     assert park.audit_info["tainted"] is True
     assert "memory_recall" in park.audit_info["taint_sources"]
 
@@ -150,7 +150,7 @@ async def test_memory_taint_combines_with_tool_taint():
         initial_taint_sources=["memory_recall"],
     ))
 
-    park = next(e for e in events if isinstance(e, WriteParkedEvent))
+    park = next(e for e in events if isinstance(e, ToolDeferredEvent))
     assert "memory_recall" in park.audit_info["taint_sources"]
     assert "web_search" in park.audit_info["taint_sources"]
 
@@ -178,7 +178,7 @@ async def test_memory_taint_text_only_no_audit_surface():
     finished = events[-1]
     assert isinstance(finished, _LoopFinishedEvent)
     assert finished.turn_tainted is True
-    assert not [e for e in events if isinstance(e, WriteParkedEvent)]
+    assert not [e for e in events if isinstance(e, ToolDeferredEvent)]
     assert finished.response_type == ResponseType.LLM_GENERATION
 
 

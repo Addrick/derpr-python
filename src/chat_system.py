@@ -27,10 +27,11 @@ from src.generation_events import (
 from src.message_handler import BotLogic
 from src.origin import ANONYMOUS, Origin
 from src.persona import Persona
+from src.deferral_kinds import DEFERRAL_KIND_APPROVAL
 from src.request_builder import AssembledRequest, RequestBuilder, RequestContext
 from src.security.scrubber import get_scrubber
 from src.tools.tool_loop import (
-    PARK_STATUS_EXPIRED, ToolLoop, WriteParkedEvent, _ApiPayloadEvent,
+    PARK_STATUS_EXPIRED, ToolDeferredEvent, ToolLoop, _ApiPayloadEvent,
     _LoopFinishedEvent, _ToolContextEvent, _WriteDuplicateEvent,
     write_call_identity,
 )
@@ -71,26 +72,51 @@ def _render_resolution_nudge(batch: List[Decision]) -> str:
     history only; the continuation skips `log_user_turn`, so the durable record
     of what happened stays the patched tool entries rather than words the
     operator never typed.
+
+    That non-persistence is the property both re-derived wake paths lost. fixr
+    and DP-343 entered through `generate_response`, where `continuation is None`
+    and `_orchestrate` therefore calls `log_user_turn` — so their whole
+    synthetic wake text, instruction block included, was written to durable
+    history as a **user row**, under the operator's real Discord id for DP-343.
+    Every later turn in that channel then re-read "Nobody asked you this…" as
+    something the operator had typed. The rendering is per-kind; the refusal to
+    persist it is not, and that is why there is one of these.
     """
     lines = []
     for decision in batch:
-        tool_name = decision.park.write_call.get("name") or "action"
-        if not decision.approved:
+        park = decision.park
+        tool_name = park.write_call.get("name") or "action"
+        if park.kind != DEFERRAL_KIND_APPROVAL:
+            # Nobody decided anything here — the work finished somewhere else.
+            # Saying "approved" would credit the operator with a judgement they
+            # were never asked for, and the model would report it that way.
+            lines.append(f"- {tool_name} ({park.kind}): {decision.status}")
+        elif not decision.approved:
             lines.append(f"- denied: {tool_name}")
         elif decision.ok:
             lines.append(f"- approved and executed: {tool_name}")
         else:
             lines.append(f"- approved but FAILED: {tool_name}")
         if not decision.patched:
-            # History still reads `awaiting_human_approval` for this call, so
+            # History still reads the `awaiting` placeholder for this call, so
             # the model is about to see its own proposal as pending and would
             # otherwise report the wrong thing. The nudge is ephemeral, but it
             # is the only channel left once the durable one has failed.
             lines[-1] += (" (its history entry could not be updated — trust "
                           "this line, not the tool context)")
+
     verb = "action" if len(lines) == 1 else "actions"
+    if all(d.park.kind == DEFERRAL_KIND_APPROVAL for d in batch):
+        header = f"[The operator reviewed {len(lines)} pending {verb}:]"
+    elif any(d.park.kind == DEFERRAL_KIND_APPROVAL for d in batch):
+        # A mixed batch: an operator click and a job finishing folded into one
+        # continuation by the conversation lock. Attributing all of it to the
+        # operator would be false for half the list.
+        header = f"[{len(lines)} pending {verb} resolved:]"
+    else:
+        header = f"[{len(lines)} deferred {verb} finished:]"
     return (
-        f"[The operator reviewed {len(lines)} pending {verb}:]\n"
+        header + "\n"
         + "\n".join(lines)
         + "\n[Results are in the tool context above. Report the outcome "
           "briefly. Do not re-propose an action that was already decided, "
@@ -516,12 +542,17 @@ class ChatSystem:
                         yield ev
                     elif isinstance(ev, _ToolContextEvent):
                         tool_context_json = ev.tool_context_json
-                    elif isinstance(ev, WriteParkedEvent):
-                        # DP-297: a gated write, mid-turn. Hold it — the store
+                    elif isinstance(ev, ToolDeferredEvent):
+                        # DP-297: a deferred call, mid-turn. Hold it — the store
                         # registration needs the assistant row id that does not
                         # exist until this turn commits — but surface it now so
                         # an interactive client can render the affordance in
                         # stream order.
+                        #
+                        # This is where a deferral gets its coordinates, and
+                        # they come from `ctx` — the turn that raised it — not
+                        # from configuration. Every kind is bound here, so no
+                        # kind ever needs to be told where to answer.
                         parks_this_turn.append(ParkedWrite(
                             token=ev.token,
                             write_call=ev.write_call,
@@ -531,15 +562,23 @@ class ChatSystem:
                             persona_name=ctx.persona_name,
                             channel=ctx.channel,
                             server_id=ctx.server_id,
+                            kind=ev.kind,
+                            handle=ev.handle,
                             turn_tainted=ev.turn_tainted,
                         ))
-                        yield PendingConfirmationEvent(
-                            text=ev.confirmation_text,
-                            write_calls=[ev.write_call],
-                            persona_name=ctx.persona_name,
-                            token=ev.token,
-                            audit_info=ev.audit_info,
-                        )
+                        if ev.kind == DEFERRAL_KIND_APPROVAL:
+                            # Only an approval has something for a human to
+                            # decide. Emitting this for every kind would put an
+                            # approve/deny affordance in front of the operator
+                            # for a node job that nobody is being asked about,
+                            # and clicking it would resolve the deferral early.
+                            yield PendingConfirmationEvent(
+                                text=ev.confirmation_text,
+                                write_calls=[ev.write_call],
+                                persona_name=ctx.persona_name,
+                                token=ev.token,
+                                audit_info=ev.audit_info,
+                            )
                     elif isinstance(ev, _WriteDuplicateEvent):
                         # Suppressed by the pending-duplicate guard: no
                         # affordance, no audit row — but its history entry will
@@ -861,6 +900,26 @@ class ChatSystem:
             )
             return
 
+        if parked.kind != DEFERRAL_KIND_APPROVAL:
+            # An approve/deny click can only answer a deferral that asked a
+            # human a question. Every other kind is answered by the authority
+            # that owns the work, and `apply()` would execute the deferred call
+            # a SECOND time here — the tool already ran, which is why it is
+            # waiting on a job at all. `list_for` does not surface these, so
+            # reaching this branch means a caller supplied a token by some other
+            # route; it fails closed and restores the deferral.
+            self.confirmations.restore(parked)
+            logger.warning(
+                "park %s: refusing an approve/deny on a %r deferral — that kind "
+                "is resolved by its own authority, not by an operator click",
+                token, parked.kind,
+            )
+            yield DoneEvent(
+                text="No such pending action.",
+                response_type=ResponseType.DEV_COMMAND,
+            )
+            return
+
         if self.confirmations.is_expired(parked):
             self.confirmations.expire(
                 parked, PARK_STATUS_EXPIRED,
@@ -885,9 +944,90 @@ class ChatSystem:
             )
             return
 
-        self.confirmations.enqueue(
+        async with aclosing(self._stream_settle(
             Decision(park=parked, approved=approved, note=note),
-        )
+        )) as agen:
+            async for ev in agen:
+                yield ev
+
+    async def stream_resolve_deferral(
+            self, kind: str, handle: str, *, status: str, result: Any,
+            note: Optional[str] = None,
+    ) -> AsyncGenerator[GenerationEvent, None]:
+        """Settle a non-approval deferral, then summarize (DP-345).
+
+        The twin of `stream_resolve_park` for the kinds whose answer comes from
+        an authority rather than a human: a node job finishing, an agent
+        emitting `done`. Everything after the claim is literally the same code —
+        see `_stream_settle` — because folding, patching and continuing were
+        never approval-specific, and rebuilding them per subsystem is what this
+        ticket exists to undo.
+
+        Only the CLAIM differs, and it has to. An operator click needs the
+        conversation-ownership, TTL and persona checks; an authority ping needs
+        none of them (nobody is late, and the ping does not choose a
+        conversation — the row does) but does need addressing by
+        `(kind, handle)`, because the node knows a job id and has never seen a
+        token.
+
+        `status` and `result` are the *re-read* outcome, per DP-343's rule that
+        the trigger carries a handle and never facts: the caller asks the
+        authority what happened and passes that in. Nothing here trusts the
+        ping's own payload.
+        """
+        parked = self.confirmations.take_by_handle(kind, handle)
+        if parked is None:
+            # Already settled (the node retries its ping ~6s apart), expired, or
+            # never registered. Not an error, and deliberately silent: there is
+            # no conversation to interrupt with a message about a job the model
+            # has already been told about.
+            logger.info(
+                "deferral %s/%s: nothing pending to settle — already resolved, "
+                "expired, or never registered", kind, handle,
+            )
+            return
+
+        if parked.persona_name not in self.personas:
+            # Restored rather than dropped, exactly as the approval path does:
+            # the work really happened, and discarding the deferral would leave
+            # its history entry reading `awaiting:<kind>` forever with nothing
+            # left to patch it.
+            self.confirmations.restore(parked)
+            logger.error(
+                "deferral %s/%s: persona %r no longer exists; leaving it "
+                "pending rather than settling into nowhere",
+                kind, handle, parked.persona_name,
+            )
+            return
+
+        async with aclosing(self._stream_settle(Decision(
+            park=parked, approved=True, note=note,
+            result=result, outcome_status=status,
+        ))) as agen:
+            async for ev in agen:
+                yield ev
+
+    async def _stream_settle(
+            self, decision: Decision,
+    ) -> AsyncGenerator[GenerationEvent, None]:
+        """Fold, apply and continue — the half of a resolve that has no kind.
+
+        Split out of `stream_resolve_park` when DP-345 gave the store a second
+        kind. Both entry points reach here holding a park they have already
+        claimed, and from this point on nothing cares which external event did
+        the claiming: the per-conversation lock folds whatever else arrived, each
+        decision is applied in isolation, and exactly one continuation turn
+        reports the batch.
+
+        Folding across kinds is the part that comes free. A node-job ping that
+        lands while an operator is approving something in the same conversation
+        joins that batch instead of racing a second tool loop over the same
+        history — which the two re-derived wake paths could not do, because they
+        entered through `generate_response` and never touched this lock.
+        """
+        parked = decision.park
+        key = parked.key
+        self.confirmations.enqueue(decision)
 
         applied: List[Decision] = []
         async with self.confirmations.lock_for(key):
@@ -905,7 +1045,12 @@ class ChatSystem:
             # into one summary.
             failed: List[str] = []
             while batch:
-                for decision in batch:
+                # `queued`, not `decision`: this loop settles everything the
+                # drain folded in, which is not necessarily the decision this
+                # call arrived with — and shadowing the parameter here made the
+                # continuation's coordinates look like they came from whichever
+                # park happened to be last in the batch.
+                for queued in batch:
                     # Isolated per decision. A single try around the whole loop
                     # abandoned every un-applied sibling: drain() had already
                     # popped them from _queued and take() had already removed
@@ -913,19 +1058,20 @@ class ChatSystem:
                     # the operator's approval simply evaporated. One decision
                     # that cannot be applied must not silently discard the rest.
                     try:
-                        await self.confirmations.apply(decision)
+                        await self.confirmations.apply(queued)
                     except Exception as e:
                         err_id, _ = format_internal_error(
                             e, scrub=get_scrubber().scrub,
                         )
                         logger.error(
-                            f"[err {err_id}] Error applying approval decision "
-                            f"for {user_identifier}: {e}", exc_info=True,
+                            f"[err {err_id}] Error settling a "
+                            f"{queued.park.kind} deferral for "
+                            f"{queued.park.user_identifier}: {e}", exc_info=True,
                         )
-                        decision.patched = False
+                        queued.patched = False
                         failed.append(
-                            decision.park.write_call.get("name") or "action")
-                    applied.append(decision)
+                            queued.park.write_call.get("name") or "action")
+                    applied.append(queued)
                 batch = self.confirmations.drain(key)
 
             if failed and not any(d.patched for d in applied):
@@ -939,9 +1085,13 @@ class ChatSystem:
                 )
                 return
 
+            # Every coordinate comes off the park — the turn that raised the
+            # deferral — and none from configuration. That is the DP-345
+            # invariant: a resume that has to be told where to answer is one
+            # whose originating turn was thrown away.
             async with aclosing(self._orchestrate(
                 persona_name=parked.persona_name,
-                user_identifier=user_identifier,
+                user_identifier=parked.user_identifier,
                 channel=parked.channel,
                 message=_render_resolution_nudge(applied),
                 server_id=parked.server_id,

@@ -26,6 +26,26 @@ not touch the others, and answering the third before the first is fine. The
 persona's reply to an approval may itself propose more actions, which appear as
 new messages with their own reactions.
 
+**Results that arrive later.** Waiting for your approval is one case of a more
+general thing: a tool call whose real answer arrives after the turn has ended.
+The turn never hangs. It finishes with the call marked as still waiting, and when
+the answer finally comes — you click approve, or some job the persona started
+reports back — the persona picks that conversation up again and tells you what
+happened, **in the channel you were talking in**, as an ordinary reply.
+
+Two consequences worth knowing:
+
+- **You will never be asked to approve something nobody asked you about.** Only
+  proposed writes get an approve/deny affordance. A call waiting on a job that is
+  already running has no decision in it for you to make, so no button appears.
+- **If several answers land close together, you get one reply covering all of
+  them**, not one per answer.
+
+Today the only kind of answer that arrives this way is your own approve/deny.
+Long-running work started by a tool (installing a model on the inference host,
+dispatching a coding agent) still reports through its own status tool; those move
+onto this path as their tickets land.
+
 **Ambient logging:** Messages in configured channels (default: "general", "random", "development") are logged to the database under persona "ambient" without triggering any response. Useful for building conversational context.
 
 **Message deletion:** Deleting a message in Discord automatically suppresses it from future LLM context (the DB row is flagged, not deleted).
