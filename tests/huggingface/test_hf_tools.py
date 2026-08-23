@@ -72,7 +72,7 @@ class FakeHF:
             raise HFError(self.error)
         return self.search
 
-    async def list_gguf_files(self, repo: str, revision: str = "main") -> List[HFFile]:
+    async def list_gguf_files(self, repo: str) -> List[HFFile]:
         if self.error:
             raise HFError(self.error)
         return self.files

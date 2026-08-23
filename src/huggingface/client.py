@@ -219,18 +219,23 @@ class HFClient:
             })
         return results
 
-    async def list_gguf_files(self, repo: str, revision: str = "main") -> List[HFFile]:
+    async def list_gguf_files(self, repo: str) -> List[HFFile]:
         """Every ``.gguf`` in ``repo`` with its byte size and sha256.
 
         Walks the tree endpoint's ``Link: rel="next"`` pages up to
         ``_MAX_TREE_PAGES``; a repo with more shards than that is reported as
         truncated by the caller rather than silently half-listed.
+
+        The ref is pinned to ``main`` and is deliberately **not** a parameter.
+        The node fetches bytes from a hardcoded ``/resolve/main/``
+        (``services/pve/derpr-model-install``), so listing any other ref would
+        read a size and a sha256 off one commit and download a different one —
+        a guaranteed digest mismatch discovered only after a multi-GB transfer.
+        Making the two ends agree is a feature; a parameter that can only ever
+        disagree is not.
         """
         repo = validate_repo_id(repo)
-        url = (
-            f"{self._base}/api/models/{quote(repo, safe='/')}"
-            f"/tree/{quote(revision, safe='')}"
-        )
+        url = f"{self._base}/api/models/{quote(repo, safe='/')}/tree/main"
         params: Optional[Dict[str, Any]] = {"recursive": "1"}
         files: List[HFFile] = []
         seen_cursors: set[str] = set()
@@ -258,7 +263,7 @@ class HFClient:
                 ) as resp:
                     if resp.status == 404:
                         raise HFError(
-                            f"no such HuggingFace repo or revision: {url}"
+                            f"no such HuggingFace repo: {url}"
                         )
                     if resp.status != 200:
                         body = (await resp.text())[:200]

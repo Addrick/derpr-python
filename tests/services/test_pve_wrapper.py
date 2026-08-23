@@ -138,7 +138,7 @@ class StubHF:
     async def search_models(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         return []
 
-    async def list_gguf_files(self, repo: str, revision: str = "main") -> List[HFFile]:
+    async def list_gguf_files(self, repo: str) -> List[HFFile]:
         return []
 
 
