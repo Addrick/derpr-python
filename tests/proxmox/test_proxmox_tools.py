@@ -316,6 +316,21 @@ async def test_set_active_model_disables_others_then_enables_target(enabled):
 
 
 @pytest.mark.asyncio
+async def test_set_active_model_note_survives_an_unknown_size(enabled):
+    """A pre-DP-340 node has no tier inventory, so there is no size to quote.
+    The warning still has to be there and still has to read as a sentence —
+    interpolating a missing size is how "loading None GB into VRAM" reaches a
+    persona (DP-353)."""
+    runner = FakeRunner()
+    h = ProxmoxToolHandler(runner)  # type: ignore[arg-type]
+    res = await h._set_active_model("fable")
+    assert res["state"] == "loading"
+    assert "size_bytes" not in res
+    assert "None" not in res["note"]
+    assert "loading into VRAM" in res["note"]
+
+
+@pytest.mark.asyncio
 async def test_set_active_model_disables_only_koboldcpp_units(enabled):
     """The "disable every other unit" set is now discovered rather than pinned in
     config, which is the one place discovery is MORE dangerous than the map was:

@@ -236,7 +236,12 @@ PROXMOX_TOOLS: List[Dict[str, Any]] = [
                 "Swap which koboldcpp model serves :5001 on the GPU container. "
                 "Disables the current model's service and enables+starts the "
                 "target's (only one can run at a time). Requires human approval. "
-                "Pass a name from list_models."
+                "Pass a name from list_models. STARTS the swap and returns "
+                "immediately with state='loading' — koboldcpp then spends a "
+                "minute or more reading the gguf into VRAM, and :5001 serves "
+                "nothing until it finishes. A cold-tier target returns "
+                "state='promoting' instead and does not swap at all. Read the "
+                "returned note before telling anyone the model is live."
             ),
             "parameters": {
                 "type": "object",

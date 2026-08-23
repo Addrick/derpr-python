@@ -1013,7 +1013,7 @@ straight through.
 | `reboot_guest` | **Write (parked)** | Reboot one guest, by `name` or by `vmid`. |
 | `start_guest` | **Write (parked)** | Start a stopped guest, by `name` or by `vmid`. |
 | `stop_guest` | **Write (parked)** | Hard-stop a running guest (power-off, not graceful shutdown), by `name` or by `vmid`. |
-| `set_active_model` | **Write (parked)** | Swap the active model on `:5001`: stops every other discovered `koboldcpp-<name>.service` that binds `:5001`, then enables+starts the target (only one may hold the port). Units serving another port are left alone. Pass a `name` from `list_models`. Two guards: if the target's model file isn't on disk it **refuses and leaves the current model running** (never takes `:5001` down); and if a unit that had to be stopped doesn't stop, the swap **aborts before enabling the target** and says so, rather than reporting a success the old model would go on contradicting. |
+| `set_active_model` | **Write (parked)** | Swap the active model on `:5001`: stops every other discovered `koboldcpp-<name>.service` that binds `:5001`, then enables+starts the target (only one may hold the port). Units serving another port are left alone. Pass a `name` from `list_models`. Two guards: if the target's model file isn't on disk it **refuses and leaves the current model running** (never takes `:5001` down); and if a unit that had to be stopped doesn't stop, the swap **aborts before enabling the target** and says so, rather than reporting a success the old model would go on contradicting. **It starts the swap, it does not finish it:** the result says `state: "loading"`, carries the gguf's size, and tells the model that `:5001` answers nothing until koboldcpp has read the whole file into VRAM — a minute or more. Readiness is not visible to these tools (`list_models` reports `systemctl is-active`, which is true from the moment the unit forks), so the note points at `gpu_status` VRAM instead. |
 
 #### Addressing a guest by name
 
@@ -1144,8 +1144,10 @@ SSD cannot exhaust the pool the running guests allocate from, whatever its size
 and whatever a space check does or does not catch.
 
 **Promotion happens when you activate.** Calling `set_active_model` on a cold
-model promotes it first: it makes room in the hot tier, copies the gguf across,
-re-verifies its sha256 at the destination, and only then switches `:5001`.
+model promotes it first: it makes room in the hot tier, copies the gguf across
+and re-verifies its sha256 at the destination. It does **not** then switch —
+`:5001` is untouched for the whole copy, and a second `set_active_model` call
+does the swap once the job reports `done`.
 
 ⚠️ **A promotion takes minutes, and the tool tells you so rather than blocking.**
 A 24 GB gguf off a spinning archive disk is roughly three minutes. `set_active_model`
@@ -1154,6 +1156,16 @@ shape `install_model` already uses — and you poll it with `install_status`. It
 does **not** hold the call open for the copy: a tool call that appears hung is one
 an agent will retry, and a retried model swap is how you get two promotions
 racing for the same hot-tier space.
+
+⚠️ **A hot swap does not block either — and it is not done when it returns.**
+`systemctl enable --now` on a `Type=simple` unit returns the instant koboldcpp
+is forked; koboldcpp then reads the entire gguf and uploads it to VRAM, and
+binds `:5001` only after that. So `set_active_model` on a hot model answers in
+seconds with `state: "loading"` and the file's size, while the model is minutes
+from serving. Nothing in the tool set can see the moment it becomes ready:
+`list_models` reports `systemctl is-active`, which says active from the fork
+onward. The nearest signal is `gpu_status` — VRAM used climbs to roughly the
+gguf's size and stops. Until it does, the swap is in progress, not finished.
 
 **What gets evicted.** The hot tier makes room by removing the
 **least recently served** model first, and it only ever removes enough to fit

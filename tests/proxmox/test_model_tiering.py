@@ -125,6 +125,24 @@ async def test_a_hot_model_still_swaps_directly(enabled):
 
 
 @pytest.mark.asyncio
+async def test_a_hot_swap_reports_loading_not_active(enabled):
+    """`systemctl enable --now` returns at fork, so "ok" alone is a claim the
+    tool cannot support (DP-353). The result has to say the model is still
+    loading, how big it is, and that neither this call nor list_models can see
+    readiness — a persona told :5001 was live announced it while the port was
+    still closed."""
+    h, _ = _handler(tiers=TIERS)
+    out = await h._set_active_model("hotmodel")
+    assert out["status"] == "ok"
+    assert out["state"] == "loading"
+    assert out["size_bytes"] == 24_000_000_000
+    note = out["note"]
+    assert "24.0 GB" in note
+    assert "gpu_status" in note
+    assert "list_models" in note
+
+
+@pytest.mark.asyncio
 async def test_a_cold_model_promotes_instead_of_swapping(enabled):
     h, runner = _handler(tiers=TIERS)
     out = await h._set_active_model("coldmodel")
