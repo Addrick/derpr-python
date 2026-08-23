@@ -22,6 +22,7 @@ from typing import (
 )
 
 from config.global_config import MAX_TOOL_CALLS, MAX_TOOL_ITERATIONS
+from src.deferral_kinds import DEFERRAL_KIND_APPROVAL
 from src.engine import LLMCommunicationError, TextEngine
 from src.security.scrubber import get_scrubber
 from src.generation_events import (
@@ -58,19 +59,34 @@ class _ToolContextEvent:
 
 
 @dataclass
-class WriteParkedEvent:
-    """One write call gated for human approval (DP-297).
+class ToolDeferredEvent:
+    """One tool call whose real result arrives after this turn ends (DP-345).
 
     Emitted *mid-turn* — the loop keeps running after it, so a turn can emit
-    several. The orchestrator parks each one and forwards it to the surface as
-    its own approve/deny affordance. Public (not underscore-prefixed) because
-    interfaces consume it directly, unlike the loop-internal events above.
+    several. The orchestrator binds each one to the row this turn is about to
+    commit and hands it to `ConfirmationManager`. Public (not
+    underscore-prefixed) because interfaces consume it directly, unlike the
+    loop-internal events above.
+
+    Was `WriteParkedEvent`, and the rename is the point of DP-345 rather than
+    cosmetics. The mechanism (durable row → exactly-once claim → patched
+    placeholder → one continuation turn) is not specific to human approval, but
+    every name on it said "write" and "approval", so DP-227 and DP-343 both
+    failed to recognize it and re-derived it — the second time with coordinates
+    read from config and an exactly-once set that did not survive a restart.
+    A capability nothing can find by its own vocabulary gets built twice.
+
+    `kind` says which external event will answer the call, and it is what
+    `resolve` dispatches on. There is no companion handle naming the pending
+    thing the way that event knows it, because `token` already is that name:
+    derpr mints it and hands the same string outward as the job id.
     """
     token: str
     write_call: Dict[str, Any]
     audit_info: Dict[str, Any]
     confirmation_text: str
     turn_tainted: bool = False
+    kind: str = DEFERRAL_KIND_APPROVAL
 
 
 @dataclass
@@ -107,14 +123,22 @@ class _LoopFinishedEvent:
 LoopEvent = Union[
     TokenEvent, ErrorEvent,
     ToolCallStartEvent, ToolCallResultEvent,
-    _ApiPayloadEvent, _LoopFinishedEvent, _ToolContextEvent, WriteParkedEvent,
+    _ApiPayloadEvent, _LoopFinishedEvent, _ToolContextEvent, ToolDeferredEvent,
     _WriteDuplicateEvent,
 ]
 
-# Status values for a gated write's synthetic tool result. These are what the
-# model reads in replayed history, and `PARK_STATUS_AWAITING` is the entry
-# `ConfirmationManager` later patches in place once the operator decides.
+# Status values for a deferred tool call's synthetic tool result. These are what
+# the model reads in replayed history, and the `awaiting` family is the entry
+# `ConfirmationManager` later patches in place once the deferral resolves.
 PARK_STATUS_AWAITING = "awaiting_human_approval"
+# Every other kind's placeholder status. `approval` keeps the literal above
+# rather than becoming `awaiting:approval`, and that asymmetry is deliberate:
+# this string is written into durable `tool_context` blobs, so changing it would
+# strand every row already on disk — `_summarize_outcome` would stop recognizing
+# them and the portal would render a live proposal as a plain result. The value
+# is frozen for compatibility; `awaiting_status()` is the only thing that should
+# ever construct one.
+_AWAITING_PREFIX = "awaiting:"
 PARK_STATUS_APPROVED = "approved"
 PARK_STATUS_DENIED = "denied"
 # Approved by the operator, but the tool raised when it ran. Distinct from
@@ -146,6 +170,31 @@ PARK_STATUS_ALREADY_RESOLVED = "already_resolved"
 # Not a park outcome — the answer to a write the model proposed while an
 # identical one was already waiting. No second park is created.
 PARK_STATUS_DUPLICATE = "duplicate_of_pending"
+
+
+def awaiting_status(kind: str) -> str:
+    """The placeholder status a deferral of this kind writes into history.
+
+    The one constructor. `approval` answers with the frozen legacy literal (see
+    `_AWAITING_PREFIX`), everything else with `awaiting:<kind>`.
+    """
+    if kind == DEFERRAL_KIND_APPROVAL:
+        return PARK_STATUS_AWAITING
+    return f"{_AWAITING_PREFIX}{kind}"
+
+
+def is_awaiting_status(status: Any) -> bool:
+    """Whether a history entry's status means "still waiting on the outside".
+
+    Every consumer must go through this rather than comparing against
+    `PARK_STATUS_AWAITING`. An `==` check silently answers False for every
+    non-approval kind, which reads as "this call completed" — so the model would
+    be told a still-pending install had returned, and the resolve path's patch
+    target would look like an already-resolved entry.
+    """
+    if status == PARK_STATUS_AWAITING:
+        return True
+    return isinstance(status, str) and status.startswith(_AWAITING_PREFIX)
 
 
 def write_call_identity(call: Dict[str, Any]) -> Tuple[str, str]:
@@ -340,6 +389,11 @@ def _summarize_outcome(content: Optional[str]) -> str:
         status = payload.get("status")
         if status == PARK_STATUS_AWAITING:
             return "waiting for your approval"
+        if is_awaiting_status(status):
+            # A non-approval deferral: nobody is being asked for anything, so
+            # "waiting for your approval" would be a lie that invites a click
+            # that cannot exist. Names the kind instead.
+            return f"waiting on {cast(str, status)[len(_AWAITING_PREFIX):]}"
         if status == PARK_STATUS_DUPLICATE:
             return "skipped, an identical proposal is already waiting"
         if status == PARK_STATUS_ALREADY_RESOLVED:
@@ -995,7 +1049,7 @@ class ToolLoop:
                         "tool_call_id": wc.get("id"),
                         "name": wc.get("name"),
                         "content": json.dumps({
-                            "status": PARK_STATUS_AWAITING,
+                            "status": awaiting_status(DEFERRAL_KIND_APPROVAL),
                             "token": token,
                             "instruction": (
                                 "Proposal queued for the operator. Do NOT "
@@ -1005,7 +1059,7 @@ class ToolLoop:
                         }),
                     })
 
-                    yield WriteParkedEvent(
+                    yield ToolDeferredEvent(
                         token=token,
                         write_call=wc,
                         # Single-action slice: each park carries only its own

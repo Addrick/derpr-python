@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import json
-from src.tools.tool_loop import ToolLoop, WriteParkedEvent, _LoopFinishedEvent
+from src.tools.tool_loop import ToolLoop, ToolDeferredEvent, _LoopFinishedEvent
 from src.tools.tool_manager import ToolManager, ZammadToolHandler
 from src.persona import Persona, ExecutionMode
 from src.generation_events import TokenEvent, ToolCallStartEvent, ToolCallResultEvent, ResponseType
@@ -45,9 +45,9 @@ async def test_zammad_approval_enrichment():
         events.append(ev)
     
     # 3. Assertions
-    # The gated write surfaces as a WriteParkedEvent carrying its own approval
+    # The gated write surfaces as a ToolDeferredEvent carrying its own approval
     # prompt (DP-297); the turn itself no longer ends on the park.
-    park = next(ev for ev in events if isinstance(ev, WriteParkedEvent))
+    park = next(ev for ev in events if isinstance(ev, ToolDeferredEvent))
 
     # Check the approval prompt for the enrichment and expanded tags
     text = park.confirmation_text
@@ -100,7 +100,7 @@ async def test_zammad_merge_enrichment():
         events.append(ev)
     
     # 3. Assertions
-    park = next(ev for ev in events if isinstance(ev, WriteParkedEvent))
+    park = next(ev for ev in events if isinstance(ev, ToolDeferredEvent))
     text = park.confirmation_text
     print(f"\nGenerated merge confirmation text:\n{text}")
 

@@ -65,9 +65,9 @@ async def test_chat_system_audit_parked(chat_system, mem_manager):
     persona.set_enabled_tools(["*"])
     
     # Mock ToolLoop events: a gated write mid-turn, then a normal finish.
-    from src.tools.tool_loop import WriteParkedEvent, _LoopFinishedEvent
+    from src.tools.tool_loop import ToolDeferredEvent, _LoopFinishedEvent
     audit_info = {"actions": [{"tool": "write_tool", "args": {}}]}
-    park_ev = WriteParkedEvent(
+    park_ev = ToolDeferredEvent(
         token="tok-audit-1",
         write_call={"id": "c1", "name": "write_tool", "arguments": {}},
         audit_info=audit_info,

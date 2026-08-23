@@ -20,7 +20,7 @@ from src.generation_events import (
 from src.memory.memory_manager import MemoryManager
 from src.persona import ExecutionMode
 from src.security.scrubber import get_scrubber, reset_scrubber
-from src.tools.tool_loop import ToolLoop, WriteParkedEvent, _LoopFinishedEvent
+from src.tools.tool_loop import ToolLoop, ToolDeferredEvent, _LoopFinishedEvent
 from src.turn_persistence import TurnPersistence
 
 SECRET = "supersecretvalue123"
@@ -188,7 +188,7 @@ async def test_boundary2_model_reasoning_scrubbed_in_audit():
         conversation_history=[], params=MagicMock(), tools=[],
     ))
 
-    park = next(e for e in events if isinstance(e, WriteParkedEvent))
+    park = next(e for e in events if isinstance(e, ToolDeferredEvent))
     reasoning = park.audit_info["model_reasoning"]
     assert reasoning is not None
     assert SECRET not in reasoning
@@ -219,7 +219,7 @@ async def test_boundary2_write_args_scrubbed_in_audit_and_confirmation():
         conversation_history=[], params=MagicMock(), tools=[],
     ))
 
-    park = next(e for e in events if isinstance(e, WriteParkedEvent))
+    park = next(e for e in events if isinstance(e, ToolDeferredEvent))
 
     args = park.audit_info["actions"][0]["arguments"]
     assert args["api_key"] == REDACTED

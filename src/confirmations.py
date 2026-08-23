@@ -23,6 +23,7 @@ from config.global_config import (
     PARK_PURGE_INTERVAL, PARK_REEXECUTION_GUARD_WINDOW, PARK_ROW_RETENTION,
     PENDING_ACTION_TTL,
 )
+from src.deferral_kinds import DEFERRAL_KIND_APPROVAL
 from src.memory.memory_manager import (
     PARK_DB_CLAIMED, PARK_DB_EXPIRED, PARK_DB_INTERRUPTED, PARK_DB_LIVE,
     PARK_DB_PENDING, PARK_DB_QUARANTINED, PARK_DB_RESOLVED, PARK_DB_UNKNOWN,
@@ -59,10 +60,27 @@ INTERRUPTED_INSTRUCTION = (
     "before proposing it again."
 )
 
+# The same shape for a non-approval deferral caught mid-settle by a restart.
+# Nothing was being *decided* — the work had already run elsewhere and the
+# process died while recording what it did — so the approval wording above would
+# describe a review that never happened. The instruction is the same, and for
+# the same reason: the outcome is genuinely unknown to us, and a bare failure
+# invites a retry that would re-run whatever the authority already did.
+#
+# This is where a per-kind boot reconciler would go once a kind can be
+# re-queried (a node job can: `job_status` still answers). Until a kind actually
+# supplies one, telling the model to re-check is the honest answer rather than a
+# hook with no implementation behind it.
+INTERRUPTED_DEFERRAL_INSTRUCTION = (
+    "The service restarted while this action's result was being recorded, so "
+    "whether it completed is unknown. Do NOT assume either outcome — check the "
+    "current state before proposing it again."
+)
+
 
 @dataclass
 class ParkedWrite:
-    """One write tool call awaiting an operator decision.
+    """One deferred tool call — a call whose real result arrives after the turn.
 
     Exactly one call — not a list. A turn that proposes three writes creates
     three of these, so each can be approved or denied on its own.
@@ -71,6 +89,15 @@ class ParkedWrite:
     live history from the DB, which is what lets several parks from one turn be
     resolved in any order without forking the conversation: there is no stale
     copy to replay.
+
+    **The coordinates below are the point of DP-345.** `user_identifier`,
+    `persona_name`, `channel` and `server_id` are taken from the turn that
+    raised the deferral, so resolving it needs no configuration at all — the row
+    already knows where to answer. Both subsystems that re-derived this
+    mechanism (fixr, DP-343) discarded the turn and re-asserted those same four
+    facts from env vars, which is how five settings came to exist naming a
+    persona, a channel and a user. A deferral kind that has to be *told* where
+    to reply is a deferral kind that threw away state it was handed.
     """
     token: str
     write_call: Dict[str, Any]
@@ -80,6 +107,16 @@ class ParkedWrite:
     persona_name: str
     channel: str = ""
     server_id: Optional[str] = None
+    # Which external event answers this call. `approval` is a human clicking a
+    # token; other kinds are answered by whatever authority owns the work.
+    #
+    # There is no companion `handle` field naming the pending thing the way
+    # that authority knows it, because there is no second identifier: derpr
+    # mints the token and hands that same string outward as the job id (the
+    # node validates it against `^[a-z0-9][a-z0-9-]{0,63}$`, which a 32-char
+    # lowercase-hex token satisfies). The handle IS the token, so every kind
+    # is claimed with plain `take(token)`.
+    kind: str = DEFERRAL_KIND_APPROVAL
     turn_tainted: bool = False
     # The assistant row whose sealed tool_context holds this call's
     # `awaiting_human_approval` entry — the row patched when it resolves.
@@ -182,6 +219,10 @@ class ParkedWrite:
             persona_name=str(row["persona_name"]),
             channel=row.get("channel") or "",
             server_id=row.get("server_id"),
+            # Defaulted, not `row["kind"]`: rows written before the DP-345
+            # migration have no such column, and the whole population they
+            # represent is approvals.
+            kind=str(row.get("kind") or DEFERRAL_KIND_APPROVAL),
             turn_tainted=bool(row.get("turn_tainted")),
             parked_assistant_id=row.get("parked_assistant_id"),
             duplicate_refs=kept,
@@ -191,12 +232,24 @@ class ParkedWrite:
 
 @dataclass
 class Decision:
-    """An operator's answer to one park, plus the outcome of acting on it."""
+    """One deferral's answer, plus the outcome of acting on it.
+
+    Named for the approval kind because that is the only kind whose answer is a
+    *decision*. For every other kind the answer is a report: the work already
+    ran somewhere else, and `outcome_status` / `result` carry what it did.
+    """
     park: ParkedWrite
     approved: bool
     note: Optional[str] = None
     result: Any = None
     ok: bool = False
+    # DP-345: the outcome as supplied by a non-approval kind's authority. When
+    # set it wins over the derivation below, because there was no operator whose
+    # verdict could be derived from — the node said `done` or `failed` and that
+    # is the whole of it. Must never be an `awaiting:` value: this is the status
+    # that REPLACES the placeholder, so writing another awaiting status here
+    # would leave the call pending forever with its row already terminal.
+    outcome_status: Optional[str] = None
     # False when `patch_parked_entry` could not rewrite the history entry, so
     # durable history still reads `awaiting_human_approval` for a write that
     # already ran. `apply()` used to discard that return, leaving only a
@@ -217,6 +270,8 @@ class Decision:
         the same defect `DENIAL_INSTRUCTION` fixes one branch over: a verdict
         whose real outcome outlives the only place that states it.
         """
+        if self.outcome_status is not None:
+            return self.outcome_status
         if not self.approved:
             return PARK_STATUS_DENIED
         return PARK_STATUS_APPROVED if self.ok else PARK_STATUS_FAILED
@@ -242,6 +297,12 @@ class ConfirmationManager:
         # Insertion-ordered token list per conversation — drives the portal's
         # pending list and Discord's ordering.
         self._by_key: Dict[ConversationKey, List[str]] = {}
+        # No second index keyed by the external event's own name for the work:
+        # the token IS that name (see `ParkedWrite.kind`), so a ping resolves
+        # through `self.pending` like a click does. DP-343's in-process
+        # `OrderedDict` of job ids is what that replaces, and it was lost on
+        # restart; `rebuild_from_store` reloads `pending` from the rows.
+
         # Decisions acted on but not yet folded into a continuation turn.
         self._queued: Dict[ConversationKey, List[Decision]] = {}
         # One lock per conversation. Serializes execute -> patch -> continue, so
@@ -412,14 +473,25 @@ class ConfirmationManager:
         if parked.token not in tokens:
             tokens.append(parked.token)
 
-    def list_for(self, user_identifier: str,
-                 persona_name: str) -> List[ParkedWrite]:
-        """Live parks for one conversation, oldest first."""
+    def list_for(self, user_identifier: str, persona_name: str,
+                 kind: str = DEFERRAL_KIND_APPROVAL) -> List[ParkedWrite]:
+        """Live deferrals of one kind for one conversation, oldest first.
+
+        Defaults to `approval` rather than to "everything", and that default is
+        the fail-closed one. Every caller of this method renders an approve/deny
+        affordance — the portal's pending list, Discord's re-post of unanswered
+        proposals, the kobold adapter's transcript. A node job or an agent
+        dispatch has no decision for a human to make, so returning it here would
+        put a button in front of the operator that resolves a deferral nobody
+        was asked about, and `apply()` would then execute `install_model` a
+        second time. A new kind becomes clickable only when a surface asks for
+        it by name.
+        """
         self._sweep_off_thread()
         return [
             self.pending[t]
             for t in self._by_key.get((user_identifier, persona_name), [])
-            if t in self.pending
+            if t in self.pending and self.pending[t].kind == kind
         ]
 
     def lock_for(self, key: ConversationKey) -> asyncio.Lock:
@@ -469,6 +541,7 @@ class ConfirmationManager:
             turn_tainted=parked.turn_tainted,
             parked_assistant_id=parked.parked_assistant_id,
             duplicate_refs=[list(r) for r in parked.duplicate_refs],
+            kind=parked.kind,
         )
 
     def note_duplicate_ref(self, parked: ParkedWrite,
@@ -760,10 +833,12 @@ class ConfirmationManager:
             return 0
 
     def _terminate_interrupted(self, parked: ParkedWrite) -> None:
-        """Close out a park whose resolution died with the process."""
+        """Close out a deferral whose resolution died with the process."""
         self.patch_parked_entry(
             parked, PARK_STATUS_INTERRUPTED,
-            {"error": INTERRUPTED_INSTRUCTION},
+            {"error": INTERRUPTED_INSTRUCTION
+                if parked.kind == DEFERRAL_KIND_APPROVAL
+                else INTERRUPTED_DEFERRAL_INSTRUCTION},
         )
         self.memory_manager.finalize_parked_write(
             parked.token, PARK_DB_INTERRUPTED, PARK_STATUS_INTERRUPTED,
@@ -774,24 +849,72 @@ class ConfirmationManager:
             operator_id=parked.user_identifier,
             prior_state=PARK_DB_CLAIMED,
             new_state=PARK_STATUS_INTERRUPTED,
-            reason="Process restarted after the decision was claimed; the "
-                   "write was NOT re-executed",
+            reason=("Process restarted after the decision was claimed; the "
+                    "write was NOT re-executed"
+                    if parked.kind == DEFERRAL_KIND_APPROVAL else
+                    f"Process restarted while settling a {parked.kind} "
+                    f"deferral; nothing was re-executed"),
             metadata=parked.audit_info,
         )
 
     # ---- resolution ------------------------------------------------------
 
+    @staticmethod
+    def _default_reason(decision: Decision) -> str:
+        """The audit sentence when the caller supplied no note.
+
+        One helper rather than the expression repeated at the audit row and the
+        finalize call. Those two copies had to agree — `resolution_reason` on the
+        row and `reason` in `Audit_Log` are the pair a forensic query joins on —
+        and once a third kind existed, "approved" versus "denied" stopped being
+        an exhaustive answer at both sites simultaneously.
+        """
+        park = decision.park
+        if park.kind != DEFERRAL_KIND_APPROVAL:
+            return (f"{park.kind} deferral settled by its authority as "
+                    f"{decision.status}")
+        return ("Human approved tool execution" if decision.approved
+                else "Human denied tool execution")
+
     async def apply(self, decision: Decision) -> None:
-        """Execute (or refuse) one decided write, then patch its history entry.
+        """Settle one deferral: produce its real result, then patch history.
 
         Ordering matters: the patch must land before the continuation rebuilds
         history, or the model reads its own proposal as still pending and
         summarizes the wrong thing.
+
+        The head branches on kind; everything from the audit row down is shared.
+        That split is the point of DP-345 — the *outcome* of a deferral is
+        kind-specific (a human's verdict plus an execution, versus a report from
+        the authority that already did the work), but recording it is not, and
+        each of the three re-derivations rebuilt the recording half too.
+
+        A non-approval kind executes NOTHING here. Its tool already ran on the
+        turn that deferred it — that is why there is a job to wait on — so
+        running it again would be a second irreversible action, reached through
+        the one path in this module whose entire job is to prevent that. Its
+        caller re-reads the outcome from the authority and hands it in.
         """
         park = decision.park
         tool_name = park.write_call.get("name") or "unknown"
 
-        if decision.approved:
+        if park.kind != DEFERRAL_KIND_APPROVAL:
+            if decision.outcome_status is None:
+                raise ValueError(
+                    f"a {park.kind!r} deferral must be settled with an "
+                    f"outcome_status; there is no operator verdict to derive "
+                    f"one from"
+                )
+            # Same taint rule as an approved execution, and for the same reason:
+            # what gets patched into history here is a payload from outside the
+            # system (a node's job document, an agent's report), so if this
+            # tool's output is untrusted then this turn is tainted. Set in this
+            # branch rather than in the shared tail on purpose — hoisting it
+            # would newly taint DENIALS, which execute nothing and read no
+            # external bytes at all.
+            if get_tool_capabilities(tool_name).get("produces_untrusted"):
+                park.turn_tainted = True
+        elif decision.approved:
             tool_manager = self._tool_manager_lookup()
             try:
                 decision.result = await tool_manager.execute_tool(
@@ -850,9 +973,7 @@ class ConfirmationManager:
             operator_id=park.user_identifier,
             prior_state="pending",
             new_state=decision.status,
-            reason=(decision.note or
-                    ("Human approved tool execution" if decision.approved
-                     else "Human denied tool execution")),
+            reason=decision.note or self._default_reason(decision),
             # No raw `write_call` here. It carried the tool name and arguments
             # a second time — `audit_info["actions"][0]` already has both, plus
             # the irreversibility / sensitivity / enrichment / taint flags that
@@ -897,9 +1018,7 @@ class ConfirmationManager:
             # too. The next boot then reported a known outcome as `interrupted`.
             finalized = self.memory_manager.finalize_parked_write(
                 park.token, PARK_DB_RESOLVED, decision.status,
-                decision.note or ("Human approved tool execution"
-                                  if decision.approved
-                                  else "Human denied tool execution"),
+                decision.note or self._default_reason(decision),
             )
             if not finalized and decision.status in (PARK_STATUS_APPROVED,
                                                      PARK_STATUS_FAILED):
@@ -1135,5 +1254,6 @@ def new_token() -> str:
 __all__ = [
     "ConfirmationManager", "ParkedWrite", "Decision", "new_token",
     "PARK_STATUS_AWAITING", "PARK_STATUS_FAILED", "DENIAL_INSTRUCTION",
-    "INTERRUPTED_INSTRUCTION",
+    "INTERRUPTED_INSTRUCTION", "INTERRUPTED_DEFERRAL_INSTRUCTION",
+    "DEFERRAL_KIND_APPROVAL",
 ]

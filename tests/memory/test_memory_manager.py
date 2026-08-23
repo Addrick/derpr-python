@@ -2962,7 +2962,7 @@ def test_migration_creates_parked_writes_table(legacy_mem_manager):
     assert {'token', 'created_at', 'status', 'user_identifier', 'persona_name',
             'channel', 'server_id', 'write_call', 'call_identity', 'audit_info',
             'confirmation_text', 'turn_tainted', 'parked_assistant_id',
-            'duplicate_refs', 'resolved_at', 'resolution',
+            'duplicate_refs', 'kind', 'resolved_at', 'resolution',
             'resolution_reason'} == columns
 
     cursor.execute("PRAGMA index_list(Parked_Writes)")
@@ -3007,6 +3007,168 @@ def test_migration_parked_writes_idempotent(legacy_mem_manager):
 
     assert [r["token"] for r in
             legacy_mem_manager.load_parked_writes(("pending",))] == ["a"]
+
+
+# --- Parked_Writes kind migration (DP-345) ---
+#
+# `test_migration_creates_parked_writes_table` above covers the DB that predates
+# the TABLE. This block covers the one that predates the COLUMN — a database
+# that has been running parks since DP-319 and now has to carry deferrals of
+# other kinds. That population is the live production DB, and a `:memory:` DB
+# can never represent it: it is built from the current DDL, so `kind` is there
+# before the migration would have had anything to do.
+
+@pytest.fixture
+def pre_kind_mem_manager(tmp_path):
+    """MemoryManager on a DB whose Parked_Writes predates `kind`.
+
+    The table is the post-DP-319 shape verbatim, holding one live park and one
+    already-resolved one, so the migration has real rows to preserve and the
+    backfill has something to be wrong about.
+    """
+    import sqlite3
+
+    db_path = str(tmp_path / "pre_kind.db")
+    conn = sqlite3.connect(db_path)
+    conn.executescript("""
+        CREATE TABLE Parked_Writes (
+            token TEXT PRIMARY KEY,
+            created_at REAL NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK(status IN ('pending', 'claimed', 'resolved', 'expired',
+                                 'interrupted', 'quarantined')),
+            user_identifier TEXT NOT NULL,
+            persona_name TEXT NOT NULL,
+            channel TEXT NOT NULL DEFAULT '',
+            server_id TEXT,
+            write_call TEXT,
+            call_identity TEXT NOT NULL,
+            audit_info TEXT,
+            confirmation_text TEXT NOT NULL DEFAULT '',
+            turn_tainted INTEGER NOT NULL DEFAULT 0,
+            parked_assistant_id INTEGER,
+            duplicate_refs TEXT NOT NULL DEFAULT '[]',
+            resolved_at REAL,
+            resolution TEXT,
+            resolution_reason TEXT
+        );
+        CREATE INDEX idx_parked_write_conversation
+            ON Parked_Writes (user_identifier, persona_name, status, created_at);
+        CREATE INDEX idx_parked_write_status
+            ON Parked_Writes (status, created_at);
+
+        INSERT INTO Parked_Writes
+            (token, created_at, status, user_identifier, persona_name, channel,
+             write_call, call_identity, audit_info, confirmation_text,
+             parked_assistant_id, duplicate_refs)
+        VALUES
+            ('live', 1000.0, 'pending', 'u', 'p', 'c',
+             '{"id": "c1", "name": "update_ticket", "arguments": {"x": 1}}',
+             'ident-live', '{"actions": []}', 'Run it?', 5, '[]');
+
+        INSERT INTO Parked_Writes
+            (token, created_at, status, user_identifier, persona_name, channel,
+             write_call, call_identity, audit_info, confirmation_text,
+             parked_assistant_id, duplicate_refs, resolved_at, resolution,
+             resolution_reason)
+        VALUES
+            ('old', 900.0, 'resolved', 'u', 'p', 'c',
+             NULL, 'ident-old', NULL, '', 4, '[]',
+             950.0, 'approved', 'Human approved tool execution');
+    """)
+    conn.commit()
+    conn.close()
+
+    manager = MemoryManager(db_path=db_path)
+    yield manager
+    manager.close()
+
+
+def test_migration_adds_the_kind_column(pre_kind_mem_manager):
+    """create_schema() ALTERs the one DP-345 column onto an existing table."""
+    pre_kind_mem_manager.create_schema()
+
+    cursor = pre_kind_mem_manager._get_connection().cursor()
+    cursor.execute("PRAGMA table_info(Parked_Writes)")
+    columns = {row['name'] for row in cursor.fetchall()}
+    assert 'kind' in columns
+
+
+def test_migration_backfills_existing_rows_as_approvals(pre_kind_mem_manager):
+    """Every pre-DP-345 row reads back as `kind='approval'`.
+
+    This is the whole safety argument for the column DEFAULT. Rows written
+    before deferral kinds existed were, without exception, writes awaiting a
+    human — so a backfill to anything else (or to NULL) would make
+    `ParkedWrite.from_row` rebuild a live gated write as some other kind, and
+    `stream_resolve_park` now refuses to let an operator click those.
+    """
+    pre_kind_mem_manager.create_schema()
+
+    cursor = pre_kind_mem_manager._get_connection().cursor()
+    cursor.execute("SELECT token, kind FROM Parked_Writes ORDER BY token")
+    rows = {r['token']: r['kind'] for r in cursor.fetchall()}
+    assert rows == {'live': 'approval', 'old': 'approval'}
+
+
+def test_migration_preserves_existing_park_payloads(pre_kind_mem_manager):
+    """The rows themselves survive the ALTER with every column intact."""
+    pre_kind_mem_manager.create_schema()
+
+    loaded = pre_kind_mem_manager.load_parked_writes(("pending",))
+    assert [r["token"] for r in loaded] == ["live"]
+    assert loaded[0]["write_call"] == {
+        "id": "c1", "name": "update_ticket", "arguments": {"x": 1},
+    }
+    assert loaded[0]["call_identity"] == "ident-live"
+    assert loaded[0]["parked_assistant_id"] == 5
+    assert loaded[0]["kind"] == "approval"
+
+
+def test_migration_makes_deferral_kinds_usable(pre_kind_mem_manager):
+    """A non-approval deferral can be stored and found on the migrated DB."""
+    pre_kind_mem_manager.create_schema()
+
+    assert pre_kind_mem_manager.insert_parked_write(
+        token="job", created_at=2000.0, user_identifier="u", persona_name="p",
+        channel="c", server_id=None,
+        write_call={"id": "c9", "name": "install_model", "arguments": {}},
+        call_identity="ident-job", audit_info={}, confirmation_text="",
+        turn_tainted=False, parked_assistant_id=7, duplicate_refs=[],
+        kind="node_job",
+    ) is True
+
+    loaded = {r["token"]: r for r in
+              pre_kind_mem_manager.load_parked_writes(("pending",))}
+    assert loaded["job"]["kind"] == "node_job"
+    # And the pre-existing park is still an approval beside it.
+    assert loaded["live"]["kind"] == "approval"
+
+
+def test_migration_kind_idempotent(pre_kind_mem_manager):
+    """A second create_schema() re-runs cleanly and keeps the rows.
+
+    The ALTER is guarded on `PRAGMA table_info`, so an unguarded second run
+    would raise "duplicate column name" out of create_schema() — which happens
+    on every boot after the first, not in some rare path.
+    """
+    pre_kind_mem_manager.create_schema()
+    pre_kind_mem_manager.insert_parked_write(
+        token="job", created_at=2000.0, user_identifier="u", persona_name="p",
+        channel="c", server_id=None,
+        write_call={"id": "c9", "name": "install_model", "arguments": {}},
+        call_identity="ident-job", audit_info={}, confirmation_text="",
+        turn_tainted=False, parked_assistant_id=7, duplicate_refs=[],
+        kind="node_job",
+    )
+
+    pre_kind_mem_manager.create_schema()
+
+    loaded = {r["token"]: r for r in
+              pre_kind_mem_manager.load_parked_writes(("pending",))}
+    assert set(loaded) == {"live", "job"}
+    assert loaded["job"]["kind"] == "node_job"
+    assert loaded["live"]["kind"] == "approval"
 
 
 def test_parked_write_status_check_rejects_a_bogus_state():

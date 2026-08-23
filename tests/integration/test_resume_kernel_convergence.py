@@ -902,3 +902,185 @@ async def test_disallowed_origin_never_reaches_the_tool_loop(mocked_chat_system)
     assert executed == []
     done = [e for e in events if isinstance(e, DoneEvent)]
     assert done and "not available from this channel" in done[0].text
+
+
+# --- DP-345: a non-approval deferral rides the same kernel ------------------
+#
+# The mechanism was only ever spelled "write awaiting human approval", so two
+# later subsystems could not find it and built their own — with resume
+# coordinates from env vars, an exactly-once set that a restart emptied, and a
+# wake message that `_orchestrate` persisted as a durable USER row because they
+# entered through `generate_response` instead of the continuation path. These
+# pin the properties that make a second kind unnecessary to re-derive.
+
+async def _defer_one(chat_system, *, user, channel, kind="node_job",
+                     closing_text="Install started."):
+    """Drive a turn that gates a write, then convert that park into a `kind`
+    deferral. Returns the token, which is also what the authority pings with.
+
+    Mutating the park stands in for a tool handler returning a deferral — the
+    wiring that arrives with the first real consumer (PR #209). What is under
+    test here is the store and the resume kernel, and both see the same row
+    either way.
+    """
+    (token,) = await _park_writes(
+        chat_system, user=user, channel=channel,
+        write_calls=[{"id": "w1", "name": "create_ticket",
+                      "arguments": {"title": "t", "body": "b"}}],
+        closing_text=closing_text,
+    )
+    park = chat_system.confirmations.pending[token]
+    park.kind = kind
+    chat_system.confirmations._reinstate(park)
+    return token
+
+
+@pytest.mark.asyncio
+async def test_a_deferral_resolves_by_token_and_summarizes(mocked_chat_system):
+    """The authority pings with the token it was given as the job id; one
+    continuation turn reports it."""
+    chat_system, _ = mocked_chat_system
+    _confirm_persona(chat_system)
+    executed = _recording_tool_manager(chat_system)
+
+    token = await _defer_one(chat_system, user="d1", channel="ops")
+
+    _set_engine(chat_system, [_text("The install finished.")])
+    events = await _drain(chat_system.stream_resolve_deferral(
+        token, kind="node_job", status="done",
+        result={"job": token, "state": "done"},
+    ))
+
+    done = [e for e in events if isinstance(e, DoneEvent)]
+    assert done and done[-1].text == "The install finished."
+    assert executed == [], "settling a deferral must not run the tool again"
+    assert get_turn_context() is None
+
+
+@pytest.mark.asyncio
+async def test_a_deferrals_outcome_is_patched_into_history(mocked_chat_system):
+    """The placeholder becomes the real outcome in the already-committed row."""
+    chat_system, mem_manager = mocked_chat_system
+    _confirm_persona(chat_system)
+    _recording_tool_manager(chat_system)
+
+    token = await _defer_one(chat_system, user="d2", channel="ops")
+
+    conn = mem_manager._get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT tool_context FROM User_Interactions "
+        "WHERE author_role='assistant' AND content='Install started.'"
+    )
+    before = json.loads(cursor.fetchone()["tool_context"])
+    entry = next(m for m in before if m.get("tool_call_id") == "w1")
+    assert json.loads(entry["content"])["status"] == "awaiting_human_approval"
+
+    _set_engine(chat_system, [_text("Done.")])
+    await _drain(chat_system.stream_resolve_deferral(
+        token, kind="node_job", status="failed",
+        result={"error": "sha mismatch"},
+    ))
+
+    cursor.execute(
+        "SELECT tool_context FROM User_Interactions "
+        "WHERE author_role='assistant' AND content='Install started.'"
+    )
+    after = json.loads(cursor.fetchone()["tool_context"])
+    payload = json.loads(
+        next(m for m in after if m.get("tool_call_id") == "w1")["content"])
+    assert payload["status"] == "failed"
+    assert payload["result"] == {"error": "sha mismatch"}
+
+
+@pytest.mark.asyncio
+async def test_a_deferral_resume_persists_no_synthetic_user_row(
+        mocked_chat_system):
+    """THE regression the split produced, pinned.
+
+    `_orchestrate` calls `log_user_turn` when `continuation is None`, and both
+    re-derived wake paths entered through `generate_response` — so their whole
+    synthetic wake text was written to durable history as a user row, under the
+    operator's real id for DP-343, and every later turn in that channel re-read
+    it as something the operator had typed. Resolving through the continuation
+    path is what makes that impossible rather than merely unlikely.
+    """
+    chat_system, mem_manager = mocked_chat_system
+    _confirm_persona(chat_system)
+    _recording_tool_manager(chat_system)
+
+    token = await _defer_one(chat_system, user="d3", channel="ops")
+
+    conn = mem_manager._get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT content FROM User_Interactions "
+        "WHERE author_role='user' AND user_identifier='d3'"
+    )
+    before = [r["content"] for r in cursor.fetchall()]
+
+    _set_engine(chat_system, [_text("Reported.")])
+    await _drain(chat_system.stream_resolve_deferral(
+        token, kind="node_job", status="done", result={"state": "done"},
+    ))
+
+    cursor.execute(
+        "SELECT content FROM User_Interactions "
+        "WHERE author_role='user' AND user_identifier='d3'"
+    )
+    after = [r["content"] for r in cursor.fetchall()]
+    assert after == before, "the synthetic nudge was persisted as a user turn"
+
+
+@pytest.mark.asyncio
+async def test_a_repeated_ping_settles_the_deferral_only_once(
+        mocked_chat_system):
+    """The node retries ~6s apart; the second ping must be a no-op.
+
+    DP-343 guarded this with an in-process `OrderedDict`. Here it is the same
+    row claim `take` has always used, so it also holds across a restart.
+    """
+    chat_system, _ = mocked_chat_system
+    _confirm_persona(chat_system)
+    _recording_tool_manager(chat_system)
+
+    token = await _defer_one(chat_system, user="d4", channel="ops")
+
+    _set_engine(chat_system, [_text("First.")])
+    first = await _drain(chat_system.stream_resolve_deferral(
+        token, kind="node_job", status="done", result={"state": "done"}))
+    second = await _drain(chat_system.stream_resolve_deferral(
+        token, kind="node_job", status="done", result={"state": "done"}))
+
+    assert [e for e in first if isinstance(e, DoneEvent)]
+    assert second == [], "a retried ping ran a second continuation turn"
+
+
+@pytest.mark.asyncio
+async def test_a_deferral_answers_in_the_turns_own_channel(mocked_chat_system):
+    """No configuration names the persona, channel or user of the resume.
+
+    The row carries them because the turn that raised the deferral did. This is
+    the property that deletes `MODEL_JOB_WAKE_PERSONA` / `_CHANNEL` / `_USER`
+    and `CC_FIXR_PERSONA` / `_CHANNEL` rather than generalizing them.
+    """
+    chat_system, mem_manager = mocked_chat_system
+    _confirm_persona(chat_system)
+    _recording_tool_manager(chat_system)
+
+    token = await _defer_one(chat_system, user="d5", channel="ops-room")
+
+    _set_engine(chat_system, [_text("Install done.")])
+    await _drain(chat_system.stream_resolve_deferral(
+        token, kind="node_job", status="done", result={"state": "done"},
+    ))
+
+    conn = mem_manager._get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT channel, user_identifier FROM User_Interactions "
+        "WHERE author_role='assistant' AND content='Install done.'"
+    )
+    row = cursor.fetchone()
+    assert row["channel"] == "ops-room"
+    assert row["user_identifier"] == "d5"

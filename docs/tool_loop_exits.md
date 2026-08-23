@@ -40,7 +40,7 @@ flowchart TD
   tc -- yes --> split[append assistant tool_calls;\nsplit read / write]
   split --> reads[execute reads, update taint]
   reads --> w{write calls?}
-  w -- yes --> park[WriteParkedEvent per call\n+ synthetic awaiting_human_approval result]
+  w -- yes --> park[ToolDeferredEvent per call\n+ synthetic awaiting_human_approval result]
   park --> loop
   w -- no --> loop{calls < MAX_TOOL_CALLS\nand iters < MAX_TOOL_ITERATIONS?}
   loop -- yes --> start
@@ -320,7 +320,7 @@ Consequences:
 - decisions that arrive while the lock is held are folded into **one**
   continuation (`drain()` in a loop), not N racing tool loops over one history;
 - the continuation can run a **further tool loop** and re-park if it issues
-  another write — the same `WriteParkedEvent` branch handles it;
+  another write — the same `ToolDeferredEvent` branch handles it;
 - the assistant row is persisted on the **real channel** (`parked.channel`),
   not the old hardcoded `channel=""`;
 - `turn_scope`, taint write-back, retain, and the terminal event live in

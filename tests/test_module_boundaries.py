@@ -165,6 +165,15 @@ CONTRACTS: List[Tuple[str, Tuple[str, ...]]] = [
     ("src.tool_policy", ("src.",)),
     ("src.generation_params", ("src.",)),
     ("src.generation_events", ("src.",)),
+    # DP-345: the deferral-kind vocabulary is a leaf on purpose. Both
+    # `src.tools.tool_loop` (writes the placeholder) and
+    # `src.memory.memory_manager` (stores the row, and renders the kind into the
+    # DDL default) need the same constant, and the contracts above forbid those
+    # two from importing each other — so it can only live somewhere neither
+    # reaches up to. If this stops being a leaf, the constant has to be
+    # duplicated, and a duplicated constant whose copies must stay byte-equal is
+    # what DP-345 exists to remove.
+    ("src.deferral_kinds", ("src.",)),
     ("src.embedding_service", ("src.",)),
     # Nothing imports the entrypoint, and only the entrypoint may use the
     # composition root (src.bootstrap) — modules must receive their deps,
