@@ -15,6 +15,7 @@ import pytest
 
 from config import global_config
 from src.huggingface.client import HFError, HFFile, _select_tags
+from src.deferral_kinds import DEFERRAL_KIND_NODE_JOB, declared_deferral
 from src.huggingface.handler import HuggingFaceToolHandler
 from src.proxmox.ssh import SSHError, SSHResult
 
@@ -241,6 +242,43 @@ async def test_bad_unit_names_are_refused_locally(enabled, name):
     res = await make(runner=runner)._install_model("owner/m-GGUF", "model-Q6_K.gguf", name)
     assert res["status"] == "error"
     assert runner.calls == []
+
+
+@pytest.mark.asyncio
+async def test_a_started_install_declares_a_node_job_deferral(enabled):
+    """DP-345: the seam between the tool and the park store.
+
+    The install is not finished when this returns — the node owns a detached
+    job that outlives the call. Declaring the deferral is what re-parks the
+    executed write under the JOB ID, so the node's completion ping resolves it
+    in the conversation that asked. The declared token must be the same job id
+    handed to the node script, or the ping addresses a park that does not exist
+    and the model waits on `awaiting:node_job` forever.
+    """
+    runner = FakeRunner()
+    res = await make(runner=runner)._install_model(
+        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel"
+    )
+
+    assert res["status"] == "ok"
+    assert declared_deferral(res) == (DEFERRAL_KIND_NODE_JOB, res["job_id"])
+    # The same id the node was told to use, so the ping comes back addressed
+    # to this park. `derpr-model-install` takes it as its last argument.
+    assert runner.calls[-1][-1] == res["job_id"]
+
+
+@pytest.mark.asyncio
+async def test_a_refused_install_declares_nothing(enabled):
+    """No job was started, so there is nothing to wait for.
+
+    A declaration here would park a deferral no ping will ever answer, leaving
+    the tool entry reading `awaiting:node_job` for good.
+    """
+    res = await make(runner=FakeRunner(raises=True))._install_model(
+        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel"
+    )
+    assert res["status"] == "error"
+    assert declared_deferral(res) is None
 
 
 @pytest.mark.asyncio

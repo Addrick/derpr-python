@@ -709,36 +709,28 @@ HF_SEARCH_LIMIT_MAX = int(os.environ.get("HF_SEARCH_LIMIT_MAX", "20"))
 
 # Node job completion callback (DP-343). The node's install and promote jobs are
 # detached under systemd-run — they outlive the SSH call that started them, so
-# nothing inside derpr is awake when one finishes. Both node scripts now POST the
+# nothing inside derpr is awake when one finishes. Both node scripts POST the
 # JOB ID (and nothing else) to MODEL_JOB_CALLBACK_PATH when a job reaches `done`
-# or `failed`; derpr re-reads the job over its own SSH transport and wakes a
-# persona with the verified facts.
+# or `failed`; derpr re-reads the job over its own SSH transport and resolves the
+# DP-345 `node_job` deferral parked under that id, which resumes the turn that
+# started the job.
 #
 # MODEL_JOB_CALLBACK_TOKEN — the node's own credential for that one route. It is
 #   deliberately NOT DERPR_CONTROL_TOKEN: the whole control plane (persona edits,
 #   park approval) behind the same secret the node holds would make a compromised
 #   node an operator. Empty = the route 401s everything, which is the correct
 #   state for an instance that has not deployed the node half.
-# MODEL_JOB_WAKE_PERSONA — persona woken for a finished job.
-# MODEL_JOB_WAKE_CHANNEL — the channel the woken turn is filed under. Must be the
-#   DISCORD CHANNEL NAME the operator talks to that persona in, for two reasons:
-#   a CHANNEL_ISOLATED persona only sees the instructions it was given in that
-#   channel's history (that is what "if you were told to activate it, do it now"
-#   depends on), and any write the woken turn parks is stored with this value and
-#   is only rendered by `_post_pending_proposals` in the channel whose name
-#   matches. Empty = the wake is skipped entirely (feature off).
-# MODEL_JOB_WAKE_USER — the operator's Discord user id. Parks are keyed
-#   (user_identifier, persona); a park raised under any other identifier is
-#   invisible to the human's pending list and can never be approved. Empty =
-#   wake skipped.
-# MODEL_JOB_ALERT_CHANNEL_ID — Discord channel id the woken persona's reply is
+# MODEL_JOB_ALERT_CHANNEL_ID — Discord channel id the resumed persona's reply is
 #   posted into, via the NotificationRouter's `discord_channel`. Empty = the
 #   turn still runs (and can still park) but nothing is announced.
+#
+# There is deliberately NO MODEL_JOB_WAKE_PERSONA / _CHANNEL / _USER. DP-343
+# had all three, because it entered the turn from nowhere and had to be told
+# which conversation to answer in. The job id is now the token of a DP-345
+# deferral whose row already carries the persona, channel and user of the turn
+# that started the job — so naming them here could only ever disagree with it.
 MODEL_JOB_CALLBACK_TOKEN = os.environ.get("MODEL_JOB_CALLBACK_TOKEN", "")
 MODEL_JOB_CALLBACK_PATH = "/api/v1/model_job/complete"
-MODEL_JOB_WAKE_PERSONA = os.environ.get("MODEL_JOB_WAKE_PERSONA", "hypr")
-MODEL_JOB_WAKE_CHANNEL = os.environ.get("MODEL_JOB_WAKE_CHANNEL", "")
-MODEL_JOB_WAKE_USER = os.environ.get("MODEL_JOB_WAKE_USER", "")
 MODEL_JOB_ALERT_CHANNEL_ID = os.environ.get("MODEL_JOB_ALERT_CHANNEL_ID", "")
 
 # =============================================================================

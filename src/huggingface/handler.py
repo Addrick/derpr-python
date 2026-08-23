@@ -50,6 +50,7 @@ from src.proxmox.ssh import SSHError, SSHRunner
 if TYPE_CHECKING:
     from src.tools.tool_manager import ToolManager
 
+from src.deferral_kinds import DEFERRAL_KIND_NODE_JOB, declare_deferral
 logger = logging.getLogger(__name__)
 
 #: The one node-side verb this whole feature is allowed to run. Absolute because
@@ -391,7 +392,11 @@ class HuggingFaceToolHandler:
         ])
         if res.get("status") != "ok":
             return res
-        return {
+        # DP-345: the node owns this job now and it outlives the call. Declaring
+        # the deferral re-parks this executed write under `job_id`, so the
+        # node's completion ping resolves it in the conversation that asked —
+        # no configuration names a persona, channel or user anywhere.
+        return declare_deferral({
             "status": "ok",
             "job_id": job_id,
             "repo": repo_id,
@@ -414,7 +419,7 @@ class HuggingFaceToolHandler:
                 "set_active_model call, and the contextsize should be checked "
                 "against gpu_status first."
             ),
-        }
+        }, DEFERRAL_KIND_NODE_JOB, job_id)
 
 
 def _kv_budget_note(job: Dict[str, Any]) -> Optional[str]:

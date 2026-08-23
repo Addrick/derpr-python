@@ -200,17 +200,21 @@ For the DP-343 ping, also:
 
 ```
 MODEL_JOB_CALLBACK_TOKEN=<same value as /etc/derpr-callback.token>
-MODEL_JOB_WAKE_PERSONA=hypr
-MODEL_JOB_WAKE_CHANNEL=<discord channel NAME you talk to hypr in>
-MODEL_JOB_WAKE_USER=<your discord user id>
 MODEL_JOB_ALERT_CHANNEL_ID=<discord channel id to post the report into>
 ```
 
-⚠️ `MODEL_JOB_WAKE_CHANNEL` and `MODEL_JOB_WAKE_USER` are not cosmetic. The woken
-turn is filed as if you had sent it, in that channel — which is what lets a
-`CHANNEL_ISOLATED` persona see the instruction you gave it earlier, and what
-makes any `set_active_model` it parks appear as an approval card you can answer.
-With either unset, derpr reads the job and logs it but runs no turn.
+**Two settings, and neither of them names a conversation.** The ping resumes the
+turn that *started* the job: `install_model` and the cold-tier promotion park a
+`node_job` deferral under the job id, and that row already carries the persona,
+the channel and the user. So the report lands where you asked for the install,
+a `CHANNEL_ISOLATED` persona still sees the instruction you gave it earlier, and
+any `set_active_model` it parks appears as an approval card you can answer —
+with nothing configured.
+
+`MODEL_JOB_ALERT_CHANNEL_ID` is the one exception, and it is not a coordinate:
+the resume has no listener holding a stream open, so this is where the reply is
+posted. Unset it and the turn still runs (and can still park) — nothing is
+announced.
 
 ---
 

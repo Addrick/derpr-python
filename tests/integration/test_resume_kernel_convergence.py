@@ -29,6 +29,7 @@ from src.chat_system import (
 from src.confirmations import ParkedWrite
 from src.persona import ExecutionMode
 from src.tools.turn_context import get_turn_context
+from src.deferral_kinds import DEFERRAL_KIND_NODE_JOB, declare_deferral
 from config.global_config import PENDING_ACTION_TTL
 
 pytestmark = pytest.mark.integration
@@ -913,15 +914,21 @@ async def test_disallowed_origin_never_reaches_the_tool_loop(mocked_chat_system)
 # entered through `generate_response` instead of the continuation path. These
 # pin the properties that make a second kind unnecessary to re-derive.
 
-async def _defer_one(chat_system, *, user, channel, kind="node_job",
+async def _defer_one(chat_system, *, user, channel, job_id="modelinstall-7",
                      closing_text="Install started."):
-    """Drive a turn that gates a write, then convert that park into a `kind`
-    deferral. Returns the token, which is also what the authority pings with.
+    """Gate a write, approve it, and let the executed tool declare a deferral.
 
-    Mutating the park stands in for a tool handler returning a deferral — the
-    wiring that arrives with the first real consumer (PR #209). What is under
-    test here is the store and the resume kernel, and both see the same row
-    either way.
+    This is the REAL path an install takes — `install_model` starts a detached
+    job on the node and declares a `node_job` deferral under the job id, so the
+    approval park resolves into a second park that the node's ping answers.
+    Nothing here mutates a park by hand.
+
+    The write is `create_ticket` rather than `install_model` because the
+    mechanism is tool-agnostic and this file's fixture has no pve node; that the
+    real installer declares one is pinned in tests/huggingface/test_hf_tools.py.
+
+    Returns `(job_id, executed)` — `executed` is live, so a test can assert the
+    tool ran exactly once (starting the job) and never again.
     """
     (token,) = await _park_writes(
         chat_system, user=user, channel=channel,
@@ -929,10 +936,19 @@ async def _defer_one(chat_system, *, user, channel, kind="node_job",
                       "arguments": {"title": "t", "body": "b"}}],
         closing_text=closing_text,
     )
-    park = chat_system.confirmations.pending[token]
-    park.kind = kind
-    chat_system.confirmations._reinstate(park)
-    return token
+    executed = _recording_tool_manager(chat_system, result=declare_deferral(
+        {"status": "ok", "job_id": job_id, "note": "started on the node"},
+        DEFERRAL_KIND_NODE_JOB, job_id,
+    ))
+    _set_engine(chat_system, [_text("Started it.")])
+    await _drain(chat_system.stream_resolve_park(
+        user, "test_persona", token, approved=True))
+
+    deferred = chat_system.confirmations.pending.get(job_id)
+    assert deferred is not None, "the executed write did not re-park as a deferral"
+    assert deferred.kind == DEFERRAL_KIND_NODE_JOB
+    assert executed == ["create_ticket"], "the approval should have run it once"
+    return job_id, executed
 
 
 @pytest.mark.asyncio
@@ -941,9 +957,8 @@ async def test_a_deferral_resolves_by_token_and_summarizes(mocked_chat_system):
     continuation turn reports it."""
     chat_system, _ = mocked_chat_system
     _confirm_persona(chat_system)
-    executed = _recording_tool_manager(chat_system)
 
-    token = await _defer_one(chat_system, user="d1", channel="ops")
+    token, executed = await _defer_one(chat_system, user="d1", channel="ops")
 
     _set_engine(chat_system, [_text("The install finished.")])
     events = await _drain(chat_system.stream_resolve_deferral(
@@ -953,7 +968,7 @@ async def test_a_deferral_resolves_by_token_and_summarizes(mocked_chat_system):
 
     done = [e for e in events if isinstance(e, DoneEvent)]
     assert done and done[-1].text == "The install finished."
-    assert executed == [], "settling a deferral must not run the tool again"
+    assert executed == ["create_ticket"],         "settling a deferral must not run the tool a second time"
     assert get_turn_context() is None
 
 
@@ -964,7 +979,7 @@ async def test_a_deferrals_outcome_is_patched_into_history(mocked_chat_system):
     _confirm_persona(chat_system)
     _recording_tool_manager(chat_system)
 
-    token = await _defer_one(chat_system, user="d2", channel="ops")
+    token, _ = await _defer_one(chat_system, user="d2", channel="ops")
 
     conn = mem_manager._get_connection()
     cursor = conn.cursor()
@@ -974,7 +989,12 @@ async def test_a_deferrals_outcome_is_patched_into_history(mocked_chat_system):
     )
     before = json.loads(cursor.fetchone()["tool_context"])
     entry = next(m for m in before if m.get("tool_call_id") == "w1")
-    assert json.loads(entry["content"])["status"] == "awaiting_human_approval"
+    # ONE entry, patched twice. The approval turned `awaiting_human_approval`
+    # into `awaiting:node_job` rather than into a completed call, because the
+    # tool started a job instead of finishing one — and the ping below turns
+    # that into the real outcome. A deferral that opened a second entry would
+    # leave the model reading its own proposal as still pending.
+    assert json.loads(entry["content"])["status"] == "awaiting:node_job"
 
     _set_engine(chat_system, [_text("Done.")])
     await _drain(chat_system.stream_resolve_deferral(
@@ -1009,7 +1029,7 @@ async def test_a_deferral_resume_persists_no_synthetic_user_row(
     _confirm_persona(chat_system)
     _recording_tool_manager(chat_system)
 
-    token = await _defer_one(chat_system, user="d3", channel="ops")
+    token, _ = await _defer_one(chat_system, user="d3", channel="ops")
 
     conn = mem_manager._get_connection()
     cursor = conn.cursor()
@@ -1044,7 +1064,7 @@ async def test_a_repeated_ping_settles_the_deferral_only_once(
     _confirm_persona(chat_system)
     _recording_tool_manager(chat_system)
 
-    token = await _defer_one(chat_system, user="d4", channel="ops")
+    token, _ = await _defer_one(chat_system, user="d4", channel="ops")
 
     _set_engine(chat_system, [_text("First.")])
     first = await _drain(chat_system.stream_resolve_deferral(
@@ -1068,7 +1088,7 @@ async def test_a_deferral_answers_in_the_turns_own_channel(mocked_chat_system):
     _confirm_persona(chat_system)
     _recording_tool_manager(chat_system)
 
-    token = await _defer_one(chat_system, user="d5", channel="ops-room")
+    token, _ = await _defer_one(chat_system, user="d5", channel="ops-room")
 
     _set_engine(chat_system, [_text("Install done.")])
     await _drain(chat_system.stream_resolve_deferral(

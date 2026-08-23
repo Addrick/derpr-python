@@ -58,6 +58,7 @@ from src.proxmox.ssh import SSHError, SSHRunner
 if TYPE_CHECKING:
     from src.tools.tool_manager import ToolManager
 
+from src.deferral_kinds import DEFERRAL_KIND_NODE_JOB, declare_deferral
 logger = logging.getLogger(__name__)
 
 #: Accepted guest kinds → the Proxmox CLI that manages them.
@@ -880,7 +881,10 @@ class ProxmoxToolHandler:
         if res.get("status") != "ok":
             return res
         size = entry.get("size_bytes")
-        return {
+        # DP-345: same as an install — the copy outlives this call, the node
+        # pings when it lands, and the ping resolves this park in the
+        # conversation that asked for it.
+        return declare_deferral({
             "status": "ok",
             "state": "promoting",
             "job_id": job_id,
@@ -898,7 +902,7 @@ class ProxmoxToolHandler:
                 "it reports 'hot_tier_full_all_pinned', every other model is "
                 "pinned or in use: unpin one and retry."
             ),
-        }
+        }, DEFERRAL_KIND_NODE_JOB, job_id)
 
     async def _set_active_model(self, name: str) -> Dict[str, Any]:
         logger.info("Tool set_active_model: %s", name)
