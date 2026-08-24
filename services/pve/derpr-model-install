@@ -73,7 +73,6 @@ LOCK_WAIT="${LOCK_WAIT:-60}"
 # DP-343 completion ping. Empty URL = no ping, which is the pre-DP-343 behaviour
 # and the correct state for a node whose derpr cannot be reached.
 DERPR_CALLBACK_URL="${DERPR_CALLBACK_URL:-}"
-DERPR_CALLBACK_TOKEN_FILE="${DERPR_CALLBACK_TOKEN_FILE:-/etc/derpr-callback.token}"
 DERPR_CALLBACK_TIMEOUT="${DERPR_CALLBACK_TIMEOUT:-10}"
 
 # shellcheck source=/dev/null
@@ -118,17 +117,10 @@ re_num='^[0-9]+$'
 # path returns 0 and the failure is a log line.
 ping_derpr() {
   [ -n "$DERPR_CALLBACK_URL" ] || return 0
-  local token=""
-  [ -r "$DERPR_CALLBACK_TOKEN_FILE" ] && token="$(cat "$DERPR_CALLBACK_TOKEN_FILE")"
-  if [ -z "$token" ]; then
-    log "callback skipped for job=$JOB: no token in $DERPR_CALLBACK_TOKEN_FILE"
-    return 0
-  fi
   # $JOB matched $re_job before anything here ran, so it cannot carry a quote or
   # a backslash into the body — the same rule that lets write_status build JSON
   # with printf on a node that has no jq.
   if curl -fsS --max-time "$DERPR_CALLBACK_TIMEOUT" --retry 2 --retry-delay 3 \
-      --header "Authorization: Bearer $token" \
       --header 'Content-Type: application/json' \
       --data "{\"job_id\":\"$JOB\"}" \
       "$DERPR_CALLBACK_URL" >/dev/null 2>&1; then

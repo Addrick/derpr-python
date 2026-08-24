@@ -180,24 +180,29 @@ set. Add to **both** `/etc/default/derpr-model-install` and
 # and which would need the node to carry Caddy's root CA for no gain on a LAN
 # hop between two guests of the same node.
 DERPR_CALLBACK_URL=http://10.0.0.70:5004/api/v1/model_job/complete
-DERPR_CALLBACK_TOKEN_FILE=/etc/derpr-callback.token   # default; chmod 600
 DERPR_CALLBACK_TIMEOUT=10
 ```
 
-⚠️ That is a bearer token over plain HTTP, and it is only acceptable because the
-whole deploy is LAN-only — the same accepted risk as the rest of the control
-plane (see `pre-public-exposure-checklist`). If derpr is ever exposed beyond the
-LAN, this URL is one of the things that has to move behind TLS.
+**One setting, and no credential (DP-355).** The route is unauthenticated by
+design: the ping carries no facts, so there is nothing for a credential to
+protect. DP-343 shipped a shared bearer token here and it was deleted — the
+threat it was argued against (a forged "install finished") is already dead
+because derpr re-reads the job over SSH, and the only property it really bought
+was stopping an unauthenticated LAN host from costing derpr one SSH round-trip
+per POST. That is a denial of service anyone already on this LAN has cheaper
+ways to cause, and it did not justify a secret generated, `chmod`-ed and kept in
+sync across two hosts forever.
 
-```bash
-# the shared secret, matching MODEL_JOB_CALLBACK_TOKEN on the derpr side
-printf '%s' '<token>' > /etc/derpr-callback.token && chmod 600 /etc/derpr-callback.token
-```
+⚠️ **LAN-only accepted risk**, indexed with the rest of them in
+`pre-public-exposure-checklist`. If derpr is ever exposed beyond the LAN this
+route needs both a credential and TLS, and neither is a one-line change. Do not
+re-add a token on its own and call it hardened.
 
-⚠️ **This token is not `DERPR_CONTROL_TOKEN` and must not be set to it.** It
-opens exactly one route, which accepts a job id and nothing else. The operator
-token opens the whole control plane — persona edits, park approval — and a node
-holding it would be an operator.
+⚠️ **Never point `DERPR_CALLBACK_URL` at a control-plane route, and never give
+the node `DERPR_CONTROL_TOKEN`.** The reason this route can be open is that it
+opens exactly one door, which accepts a job id and nothing else. The operator
+token opens persona edits and park approval — a node holding it would be an
+operator able to approve its own parks.
 
 The POST body is `{"job_id": "..."}`; derpr answers it by re-reading the job over
 its own SSH connection, so the node is not trusted to report the outcome. The
@@ -218,11 +223,10 @@ as the proxmox tools. Give the persona
 For the DP-343 ping, also:
 
 ```
-MODEL_JOB_CALLBACK_TOKEN=<same value as /etc/derpr-callback.token>
 MODEL_JOB_ALERT_CHANNEL_ID=<discord channel id to post the report into>
 ```
 
-**Two settings, and neither of them names a conversation.** The ping resumes the
+**One setting, and it does not name a conversation.** The ping resumes the
 turn that *started* the job: `install_model` and the cold-tier promotion park a
 `node_job` deferral under the job id, and that row already carries the persona,
 the channel and the user. So the report lands where you asked for the install,
@@ -230,10 +234,9 @@ a `CHANNEL_ISOLATED` persona still sees the instruction you gave it earlier, and
 any `set_active_model` it parks appears as an approval card you can answer —
 with nothing configured.
 
-`MODEL_JOB_ALERT_CHANNEL_ID` is the one exception, and it is not a coordinate:
-the resume has no listener holding a stream open, so this is where the reply is
-posted. Unset it and the turn still runs (and can still park) — nothing is
-announced.
+`MODEL_JOB_ALERT_CHANNEL_ID` is not a coordinate either: the resume has no
+listener holding a stream open, so this is simply where the reply is posted.
+Unset it and the turn still runs (and can still park) — nothing is announced.
 
 ---
 

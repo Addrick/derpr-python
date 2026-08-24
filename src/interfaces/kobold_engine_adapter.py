@@ -313,14 +313,17 @@ class KoboldEngineAdapter:
                 or request.url.path.startswith(global_config.MCP_BRIDGE_PATH + "/")
             ):
                 return await call_next(request)
-            # DP-343: the pve node's job-completion ping is a THIRD principal —
-            # a bash script on the model host, holding MODEL_JOB_CALLBACK_TOKEN
-            # and nothing else. Same shape as the bridge exemption above: the
-            # route does its own constant-time check, and the exemption exists
-            # only when a handler is actually wired, so this is never a standing
-            # hole on an instance that has not deployed the node half. Giving
-            # the node DERPR_CONTROL_TOKEN instead would have made it an
-            # operator — able to edit personas and approve its own parks.
+            # DP-343/DP-355: the pve node's job-completion ping is a bash script
+            # on the model host, and it holds no credential at all. Unlike the
+            # bridge exemption above, the route does NOT do its own check — it
+            # does not need one, because the ping carries no facts: derpr
+            # re-reads the job over SSH before it reports anything, so the route
+            # cannot be used to assert an outcome. Giving the node
+            # DERPR_CONTROL_TOKEN instead would have made it an operator — able
+            # to edit personas and approve its own parks — which is why the
+            # exemption is a carve-out and not a widening of the operator token.
+            # Still gated on a wired handler, so an instance that never deployed
+            # the node half has no unauthenticated POST path at all.
             if (
                 self._job_completion is not None
                 and request.url.path == global_config.MODEL_JOB_CALLBACK_PATH
@@ -777,28 +780,20 @@ class KoboldEngineAdapter:
             Body: {"job_id": "<id>"} — and deliberately nothing else. derpr
             re-reads the job over its own SSH transport before it tells a
             persona anything, so this route cannot be used to assert an outcome;
-            the worst a stranger with the token can do is make derpr read a job
-            document that says what it already said (DP-343).
+            the worst a stranger can do is make derpr read a job document that
+            says what it already said (DP-343).
 
-            Authenticated with MODEL_JOB_CALLBACK_TOKEN rather than the operator
-            token, because the caller is a bash script on the model host and the
-            control plane is not its to hold. Exempted from the control-plane
-            middleware above only while a handler is wired.
+            **Unauthenticated, deliberately (DP-355).** That re-read is what
+            makes the ping unforgeable, so a credential here defends nothing it
+            does not already defend — it only stops an unauthenticated LAN host
+            from spending an SSH round-trip per POST, which is a DoS with much
+            cheaper alternatives for anyone already on this LAN. A LAN-only
+            accepted risk; see `pre-public-exposure-checklist`.
             """
             if self._job_completion is None:
                 return JSONResponse(
                     status_code=503,
                     content={"error": "job completion callback is not wired"},
-                )
-            configured = global_config.MODEL_JOB_CALLBACK_TOKEN
-            supplied = self._extract_control_token(request)
-            if not configured or not secrets.compare_digest(
-                supplied.encode("utf-8"), configured.encode("utf-8")
-            ):
-                return JSONResponse(
-                    status_code=401,
-                    content={"error": "node token required "
-                                      "(Authorization: Bearer <MODEL_JOB_CALLBACK_TOKEN>)"},
                 )
             try:
                 body = await request.json()

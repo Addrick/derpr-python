@@ -720,11 +720,23 @@ HF_FILES_LIMIT_MAX = int(os.environ.get("HF_FILES_LIMIT_MAX", "60"))
 # DP-345 `node_job` deferral parked under that id, which resumes the turn that
 # started the job.
 #
-# MODEL_JOB_CALLBACK_TOKEN — the node's own credential for that one route. It is
-#   deliberately NOT DERPR_CONTROL_TOKEN: the whole control plane (persona edits,
-#   park approval) behind the same secret the node holds would make a compromised
-#   node an operator. Empty = the route 401s everything, which is the correct
-#   state for an instance that has not deployed the node half.
+# The route is UNAUTHENTICATED, and that is the whole design (DP-355). It carries
+# no facts: the body is a job id, and `JobCompletionBridge.handle` re-reads the
+# job over derpr's own SSH transport and ignores a state that is not terminal. So
+# a forged or replayed ping cannot assert an outcome — which means a credential
+# on this route would not be defending anything the re-read does not already
+# defend. It shipped with one anyway (DP-343's MODEL_JOB_CALLBACK_TOKEN), argued
+# for on exactly that already-dead threat; the only property it really bought was
+# making an unauthenticated LAN host unable to spend an SSH round-trip per POST,
+# a denial-of-service anyone on this LAN has cheaper ways to cause. Deleted
+# rather than kept as belt-and-braces, because its cost was never the ~40 lines
+# of code: it was a shared secret to generate, chmod, sync across two hosts and
+# never rotate, and it is what left DP-343 undeployed for a day.
+#
+# ⚠️ This is a LAN-only accepted risk, indexed with the rest of them in
+# `pre-public-exposure-checklist`. If derpr is ever exposed beyond the LAN, this
+# route needs a credential AND TLS, and neither is a one-line change.
+#
 # MODEL_JOB_ALERT_CHANNEL_ID — Discord channel id the resumed persona's reply is
 #   posted into, via the NotificationRouter's `discord_channel`. Empty = the
 #   turn still runs (and can still park) but nothing is announced.
@@ -734,7 +746,6 @@ HF_FILES_LIMIT_MAX = int(os.environ.get("HF_FILES_LIMIT_MAX", "60"))
 # which conversation to answer in. The job id is now the token of a DP-345
 # deferral whose row already carries the persona, channel and user of the turn
 # that started the job — so naming them here could only ever disagree with it.
-MODEL_JOB_CALLBACK_TOKEN = os.environ.get("MODEL_JOB_CALLBACK_TOKEN", "")
 MODEL_JOB_CALLBACK_PATH = "/api/v1/model_job/complete"
 MODEL_JOB_ALERT_CHANNEL_ID = os.environ.get("MODEL_JOB_ALERT_CHANNEL_ID", "")
 

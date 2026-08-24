@@ -291,23 +291,23 @@ def test_forward_post_error_body_is_generic(token_unset, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# DP-343 — the node's job-completion ping is a THIRD principal
+# DP-343/DP-355 — the node's job-completion ping is a third principal with NO
+# credential
 # ---------------------------------------------------------------------------
 #
-# A bash script on the model host, holding MODEL_JOB_CALLBACK_TOKEN and nothing
-# else. It is exempt from the operator gate (like the MCP bridge) and does its
-# own constant-time check, so these tests exist to prove that the exemption did
-# not open a hole: the route must still refuse everyone without ITS token, and
-# the token must not be a way into the rest of the control plane.
+# A bash script on the model host, holding nothing. It is exempt from the
+# operator gate (like the MCP bridge) but, unlike the bridge, runs no check of
+# its own: the ping carries a job id and nothing else, and derpr re-reads the
+# job over SSH before it reports anything, so there is nothing for a credential
+# to protect. DP-343 shipped a MODEL_JOB_CALLBACK_TOKEN here anyway, argued for
+# on a forged-ping threat that re-read already kills, and DP-355 deleted it.
+#
+# These tests therefore pin the two things that DO still hold: the exemption is
+# scoped to this ONE path (it is not a way into the rest of the control plane),
+# and it exists only while a handler is wired (an instance that never deployed
+# the node half grows no unauthenticated surface).
 
-NODE_TOKEN = "n0de-callback-token"
 JOB_PATH = global_config.MODEL_JOB_CALLBACK_PATH
-
-
-@pytest.fixture
-def node_token_set(monkeypatch):
-    monkeypatch.setattr(global_config, "MODEL_JOB_CALLBACK_TOKEN", NODE_TOKEN,
-                        raising=False)
 
 
 def _make_adapter_with_job_handler(calls=None):
@@ -322,8 +322,8 @@ def _make_adapter_with_job_handler(calls=None):
     return adapter, recorded
 
 
-def test_job_callback_route_absent_until_wired(token_set, node_token_set):
-    """No handler wired = no exemption and no route behaviour to attack.
+def test_job_callback_route_absent_until_wired(token_set):
+    """No handler wired = no exemption and no unauthenticated surface.
 
     The adapter is built without a job handler here, exactly as an instance that
     never deployed the node half. The path must not become a standing hole in
@@ -331,100 +331,91 @@ def test_job_callback_route_absent_until_wired(token_set, node_token_set):
     """
     adapter, _, _ = _make_adapter()
     with TestClient(adapter.app) as client:
-        r = client.post(JOB_PATH, json={"job_id": "x-1"},
-                        headers={"Authorization": f"Bearer {NODE_TOKEN}"})
-    # The operator middleware answers first: the node token is not an operator
-    # token, and without a wired handler nothing exempts the path from it.
-    assert r.status_code == 401
-
-
-def test_job_callback_rejects_without_token(token_set, node_token_set):
-    adapter, calls = _make_adapter_with_job_handler()
-    with TestClient(adapter.app) as client:
         r = client.post(JOB_PATH, json={"job_id": "x-1"})
+    # The operator middleware answers: without a wired handler nothing exempts
+    # the path from it, and this caller holds no operator token.
     assert r.status_code == 401
-    assert calls == []
 
 
-def test_job_callback_rejects_wrong_token(token_set, node_token_set):
-    adapter, calls = _make_adapter_with_job_handler()
-    with TestClient(adapter.app) as client:
-        r = client.post(JOB_PATH, json={"job_id": "x-1"},
-                        headers=_auth("wrong"))
-    assert r.status_code == 401
-    assert calls == []
+def test_job_callback_accepts_an_unauthenticated_ping(token_set):
+    """DP-355 — no credential, by design.
 
-
-def test_job_callback_rejects_the_operator_token(token_set, node_token_set):
-    """Two principals, two credentials — and the check runs in both directions.
-
-    An operator token that also opened this route would make every portal user
-    able to forge a completion; the point of the separate secret is that the
-    node's credential and the operator's are not interchangeable.
+    The ping carries no facts, so a caller who reaches this route gains only an
+    SSH status read of a job document that says what it already said.
     """
     adapter, calls = _make_adapter_with_job_handler()
     with TestClient(adapter.app) as client:
-        r = client.post(JOB_PATH, json={"job_id": "x-1"}, headers=_auth())
-    assert r.status_code == 401
-    assert calls == []
-
-
-def test_job_callback_accepts_the_node_token(token_set, node_token_set):
-    adapter, calls = _make_adapter_with_job_handler()
-    with TestClient(adapter.app) as client:
-        r = client.post(JOB_PATH, json={"job_id": "newmodel-abc123"},
-                        headers={"Authorization": f"Bearer {NODE_TOKEN}"})
+        r = client.post(JOB_PATH, json={"job_id": "newmodel-abc123"})
     assert r.status_code == 200
     assert calls == ["newmodel-abc123"]
 
 
-def test_job_callback_works_without_an_operator_token_configured(
-        token_unset, node_token_set):
-    """The node must be able to ring the doorbell on an instance whose control
-    plane is locked — the two credentials are independent."""
+def test_job_callback_ignores_any_bearer_it_is_given(token_set):
+    """A stray or wrong Authorization header changes nothing, in either direction.
+
+    Pinned because the deleted check made a wrong token a 401 and the operator
+    token a 401 too. Nothing branches on the header here any more.
+    """
     adapter, calls = _make_adapter_with_job_handler()
     with TestClient(adapter.app) as client:
-        r = client.post(JOB_PATH, json={"job_id": "j-1"},
-                        headers={"Authorization": f"Bearer {NODE_TOKEN}"})
+        wrong = client.post(JOB_PATH, json={"job_id": "j-1"},
+                            headers=_auth("wrong"))
+        operator = client.post(JOB_PATH, json={"job_id": "j-2"}, headers=_auth())
+    assert (wrong.status_code, operator.status_code) == (200, 200)
+    assert calls == ["j-1", "j-2"]
+
+
+def test_job_callback_exemption_does_not_leak_to_other_routes(token_set):
+    """The carve-out is one path, not a hole in the operator gate.
+
+    This is the property the deleted node token was mostly credited with, and it
+    was never the token's doing: the exemption is keyed on the path, so every
+    other control-plane POST still answers 401 to the same unauthenticated
+    caller this route accepts.
+    """
+    adapter, calls = _make_adapter_with_job_handler()
+    with TestClient(adapter.app) as client:
+        allowed = client.post(JOB_PATH, json={"job_id": "j-1"})
+        confirm = client.post("/api/v1/persona/p/confirm", json={"approved": True})
+        reset = client.post("/api/v1/persona/p/reset")
+    assert allowed.status_code == 200
+    assert confirm.status_code == 401
+    assert reset.status_code == 401
+    assert calls == ["j-1"]
+
+
+def test_job_callback_works_without_an_operator_token_configured(token_unset):
+    """The node must be able to ring the doorbell on an instance whose control
+    plane is locked — this route does not depend on the operator credential."""
+    adapter, calls = _make_adapter_with_job_handler()
+    with TestClient(adapter.app) as client:
+        r = client.post(JOB_PATH, json={"job_id": "j-1"})
     assert r.status_code == 200
     assert calls == ["j-1"]
 
 
-def test_job_callback_locked_when_its_token_is_unset(token_set, monkeypatch):
-    """Fail closed, the same way an unset DERPR_CONTROL_TOKEN locks the portal."""
-    monkeypatch.setattr(global_config, "MODEL_JOB_CALLBACK_TOKEN", "", raising=False)
-    adapter, calls = _make_adapter_with_job_handler()
-    with TestClient(adapter.app) as client:
-        r = client.post(JOB_PATH, json={"job_id": "j-1"},
-                        headers={"Authorization": "Bearer "})
-    assert r.status_code == 401
-    assert calls == []
-
-
 @pytest.mark.parametrize("body", [None, {}, {"job_id": ""}, {"job_id": 7},
                                   {"job_id": "j" * 200}])
-def test_job_callback_rejects_a_malformed_body(token_set, node_token_set, body):
+def test_job_callback_rejects_a_malformed_body(token_set, body):
     adapter, calls = _make_adapter_with_job_handler()
     with TestClient(adapter.app) as client:
-        r = client.post(JOB_PATH, json=body,
-                        headers={"Authorization": f"Bearer {NODE_TOKEN}"})
+        r = client.post(JOB_PATH, json=body)
     assert r.status_code == 400
     assert calls == []
 
 
-def test_job_callback_forwards_only_the_job_id(token_set, node_token_set):
+def test_job_callback_forwards_only_the_job_id(token_set):
     """Anything else in the body is ignored by construction.
 
     The handler's whole contract is that facts come from the SSH status read, so
     a POST claiming `state: done` for a job that failed must reach the bridge as
-    a job id and nothing more.
+    a job id and nothing more. That is what makes the route safe to leave open.
     """
     adapter, calls = _make_adapter_with_job_handler()
     with TestClient(adapter.app) as client:
         r = client.post(
             JOB_PATH,
             json={"job_id": " j-2 ", "state": "done", "name": "evil"},
-            headers={"Authorization": f"Bearer {NODE_TOKEN}"},
         )
     assert r.status_code == 200
     assert calls == ["j-2"]

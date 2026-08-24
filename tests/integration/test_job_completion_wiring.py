@@ -30,7 +30,6 @@ from src.proxmox.ssh import SSHResult
 
 pytestmark = pytest.mark.integration
 
-NODE_TOKEN = "n0de-callback-token"
 JOB = {
     "job_id": "newmodel-abc123",
     "state": "done",
@@ -84,8 +83,6 @@ def _resolver(reply):
 @pytest.fixture
 def route_configured(monkeypatch):
     monkeypatch.setattr(global_config, "HF_TOOLS_ENABLED", True, raising=False)
-    monkeypatch.setattr(global_config, "MODEL_JOB_CALLBACK_TOKEN", NODE_TOKEN,
-                        raising=False)
     monkeypatch.setattr(global_config, "MODEL_JOB_ALERT_CHANNEL_ID", "777",
                         raising=False)
     monkeypatch.setattr(global_config, "DERPR_CONTROL_TOKEN", "operator-token",
@@ -126,7 +123,6 @@ def test_ping_reaches_the_persona_through_the_real_route(route_configured):
         r = client.post(
             global_config.MODEL_JOB_CALLBACK_PATH,
             json={"job_id": "newmodel-abc123"},
-            headers={"Authorization": f"Bearer {NODE_TOKEN}"},
         )
 
     assert r.status_code == 200
@@ -169,7 +165,6 @@ def test_unwired_adapter_leaves_the_callback_path_gated(route_configured):
         r = client.post(
             global_config.MODEL_JOB_CALLBACK_PATH,
             json={"job_id": "x"},
-            headers={"Authorization": f"Bearer {NODE_TOKEN}"},
         )
 
     # The operator gate answers, because no exemption was installed.

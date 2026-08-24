@@ -56,7 +56,7 @@ The DP-345 family. A tool call whose real answer arrives after its turn ended.
 | trigger | durable store | idempotency | resumes / consumes | gate |
 |---|---|---|---|---|
 | Model calls a gated write | `Parked_Writes` (`kind='approval'`) | row claim (`take`) | `stream_resolve_park` → `_stream_settle` → one continuation turn | `is_write_tool` / `is_irreversible` / `ALWAYS_CONFIRM_TOOLS`; human approve/deny |
-| Model calls `install_model`; node job detaches under `systemd-run` | `Parked_Writes` (`kind='node_job'`), token **is** the job id | row claim (`take`) | `stream_resolve_deferral` → `_stream_settle` → one continuation turn | `HF_TOOLS_ENABLED`; `MODEL_JOB_CALLBACK_TOKEN` on the inbound ping |
+| Model calls `install_model`; node job detaches under `systemd-run` | `Parked_Writes` (`kind='node_job'`), token **is** the job id | row claim (`take`) | `stream_resolve_deferral` → `_stream_settle` → one continuation turn | `HF_TOOLS_ENABLED`; the inbound ping is unauthenticated (DP-355) |
 | ⚠️ fixr agent emits an event (`self_edit/integration.py:307`) | **none** — nothing durable | **none** — in-process only | `_wake_fixr` → `ChatSystem.generate_response` (a *new* turn, not a continuation) | none |
 
 **Finding A1 — `_wake_fixr` is the implementation DP-345 did not converge.**
