@@ -43,7 +43,6 @@ POOL="${POOL:-pve/data}"
 # DP-343 completion ping, same contract and same settings file convention as
 # derpr-model-install. Empty URL = no ping.
 DERPR_CALLBACK_URL="${DERPR_CALLBACK_URL:-}"
-DERPR_CALLBACK_TOKEN_FILE="${DERPR_CALLBACK_TOKEN_FILE:-/etc/derpr-callback.token}"
 DERPR_CALLBACK_TIMEOUT="${DERPR_CALLBACK_TIMEOUT:-10}"
 
 gguf_re='^[A-Za-z0-9._-]+\.gguf$'
@@ -198,16 +197,9 @@ cmd_unpin() {
 # through `derpr-model-install status`, which reads this same JOBS_DIR.
 ping_derpr() {
     [ -n "$DERPR_CALLBACK_URL" ] || return 0
-    local token=""
-    [ -r "$DERPR_CALLBACK_TOKEN_FILE" ] && token="$(cat "$DERPR_CALLBACK_TOKEN_FILE")"
-    if [ -z "$token" ]; then
-        log "callback skipped for job=$JOB: no token in $DERPR_CALLBACK_TOKEN_FILE"
-        return 0
-    fi
     # $JOB was gated by the job-id regex in cmd_promote before systemd ever ran
     # this, so it cannot carry a quote into the body.
     if curl -fsS --max-time "$DERPR_CALLBACK_TIMEOUT" --retry 2 --retry-delay 3 \
-        --header "Authorization: Bearer $token" \
         --header 'Content-Type: application/json' \
         --data "{\"job_id\":\"$JOB\"}" \
         "$DERPR_CALLBACK_URL" >/dev/null 2>&1; then

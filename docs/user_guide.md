@@ -1261,18 +1261,23 @@ Two things worth knowing:
   appear where you can answer it. The card is posted the next time you speak in
   that channel.
 
-Off by default, and independent of `HF_TOOLS_ENABLED`. It needs **two settings**
-on derpr: `MODEL_JOB_CALLBACK_TOKEN` (the node's own credential — deliberately
-*not* the operator token) and `MODEL_JOB_ALERT_CHANNEL_ID` (the channel id to
-post the report into). Neither of them names a conversation, and there is no
-setting that does — see the bullet above. On the node: `DERPR_CALLBACK_URL` and
-a token file, in `/etc/default/derpr-model-install` and
-`/etc/default/derpr-model-tier` — see `services/pve/README.md` (the URL is the
-container's published HTTP port, not the Caddy TLS front, and the
-bearer-over-HTTP hop is a LAN-only accepted risk). With no token set the node's
-ping is refused and the jobs run exactly as they did before; with no alert
-channel set the conversation still resumes and can still raise an approval card,
-but nothing is posted to announce it.
+Off by default, and independent of `HF_TOOLS_ENABLED`. It needs **one setting**
+on derpr — `MODEL_JOB_ALERT_CHANNEL_ID`, the channel id to post the report into.
+It does not name a conversation, and there is no setting that does — see the
+bullet above. On the node: `DERPR_CALLBACK_URL`, in
+`/etc/default/derpr-model-install` and `/etc/default/derpr-model-tier` — see
+`services/pve/README.md` (the URL is the container's published HTTP port, not
+the Caddy TLS front). With no URL set on the node the jobs run exactly as they
+did before and nothing is announced; with no alert channel set on derpr the
+conversation still resumes and can still raise an approval card, but nothing is
+posted to announce it.
+
+**The route is unauthenticated, deliberately.** The ping is a doorbell carrying
+a job id and nothing else, and derpr re-reads the job over SSH before it tells
+you anything — so a forged or replayed ping cannot claim an install succeeded,
+and a credential on that route would defend nothing the re-read does not already
+defend. It is a plain-HTTP hop between two guests of the same node: a LAN-only
+accepted risk, like the rest of the control plane.
 
 Disabled by default. Enable with `HF_TOOLS_ENABLED=true` **and** deploy the
 node-side artifacts (`services/pve/README.md` has the steps, including the

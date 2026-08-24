@@ -32,7 +32,6 @@ _INSTALL = _SERVICES / "derpr-model-install"
 _TIER = _SERVICES / "derpr-model-tier"
 
 URL = "http://10.0.0.70:5003/api/v1/model_job/complete"
-TOKEN = "n0de-callback-token"
 
 
 def _fake_bin(tmp_path: Path, *, curl_exit: int = 0) -> Path:
@@ -75,8 +74,7 @@ def _fake_bin(tmp_path: Path, *, curl_exit: int = 0) -> Path:
     return bindir
 
 
-def _env(tmp_path: Path, bindir: Path, *, url: str = URL,
-         token: str | None = TOKEN) -> dict:
+def _env(tmp_path: Path, bindir: Path, *, url: str = URL) -> dict:
     """Environment for a script run whose cwd is `tmp_path`.
 
     Every path the scripts are given is RELATIVE, and every run sets
@@ -88,13 +86,8 @@ def _env(tmp_path: Path, bindir: Path, *, url: str = URL,
     rather than the path separator.
     """
     env = dict(os.environ)
-    token_file = tmp_path / "callback.token"
-    if token is not None:
-        token_file.write_text(token, encoding="utf-8")
     env.update({
         "DERPR_CALLBACK_URL": url,
-        "DERPR_CALLBACK_TOKEN_FILE": "callback.token" if token is not None
-                                     else "no-such.token",
         "DERPR_CALLBACK_TIMEOUT": "1",
         # Shims first, then real coreutils (a Windows PATH has none), then
         # whatever the box already had.
@@ -164,8 +157,9 @@ def test_promotion_pings_derpr_when_it_finishes(tmp_path):
     pings = _pings(tmp_path)
     assert len(pings) == 1, f"expected exactly one ping, got {pings}"
     ping = pings[0]
-    assert f"Authorization: Bearer {TOKEN}" in ping
     # The body is the job id and nothing else — derpr re-reads the job over SSH.
+    # No credential rides along either: the route is unauthenticated (DP-355).
+    assert "Authorization" not in ping
     assert '{"job_id":"m-1"}' in ping
     assert URL in ping
 
@@ -196,19 +190,6 @@ def test_no_ping_configured_is_silent(tmp_path):
     reach derpr: no URL, no ping, no failure."""
     bindir = _fake_bin(tmp_path)
     env = _env(tmp_path, bindir, url="")
-    env.update(_tier_layout(tmp_path))
-
-    res = _run_promote(tmp_path, env)
-
-    assert res.returncode == 0, res.stderr
-    assert _pings(tmp_path) == []
-
-
-def test_missing_token_file_does_not_ping(tmp_path):
-    """No credential = no request. Posting unauthenticated would only produce a
-    401 the node cannot act on, and would put the job id on the wire anyway."""
-    bindir = _fake_bin(tmp_path)
-    env = _env(tmp_path, bindir, token=None)
     env.update(_tier_layout(tmp_path))
 
     res = _run_promote(tmp_path, env)
@@ -301,7 +282,7 @@ def test_finished_install_pings_derpr(tmp_path):
     pings = _pings(tmp_path)
     assert len(pings) == 1
     assert '{"job_id":"newmodel-1"}' in pings[0]
-    assert f"Authorization: Bearer {TOKEN}" in pings[0]
+    assert "Authorization" not in pings[0]
 
 
 def test_sha_mismatch_pings_the_failure(tmp_path):
