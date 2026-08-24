@@ -694,18 +694,23 @@ PVE_MODEL_HOST_VMID = os.environ.get("PVE_MODEL_HOST_VMID", "101")
 # HF_API_BASE — HF Hub API root. Overridable so a test or a mirror can point
 #   elsewhere; never build a URL from a model-supplied string against a
 #   different host.
-# HF_API_TOKEN — optional. Only needed for gated/private repos. Register the
-#   ref in the vault so the egress scrubber redacts it (DP-225).
 # HF_HTTP_TIMEOUT — seconds for one HF API read. These are metadata calls only
 #   (search + file tree); the multi-GB download happens on the node, detached
 #   under systemd-run, and is never held open by the tool loop.
 # HF_SEARCH_LIMIT_MAX — ceiling on hf_search's `limit`. A model asking for 500
 #   results is asking to fill its own context with untrusted text.
+# HF_FILES_LIMIT_MAX — ceiling on how many gguf rows hf_files republishes. Same
+#   reasoning as the search cap and it is the same kind of text: a sharded repo
+#   publishing every quant is thousands of tokens of attacker-authored paths and
+#   digests in one tool result. Higher than the search cap because a legitimate
+#   repo really does carry dozens of quants and the model has to choose between
+#   them. Elision is reported in the payload, never silent — an undisclosed cut
+#   is the same defect as a half-walked tree.
 HF_TOOLS_ENABLED = os.environ.get("HF_TOOLS_ENABLED", "False").lower() in ("true", "1", "yes", "on")
 HF_API_BASE = os.environ.get("HF_API_BASE", "https://huggingface.co")
-HF_API_TOKEN = os.environ.get("HF_API_TOKEN", "")
 HF_HTTP_TIMEOUT = float(os.environ.get("HF_HTTP_TIMEOUT", "20"))
 HF_SEARCH_LIMIT_MAX = int(os.environ.get("HF_SEARCH_LIMIT_MAX", "20"))
+HF_FILES_LIMIT_MAX = int(os.environ.get("HF_FILES_LIMIT_MAX", "60"))
 
 # Node job completion callback (DP-343). The node's install and promote jobs are
 # detached under systemd-run — they outlive the SSH call that started them, so

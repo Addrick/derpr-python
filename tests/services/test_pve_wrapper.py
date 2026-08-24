@@ -23,7 +23,7 @@ import shlex
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Sequence, Tuple
 
 import pytest
 
@@ -138,8 +138,8 @@ class StubHF:
     async def search_models(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         return []
 
-    async def list_gguf_files(self, repo: str, revision: str = "main") -> List[HFFile]:
-        return []
+    async def list_gguf_files(self, repo: str) -> Tuple[List[HFFile], bool]:
+        return [], False
 
 
 @pytest.fixture

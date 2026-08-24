@@ -26,8 +26,8 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
-from urllib.parse import quote
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote, unquote
 
 import aiohttp
 
@@ -57,6 +57,11 @@ _MAX_TREE_PAGES = 10
 
 #: How many of a search hit's tags survive into the payload the model reads.
 _MAX_SEARCH_TAGS = 12
+
+#: The only request headers these reads need. There is no auth header: the Hub
+#: serves public gguf repos anonymously, and derpr deliberately holds no HF
+#: credential (DP-347) — gated/private repos are out of scope, not degraded.
+_JSON_HEADERS: Dict[str, str] = {"Accept": "application/json"}
 
 _GIB = 1024 ** 3
 
@@ -145,35 +150,42 @@ class HFClient:
         self,
         *,
         base_url: Optional[str] = None,
-        token: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> None:
         self._base = (base_url or global_config.HF_API_BASE).rstrip("/")
-        self._token = token if token is not None else global_config.HF_API_TOKEN
         self._timeout = (
             timeout if timeout is not None else global_config.HF_HTTP_TIMEOUT
         )
 
-    def _headers(self) -> Dict[str, str]:
-        headers = {"Accept": "application/json"}
-        if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
-        return headers
+    async def _request(
+        self,
+        url: str,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        not_found: Optional[str] = None,
+    ) -> Tuple[Any, Optional[str]]:
+        """One GET → (parsed JSON, ``Link`` header). Never raises aiohttp.
 
-    async def _get_json(self, url: str, params: Optional[Dict[str, Any]] = None) -> Any:
-        """One GET returning parsed JSON, or HFError. Never raises aiohttp."""
+        The single place the transport-failure ladder lives. It was duplicated
+        per endpoint once, which is how two paths came to handle the same
+        aiohttp exception differently — a fix applied to one of them silently
+        did not apply to the other.
+        """
         timeout = aiohttp.ClientTimeout(total=self._timeout)
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(
-                    url, params=params, headers=self._headers()
+                    url, params=params, headers=_JSON_HEADERS
                 ) as resp:
+                    if resp.status == 404 and not_found:
+                        raise HFError(not_found)
                     if resp.status != 200:
                         body = (await resp.text())[:200]
                         raise HFError(
                             f"HuggingFace returned {resp.status} for {url}: {body}"
                         )
-                    return await resp.json(content_type=None)
+                    payload = await resp.json(content_type=None)
+                    return payload, resp.headers.get("Link")
         except HFError:
             raise
         except asyncio.TimeoutError as e:
@@ -182,6 +194,11 @@ class HFClient:
             raise HFError(f"HuggingFace request failed: {e}") from e
         except ValueError as e:  # non-JSON body
             raise HFError(f"HuggingFace returned unparseable JSON: {e}") from e
+
+    async def _get_json(self, url: str, params: Optional[Dict[str, Any]] = None) -> Any:
+        """One GET returning parsed JSON, or HFError."""
+        payload, _ = await self._request(url, params)
+        return payload
 
     async def search_models(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         """gguf repos matching ``query``, most-downloaded first.
@@ -222,22 +239,30 @@ class HFClient:
             })
         return results
 
-    async def list_gguf_files(self, repo: str, revision: str = "main") -> List[HFFile]:
-        """Every ``.gguf`` in ``repo`` with its byte size and sha256.
+    async def list_gguf_files(self, repo: str) -> Tuple[List[HFFile], bool]:
+        """Every ``.gguf`` in ``repo``, and whether the walk was cut short.
 
-        Walks the tree endpoint's ``Link: rel="next"`` pages up to
-        ``_MAX_TREE_PAGES``; a repo with more shards than that is reported as
-        truncated by the caller rather than silently half-listed.
+        Returns ``(files, truncated)``. ``truncated`` is True when the tree
+        still offered a next page at ``_MAX_TREE_PAGES`` — the caller has to say
+        so out loud, because a half-listed tree makes a file that exists look
+        like a typo, and "no such file" is the one answer that sends a model off
+        guessing spellings forever.
+
+        The ref is pinned to ``main`` and is deliberately **not** a parameter.
+        The node fetches bytes from a hardcoded ``/resolve/main/``
+        (``services/pve/derpr-model-install``), so listing any other ref would
+        read a size and a sha256 off one commit and download a different one —
+        a guaranteed digest mismatch discovered only after a multi-GB transfer.
+        Making the two ends agree is a feature; a parameter that can only ever
+        disagree is not.
         """
         repo = validate_repo_id(repo)
-        url = (
-            f"{self._base}/api/models/{quote(repo, safe='/')}"
-            f"/tree/{quote(revision, safe='')}"
-        )
+        url = f"{self._base}/api/models/{quote(repo, safe='/')}/tree/main"
         params: Optional[Dict[str, Any]] = {"recursive": "1"}
         files: List[HFFile] = []
         seen_cursors: set[str] = set()
-        for _ in range(_MAX_TREE_PAGES):
+        truncated = False
+        for page in range(_MAX_TREE_PAGES):
             rows, cursor = await self._get_tree_page(url, params)
             for row in rows:
                 entry = self._as_gguf_file(row)
@@ -245,42 +270,31 @@ class HFClient:
                     files.append(entry)
             if not cursor or cursor in seen_cursors:
                 break
+            if page == _MAX_TREE_PAGES - 1:
+                # The tree still has more to give and we are out of hops. Say
+                # it rather than returning a list that looks complete.
+                truncated = True
+                break
             seen_cursors.add(cursor)
-            params = {"recursive": "1", "cursor": cursor}
-        return files
+            # ``unquote`` because the cursor is lifted percent-ENCODED out of
+            # the Link header's URL, and aiohttp encodes ``params`` values again
+            # on the way out: a base64 cursor's ``=`` padding would go out as
+            # ``%253D`` and the Hub would reject or misread every page after the
+            # first. The base64 alphabet contains no ``%``, so decoding once
+            # cannot corrupt a well-formed cursor.
+            params = {"recursive": "1", "cursor": unquote(cursor)}
+        return files, truncated
 
     async def _get_tree_page(
         self, url: str, params: Optional[Dict[str, Any]]
-    ) -> tuple[List[Any], Optional[str]]:
+    ) -> Tuple[List[Any], Optional[str]]:
         """One page of the tree endpoint plus the next cursor, if any."""
-        timeout = aiohttp.ClientTimeout(total=self._timeout)
-        try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(
-                    url, params=params, headers=self._headers()
-                ) as resp:
-                    if resp.status == 404:
-                        raise HFError(
-                            f"no such HuggingFace repo or revision: {url}"
-                        )
-                    if resp.status != 200:
-                        body = (await resp.text())[:200]
-                        raise HFError(
-                            f"HuggingFace returned {resp.status} for {url}: {body}"
-                        )
-                    rows = await resp.json(content_type=None)
-                    cursor = _next_cursor(resp.headers.get("Link"))
-        except HFError:
-            raise
-        except asyncio.TimeoutError as e:
-            raise HFError(f"HuggingFace request timed out after {self._timeout:.0f}s") from e
-        except aiohttp.ClientError as e:
-            raise HFError(f"HuggingFace request failed: {e}") from e
-        except ValueError as e:
-            raise HFError(f"HuggingFace returned unparseable JSON: {e}") from e
+        rows, link = await self._request(
+            url, params, not_found=f"no such HuggingFace repo: {url}"
+        )
         if not isinstance(rows, list):
             raise HFError("HuggingFace file tree returned a non-list body")
-        return rows, cursor
+        return rows, _next_cursor(link)
 
     @staticmethod
     def _as_gguf_file(row: Any) -> Optional[HFFile]:
@@ -317,8 +331,17 @@ class HFClient:
         offering — it is the whole control.
         """
         file_path = validate_file_path(file_path)
-        files = await self.list_gguf_files(repo)
+        files, truncated = await self.list_gguf_files(repo)
         match = next((f for f in files if f.path == file_path), None)
+        if match is None and truncated:
+            # Refuse rather than report absence: the file may be on a page the
+            # walk never reached, and "it offers: [...]" out of a partial list
+            # is a false statement the model will act on.
+            raise HFError(
+                f"{repo}'s file tree is larger than {_MAX_TREE_PAGES} pages, so "
+                f"{file_path!r} could not be confirmed absent. Refusing rather "
+                "than reporting a partial listing."
+            )
         if match is None:
             available = [f.path for f in files][:20]
             raise HFError(

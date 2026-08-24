@@ -9,7 +9,7 @@ it is asked at all.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import pytest
 
@@ -58,12 +58,14 @@ class FakeHF:
         files: Optional[List[HFFile]] = None,
         error: Optional[str] = None,
         search: Optional[List[Dict[str, Any]]] = None,
+        truncated: bool = False,
     ) -> None:
         self.files = files if files is not None else [
             HFFile(path="model-Q6_K.gguf", size_bytes=SIZE, sha256=SHA)
         ]
         self.error = error
         self.search = search if search is not None else [_hub_row()]
+        self.truncated = truncated
         self.search_calls: List[tuple] = []
 
     async def search_models(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
@@ -72,10 +74,10 @@ class FakeHF:
             raise HFError(self.error)
         return self.search
 
-    async def list_gguf_files(self, repo: str, revision: str = "main") -> List[HFFile]:
+    async def list_gguf_files(self, repo: str) -> Tuple[List[HFFile], bool]:
         if self.error:
             raise HFError(self.error)
-        return self.files
+        return self.files, self.truncated
 
     async def find_gguf_file(self, repo: str, file_path: str) -> HFFile:
         if self.error:
@@ -111,6 +113,13 @@ def make(hf: Optional[FakeHF] = None, runner: Optional[FakeRunner] = None):
 def enabled(monkeypatch):
     monkeypatch.setattr(global_config, "HF_TOOLS_ENABLED", True)
     monkeypatch.setattr(global_config, "HF_SEARCH_LIMIT_MAX", 20)
+    # DP-348: the node transport is gated separately, and it is set here rather
+    # than inherited from the environment. Before the gate existed these tests
+    # reached the runner with `PVE_TOOLS_ENABLED` left at whatever a developer's
+    # `.env` happened to say — passing locally on a box that sets it and failing
+    # on a clean checkout. A test that needs the transport now says so.
+    monkeypatch.setattr(global_config, "PVE_TOOLS_ENABLED", True)
+    monkeypatch.setattr(global_config, "HF_FILES_LIMIT_MAX", 60)
 
 
 # -- disabled guard ----------------------------------------------------------
@@ -143,6 +152,36 @@ async def test_search_limit_is_capped(enabled, monkeypatch):
     res = await make(hf)._hf_search("gemma", limit=500)
     assert res["status"] == "ok"
     assert hf.search_calls == [("gemma", 5)]
+
+
+@pytest.mark.asyncio
+async def test_a_garbage_limit_cannot_buy_a_bigger_page_than_a_valid_one(enabled, monkeypatch):
+    """The unparseable-`limit` fallback goes through the ceiling too.
+
+    It used to be a bare `capped = 10`, which meant an operator who had set
+    HF_SEARCH_LIMIT_MAX=5 got 5 rows for limit=500 and 10 rows for limit="ten" —
+    the one case where emitting a garbage argument bought the model MORE
+    attacker-authored text than emitting a valid one, and the only way to reach
+    it was to be wrong.
+    """
+    monkeypatch.setattr(global_config, "HF_SEARCH_LIMIT_MAX", 5)
+    hf = FakeHF()
+
+    res = await make(hf)._hf_search("gemma", limit="ten")
+
+    assert res["status"] == "ok"
+    assert hf.search_calls == [("gemma", 5)]
+
+
+@pytest.mark.asyncio
+async def test_the_limit_fallback_is_still_the_default_when_the_ceiling_is_high(enabled):
+    """The ceiling clamps the fallback; it does not replace it. A garbage limit
+    under a generous cap still means "the default page", not "the maximum"."""
+    hf = FakeHF()  # HF_SEARCH_LIMIT_MAX is 20 via the fixture
+
+    await make(hf)._hf_search("gemma", limit=None)
+
+    assert hf.search_calls == [("gemma", 10)]
 
 
 @pytest.mark.asyncio
@@ -222,6 +261,63 @@ async def test_files_reports_size_and_sha(enabled):
         "size_gib": round(SIZE / 1024 ** 3, 2),
         "sha256": SHA,
     }]
+
+
+@pytest.mark.asyncio
+async def test_files_says_out_loud_that_a_walked_out_tree_is_incomplete(enabled):
+    """A half-listed tree that reads as a complete one is worse than an error.
+
+    The model treats "not in the list" as "not in the repo", reports a file that
+    exists as a typo, and then re-spells a name that was right the first time —
+    the loop DP-335 was filed to break. The client knows the walk was cut short;
+    the payload has to say so rather than leave it to inference.
+    """
+    hf = FakeHF(truncated=True)
+
+    res = await make(hf)._hf_files("owner/model-GGUF")
+
+    assert res["status"] == "ok"
+    assert res["truncated"] is True
+    assert "INCOMPLETE" in res["note"]
+    assert "may still exist" in res["note"]
+
+
+@pytest.mark.asyncio
+async def test_files_caps_the_rows_it_republishes_and_reports_the_elision(enabled, monkeypatch):
+    """Same reasoning as the search cap, same kind of text: every row is a path
+    and a digest chosen by whoever uploaded the repo, and a sharded repo
+    publishing every quant is thousands of tokens of it in one tool result.
+
+    The cut is REPORTED. A silent elision is the same defect as a silently
+    half-walked tree — it just has a different cause.
+    """
+    monkeypatch.setattr(global_config, "HF_FILES_LIMIT_MAX", 3)
+    many = [
+        HFFile(path=f"shard-{i:02d}.gguf", size_bytes=SIZE, sha256=SHA)
+        for i in range(10)
+    ]
+
+    res = await make(FakeHF(files=many))._hf_files("owner/model-GGUF")
+
+    assert len(res["files"]) == 3
+    assert [f["path"] for f in res["files"]] == [
+        "shard-00.gguf", "shard-01.gguf", "shard-02.gguf",
+    ]
+    assert res["truncated"] is True
+    assert "7 further gguf file(s) were elided" in res["note"]
+    assert "INCOMPLETE" in res["note"]
+
+
+@pytest.mark.asyncio
+async def test_files_does_not_cry_incomplete_over_a_complete_listing(enabled):
+    """A warning that fires on every listing is a warning the model learns to
+    ignore, which costs exactly when the listing really is short."""
+    res = await make()._hf_files("owner/model-GGUF")
+
+    assert res["truncated"] is False
+    assert "INCOMPLETE" not in res["note"]
+    # The DP-265 note is still the first thing said.
+    assert res["note"].startswith("Sizes are bytes")
 
 
 @pytest.mark.asyncio

@@ -45,7 +45,7 @@ from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from config import global_config
 from src.huggingface.client import HFClient, HFError, validate_file_path, validate_repo_id
-from src.proxmox.ssh import SSHError, SSHRunner
+from src.proxmox.ssh import SSHRunner, run_node_command
 
 if TYPE_CHECKING:
     from src.tools.tool_manager import ToolManager
@@ -217,19 +217,22 @@ class HuggingFaceToolHandler:
         )
 
     async def _run(self, argv: list[str]) -> Dict[str, Any]:
-        """Run the one node-side verb, mapping transport/exit errors to dicts."""
-        try:
-            res = await self._ssh.run(argv)
-        except SSHError as e:
-            return _err(f"ssh failed: {e}")
-        if res.returncode != 0:
-            return {
-                "status": "error",
-                "message": f"node script exited {res.returncode}",
-                "stderr": res.stderr,
-                "stdout": res.stdout,
-            }
-        return {"status": "ok", "stdout": res.stdout, "stderr": res.stderr}
+        """Run the one node-side verb through the shared node gate (DP-348).
+
+        This used to be a second, independent implementation of
+        ``ProxmoxToolHandler._run``, and the two had drifted in the two ways that
+        mattered: it checked no ``PVE_TOOLS_ENABLED``, so ``install_model``
+        shelled out to the box while every proxmox tool correctly reported itself
+        disabled; and it held no in-flight cap, so HF connections were invisible
+        to the limit that exists to keep the node under sshd's MaxStartups.
+        Both are properties of the key and the box, not of a handler, so both now
+        live behind ``ssh.run_node_command``.
+
+        ``HF_TOOLS_ENABLED`` stays where it is — it is the *feature* switch for
+        these four tools, checked per tool before any argv is built. The gate is
+        the *transport* switch.
+        """
+        return await run_node_command(self._ssh, argv, exit_label="node script")
 
     # -- read tools ----------------------------------------------------------
 
@@ -240,7 +243,11 @@ class HuggingFaceToolHandler:
         try:
             capped = max(1, min(int(limit), global_config.HF_SEARCH_LIMIT_MAX))
         except (TypeError, ValueError):
-            capped = 10
+            # The fallback goes through the ceiling too. A model that emits
+            # limit="ten" must not end up with a bigger page than the operator's
+            # configured maximum allows — that is the one case where a garbage
+            # argument would buy more untrusted text than a valid one.
+            capped = max(1, min(10, global_config.HF_SEARCH_LIMIT_MAX))
         try:
             models = await self._hf.search_models(query, capped)
         except HFError as e:
@@ -276,21 +283,40 @@ class HuggingFaceToolHandler:
         if not self._enabled():
             return self._disabled_error()
         try:
-            files = await self._hf.list_gguf_files(validate_repo_id(repo))
+            files, truncated = await self._hf.list_gguf_files(validate_repo_id(repo))
         except HFError as e:
             return _err(str(e))
+        # Capped for the same reason hf_search is, and over the same kind of
+        # text: every row is a path and a digest chosen by whoever uploaded the
+        # repo, and a repo publishing every quant of a sharded model is several
+        # thousand tokens of third-party text in one tool result.
+        cap = max(1, global_config.HF_FILES_LIMIT_MAX)
+        elided = max(0, len(files) - cap)
+        # Said out loud rather than left to inference, in both directions: a
+        # repo with no gguf is a normal answer and must not read as "the read
+        # failed", and an incomplete listing must never read as a complete one.
+        notes = [
+            "Sizes are bytes as HuggingFace reports them. A file with "
+            "sha256: null cannot be installed — install_model refuses "
+            "anything it cannot pin to a digest."
+        ]
+        if elided:
+            notes.append(
+                f"{elided} further gguf file(s) were elided at the "
+                f"HF_FILES_LIMIT_MAX cap of {cap}, so this list is INCOMPLETE."
+            )
+        if truncated:
+            notes.append(
+                "The repo's file tree is larger than this listing walked, so "
+                "this list is INCOMPLETE — a file missing from it may still "
+                "exist. Do not report a file as absent on the strength of it."
+            )
         return {
             "status": "ok",
             "repo": repo,
-            "files": [f.to_dict() for f in files],
-            # Said out loud rather than left to inference: a repo with no gguf
-            # is a normal answer, and "the list came back empty" must not read
-            # as "the read failed" (or vice versa).
-            "note": (
-                "Sizes are bytes as HuggingFace reports them. A file with "
-                "sha256: null cannot be installed — install_model refuses "
-                "anything it cannot pin to a digest."
-            ),
+            "files": [f.to_dict() for f in files[:cap]],
+            "truncated": bool(truncated or elided),
+            "note": " ".join(notes),
         }
 
     async def job_status(self, job_id: str) -> Dict[str, Any]:
