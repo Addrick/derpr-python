@@ -144,8 +144,11 @@ KCPP_PORT=5001
 MIN_MARGIN_BYTES=2147483648     # free space kept beyond the download
 ```
 
-For gated repos, put a HuggingFace read token in
-`/etc/derpr-model-install.token` (`chmod 600`). Absent, public repos still work.
+Hub downloads are **anonymous**: there is no HuggingFace token, here or on the
+derpr side (DP-347). Gated and private repos are out of scope — the public gguf
+repos this exists to install from need no auth. Do not re-add a token file; the
+old one put a bearer on `curl`'s argv, readable through `/proc/<pid>/cmdline`
+for the length of a multi-GB download.
 
 ### Completion ping (DP-343)
 

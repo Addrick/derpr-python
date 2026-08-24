@@ -58,6 +58,11 @@ _MAX_TREE_PAGES = 10
 #: How many of a search hit's tags survive into the payload the model reads.
 _MAX_SEARCH_TAGS = 12
 
+#: The only request headers these reads need. There is no auth header: the Hub
+#: serves public gguf repos anonymously, and derpr deliberately holds no HF
+#: credential (DP-347) — gated/private repos are out of scope, not degraded.
+_JSON_HEADERS: Dict[str, str] = {"Accept": "application/json"}
+
 _GIB = 1024 ** 3
 
 
@@ -145,20 +150,12 @@ class HFClient:
         self,
         *,
         base_url: Optional[str] = None,
-        token: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> None:
         self._base = (base_url or global_config.HF_API_BASE).rstrip("/")
-        self._token = token if token is not None else global_config.HF_API_TOKEN
         self._timeout = (
             timeout if timeout is not None else global_config.HF_HTTP_TIMEOUT
         )
-
-    def _headers(self) -> Dict[str, str]:
-        headers = {"Accept": "application/json"}
-        if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
-        return headers
 
     async def _get_json(self, url: str, params: Optional[Dict[str, Any]] = None) -> Any:
         """One GET returning parsed JSON, or HFError. Never raises aiohttp."""
@@ -166,7 +163,7 @@ class HFClient:
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(
-                    url, params=params, headers=self._headers()
+                    url, params=params, headers=_JSON_HEADERS
                 ) as resp:
                     if resp.status != 200:
                         body = (await resp.text())[:200]
@@ -222,18 +219,23 @@ class HFClient:
             })
         return results
 
-    async def list_gguf_files(self, repo: str, revision: str = "main") -> List[HFFile]:
+    async def list_gguf_files(self, repo: str) -> List[HFFile]:
         """Every ``.gguf`` in ``repo`` with its byte size and sha256.
 
         Walks the tree endpoint's ``Link: rel="next"`` pages up to
         ``_MAX_TREE_PAGES``; a repo with more shards than that is reported as
         truncated by the caller rather than silently half-listed.
+
+        The ref is pinned to ``main`` and is deliberately **not** a parameter.
+        The node fetches bytes from a hardcoded ``/resolve/main/``
+        (``services/pve/derpr-model-install``), so listing any other ref would
+        read a size and a sha256 off one commit and download a different one —
+        a guaranteed digest mismatch discovered only after a multi-GB transfer.
+        Making the two ends agree is a feature; a parameter that can only ever
+        disagree is not.
         """
         repo = validate_repo_id(repo)
-        url = (
-            f"{self._base}/api/models/{quote(repo, safe='/')}"
-            f"/tree/{quote(revision, safe='')}"
-        )
+        url = f"{self._base}/api/models/{quote(repo, safe='/')}/tree/main"
         params: Optional[Dict[str, Any]] = {"recursive": "1"}
         files: List[HFFile] = []
         seen_cursors: set[str] = set()
@@ -257,11 +259,11 @@ class HFClient:
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(
-                    url, params=params, headers=self._headers()
+                    url, params=params, headers=_JSON_HEADERS
                 ) as resp:
                     if resp.status == 404:
                         raise HFError(
-                            f"no such HuggingFace repo or revision: {url}"
+                            f"no such HuggingFace repo: {url}"
                         )
                     if resp.status != 200:
                         body = (await resp.text())[:200]
