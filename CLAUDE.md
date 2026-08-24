@@ -160,6 +160,7 @@ Three living documents track the system's design:
 - **`docs/user_guide.md`** — Describes what users can do. Serves as both end-user reference and **spec for new features**. When planning new behavior, describe it here first in plain language before implementing. This ensures alignment on what we're building.
 - **`docs/architecture/architecture.md`** — Describes how the system works internally. Component reference, in the code repo so it versions in the same PR as the code it describes, and is visible to CI, to the public repo, and to Antigravity.
 - **`docs/capability_map.md`** — capability → implementations. The **inverse index** of the other two, which are both organized by module and therefore cannot show you that a capability now has two implementations (the second one just gets its own new section). Read it before building anything that parks, schedules, stores, notifies, retries, or spawns.
+- **`docs/mechanism_ledger.md`** — the same question keyed on **mechanism** instead of on capability-in-English: trigger · durable store · idempotency · resumer · gate. Exists because the capability map is a self-report filled in by the author of the new code, and DP-343 shipped a fourth copy of the deferred-result pipeline 26 days after the map was created *while filling in a row*. Two rows with the same shape and different module names are a duplicate. **Regenerated from source, not maintained** — if it disagrees with the code, rebuild it.
 
 **Update rules:**
 - When implementing a new feature, update `user_guide.md` with the user-facing behavior (commands, tools, modes, etc.)
@@ -168,7 +169,7 @@ Three living documents track the system's design:
 - When you notice any doc is stale relative to the code, fix it — don't wait to be asked
 - Spec-before-implement: if a design conversation produces a concrete behavior description, add it to `user_guide.md` before writing code
 
-**Search by intent, not by name (DP-302).** Before adding a capability, ask "does anything already do this job?" — not "is there a function called `approve_x`?". Code here is *regenerated*, not copy-pasted, so a re-derived implementation shares neither the name nor the vocabulary of the original and no clone detector will find it. `python scripts/arch_audit.py similar concepts` catches the function-level case; `docs/capability_map.md` is the only thing that catches the subsystem-level case.
+**Search by intent, not by name (DP-302).** Before adding a capability, ask "does anything already do this job?" — not "is there a function called `approve_x`?". Code here is *regenerated*, not copy-pasted, so a re-derived implementation shares neither the name nor the vocabulary of the original and no clone detector will find it. `python scripts/arch_audit.py similar concepts` catches the function-level case (and is the level that produces false positives on Protocol declarations); `docs/capability_map.md` catches the subsystem-level case *when the author recognizes the sibling*, and `docs/mechanism_ledger.md` is what catches it when they do not — compare mechanism shape, never description.
 
 ## Memory System — Viking L0/L1/L2 Protocol
 
