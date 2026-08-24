@@ -7,13 +7,16 @@ become an installable file, and which byte count is believed.
 
 from __future__ import annotations
 
+import aiohttp
 import pytest
+from yarl import URL
 
 from src.huggingface.client import (
     HFClient,
     HFError,
     HFFile,
     _MAX_SEARCH_TAGS,
+    _MAX_TREE_PAGES,
     _next_cursor,
     _select_tags,
     validate_file_path,
@@ -121,6 +124,150 @@ def test_no_next_link_ends_the_walk():
     assert _next_cursor('<https://x/prev>; rel="prev"') is None
 
 
+class _FakeResponse:
+    """One canned tree page: a status, a JSON body and an optional Link header."""
+
+    def __init__(self, payload, link=None, status=200, text=""):
+        self.status = status
+        self.headers = {} if link is None else {"Link": link}
+        self._payload = payload
+        self._text = text
+
+    async def json(self, content_type=None):
+        return self._payload
+
+    async def text(self):
+        return self._text
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+def _fake_aiohttp(monkeypatch, pages):
+    """Replace aiohttp.ClientSession with one that serves ``pages`` in order.
+
+    Patched at the aiohttp layer rather than at ``_request`` so the walk runs
+    through the real transport call — the defect being pinned is what aiohttp
+    does to a ``params`` value, and a fake that intercepts above it cannot see
+    that.
+
+    Returns the list every ``(url, params)`` is appended to.
+    """
+    calls: list = []
+
+    class _Session:
+        def __init__(self, *a, **kw):
+            pass
+
+        def get(self, url, params=None, headers=None):
+            calls.append((url, dict(params or {})))
+            return pages[len(calls) - 1]
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(aiohttp, "ClientSession", _Session)
+    return calls
+
+
+def _row(path):
+    return {"type": "file", "path": path, "size": 10, "lfs": {"oid": "a" * 64, "size": 10}}
+
+
+def _link(cursor):
+    return f'<https://huggingface.co/api/models/a/b/tree/main?cursor={cursor}>; rel="next"'
+
+
+@pytest.mark.asyncio
+async def test_tree_cursor_is_decoded_once_before_it_is_handed_back(monkeypatch):
+    """The cursor comes out of the Link header percent-ENCODED, and aiohttp
+    encodes ``params`` values again on the way out.
+
+    A base64 cursor's `=` padding therefore went out as `%253D`, and the Hub
+    rejected or misread every page after the first: a repo with more than one
+    tree page was silently HALF-listed, and a file that exists read as a typo.
+    Nothing errored, which is why this needed a test rather than a bug report.
+    """
+    pages = [
+        _FakeResponse([_row("page1-Q6.gguf")], link=_link("ZXlKbQ%3D%3D")),
+        _FakeResponse([_row("page2-Q4.gguf")]),
+    ]
+    calls = _fake_aiohttp(monkeypatch, pages)
+
+    files, truncated = await HFClient(base_url="https://hub").list_gguf_files("a/b")
+
+    assert [f.path for f in files] == ["page1-Q6.gguf", "page2-Q4.gguf"]
+    assert truncated is False
+    # The second request carries the DECODED cursor...
+    assert calls[1][1] == {"recursive": "1", "cursor": "ZXlKbQ=="}
+    # ...which is what makes the value on the wire the one the Hub issued.
+    # `with_query` is exactly what aiohttp does with `params`, so this is the
+    # assertion that would have failed before the fix.
+    assert URL(calls[1][0]).with_query(calls[1][1]).query_string.endswith("ZXlKbQ%3D%3D")
+    assert "%253D" not in URL(calls[1][0]).with_query(calls[1][1]).query_string
+
+
+@pytest.mark.asyncio
+async def test_a_tree_longer_than_the_page_cap_says_so(monkeypatch):
+    """`_MAX_TREE_PAGES` bounds how long a repo can make a tool call run, so it
+    has to exist — but a bare list is indistinguishable from a complete one, and
+    a caller that cannot tell reports a partial listing as the whole truth."""
+    pages = [
+        _FakeResponse([_row(f"shard-{i}.gguf")], link=_link(f"cur{i}"))
+        for i in range(_MAX_TREE_PAGES + 3)
+    ]
+    calls = _fake_aiohttp(monkeypatch, pages)
+
+    files, truncated = await HFClient(base_url="https://hub").list_gguf_files("a/b")
+
+    assert truncated is True
+    assert len(calls) == _MAX_TREE_PAGES  # the cap is still a cap
+    assert len(files) == _MAX_TREE_PAGES
+
+
+@pytest.mark.asyncio
+async def test_a_repeated_cursor_ends_the_walk_without_claiming_truncation(monkeypatch):
+    """A Hub that hands back the cursor it was given is a loop, not a longer
+    tree; ending on it is complete, and saying "truncated" there would put a
+    false warning on a listing that has everything."""
+    pages = [
+        _FakeResponse([_row("a.gguf")], link=_link("same")),
+        _FakeResponse([_row("b.gguf")], link=_link("same")),
+    ]
+    calls = _fake_aiohttp(monkeypatch, pages)
+
+    files, truncated = await HFClient(base_url="https://hub").list_gguf_files("a/b")
+
+    assert truncated is False
+    assert len(calls) == 2
+    assert [f.path for f in files] == ["a.gguf", "b.gguf"]
+
+
+@pytest.mark.asyncio
+async def test_a_404_on_the_tree_is_a_repo_error_not_a_transport_error(monkeypatch):
+    """The 404 message survived folding the per-endpoint failure ladder into one
+    `_request`. It was duplicated before, which is how two paths came to handle
+    the same aiohttp exception differently."""
+    _fake_aiohttp(monkeypatch, [_FakeResponse(None, status=404, text="not found")])
+
+    with pytest.raises(HFError, match="no such HuggingFace repo"):
+        await HFClient(base_url="https://hub").list_gguf_files("a/b")
+
+
+@pytest.mark.asyncio
+async def test_a_hub_5xx_on_the_tree_reports_its_status_and_body(monkeypatch):
+    _fake_aiohttp(monkeypatch, [_FakeResponse(None, status=503, text="upstream down")])
+
+    with pytest.raises(HFError, match="503"):
+        await HFClient(base_url="https://hub").list_gguf_files("a/b")
+
+
 # -- find_gguf_file ----------------------------------------------------------
 
 @pytest.mark.asyncio
@@ -131,7 +278,7 @@ async def test_find_refuses_a_file_with_no_published_digest(monkeypatch):
     client = HFClient()
 
     async def fake_list(repo, revision="main"):
-        return [HFFile(path="m.gguf", size_bytes=10, sha256=None)]
+        return [HFFile(path="m.gguf", size_bytes=10, sha256=None)], False
 
     monkeypatch.setattr(client, "list_gguf_files", fake_list)
     with pytest.raises(HFError, match="no LFS sha256"):
@@ -143,11 +290,29 @@ async def test_find_lists_what_the_repo_does_offer_on_a_miss(monkeypatch):
     client = HFClient()
 
     async def fake_list(repo, revision="main"):
-        return [HFFile(path="real-Q6.gguf", size_bytes=10, sha256="c" * 64)]
+        return [HFFile(path="real-Q6.gguf", size_bytes=10, sha256="c" * 64)], False
 
     monkeypatch.setattr(client, "list_gguf_files", fake_list)
     with pytest.raises(HFError, match="real-Q6.gguf"):
         await client.find_gguf_file("a/b", "typo-Q6.gguf")
+
+
+@pytest.mark.asyncio
+async def test_find_refuses_rather_than_reporting_absence_from_a_partial_listing(monkeypatch):
+    """When the walk was cut short, "no such file" is a claim the listing does
+    not support — the file may sit on a page never reached. Reporting absence
+    (and worse, "it offers: [...]") is a false statement the model then acts on,
+    and re-spelling a name that was right the first time is the loop DP-335 was
+    filed to break. A refusal is recoverable; a confident wrong answer is not.
+    """
+    client = HFClient()
+
+    async def fake_list(repo, revision="main"):
+        return [HFFile(path="shard-01.gguf", size_bytes=10, sha256="c" * 64)], True
+
+    monkeypatch.setattr(client, "list_gguf_files", fake_list)
+    with pytest.raises(HFError, match="could not be confirmed absent"):
+        await client.find_gguf_file("a/b", "shard-99.gguf")
 
 
 @pytest.mark.asyncio
@@ -156,7 +321,7 @@ async def test_find_returns_the_matching_entry(monkeypatch):
     wanted = HFFile(path="m-Q6.gguf", size_bytes=99, sha256="d" * 64)
 
     async def fake_list(repo, revision="main"):
-        return [HFFile(path="other.gguf", size_bytes=1, sha256="e" * 64), wanted]
+        return [HFFile(path="other.gguf", size_bytes=1, sha256="e" * 64), wanted], False
 
     monkeypatch.setattr(client, "list_gguf_files", fake_list)
     assert await client.find_gguf_file("a/b", "m-Q6.gguf") is wanted

@@ -101,7 +101,10 @@ HUGGINGFACE_TOOLS: List[Dict[str, Any]] = [
                 "quant that fits the VRAM budget (check gpu_status) and to get "
                 "the exact filename install_model needs. A file whose sha256 is "
                 "null cannot be installed — there would be nothing to verify "
-                "the download against."
+                "the download against. If the result carries truncated: true "
+                "the listing is INCOMPLETE: a file you do not see may still "
+                "exist, so name the exact file you want rather than concluding "
+                "the repo does not have it."
             ),
             "parameters": {
                 "type": "object",
