@@ -136,13 +136,29 @@ volume is far bigger than the tier should be and eviction never fires.
 `derpr-model-install` reads `/etc/default/derpr-model-install` if present:
 
 ```sh
-MODELS_DIR=/srv/models          # node-side models dir (bind-mounted RO into the CT)
-CT_VMID=101                     # GPU container
+ARCHIVE_DIR=/srv/archive/models  # where downloads land (DP-340: the archive HDD,
+                                 # never the SSD thin pool)
+JOBS_DIR=/srv/archive/.jobs      # job records, on the same disk as the download
+CT_VMID=101                      # GPU container
 CT_MODELS_DIR=/opt/koboldcpp/models
 KCPP_DIR=/opt/koboldcpp
 KCPP_PORT=5001
-MIN_MARGIN_BYTES=2147483648     # free space kept beyond the download
+MIN_MARGIN_BYTES=2147483648      # free space kept beyond the download
+LOCK_WAIT=60                     # seconds to wait for the install lock (DP-349)
 ```
+
+Concurrent installs are admitted under one lock (DP-349). The precheck and the
+`systemd-run` that commits to it are a single critical section, and each running
+job writes a reservation under `$JOBS_DIR/.reservations` recording the bytes it
+has promised, so a second job's precheck subtracts space that is in flight and
+not only space already written. Reservations are released when a job finishes
+and pruned when its `modelinstall-<job>` unit is gone, which also deletes the
+`.part` a crashed job left behind. Two jobs installing the same name are
+refused; `LOCK_WAIT` bounds how long a precheck waits before giving up.
+
+Downloads land as `<ARCHIVE_DIR>/<name>.gguf` — named for the **unit name**, not
+for the repo's file name, because two unrelated repos publishing
+`model-Q4_K_M.gguf` is ordinary and the second would otherwise be uninstallable.
 
 Hub downloads are **anonymous**: there is no HuggingFace token, here or on the
 derpr side (DP-347). Gated and private repos are out of scope — the public gguf
@@ -255,7 +271,9 @@ And after downloading:
 The unit it writes is **disabled and not started**. Putting a model on `:5001` is
 `set_active_model`'s job and gets its own approval.
 
-Job state lives in `<MODELS_DIR>/.jobs/<job_id>.json`, written to a temp file and
+Job state lives in `<JOBS_DIR>/<job_id>.json` (`/srv/archive/.jobs` by default —
+on the archive disk, so a read-only `/srv/models` cannot stop a failure from
+being recorded), written to a temp file and
 renamed, so a poll never reads a half-written document. Every value in it is
 either regex-gated input or a fixed-vocabulary token — no HTTP body, no `curl`
 message. That is what lets `install_status` claim `produces_untrusted: False` on
