@@ -1,249 +1,105 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Async, provider-agnostic LLM orchestration engine (Discord / Gmail / Zammad interfaces).
 
-## Multiple agents work this repo
+**This file is deliberately short.** It holds only what must be true before the first
+tool call. Everything else is one pointer away — follow the pointer rather than
+re-deriving, and put new detail *behind* a pointer rather than here.
 
-Both **Claude Code** and **Antigravity (Gemini)** work in this repository, sometimes on the same tasks. To keep instructions from drifting between tools:
-
-- **CLAUDE.md is the single source of truth.** `.agents/AGENTS.md` (the file Antigravity reads) is an auto-generated copy, synced by `.githooks/pre-commit` — edit CLAUDE.md only; never hand-edit the mirror or fork tool-specific instructions.
-- Whichever agent you are, follow the same DP-ID / worktree / memory-tier discipline below, so notes and code stay consistent no matter who wrote them.
+**Two agents work this repo** — Claude Code and Antigravity (Gemini). CLAUDE.md is the
+single source of truth; `.agents/AGENTS.md` is an auto-generated mirror synced by
+`.githooks/pre-commit`. Never hand-edit the mirror, and never fork tool-specific
+instructions.
 
 ## Commands
 
 ```bash
-# Default test run (parallel via pytest-xdist, skips LLM live tests)
-pytest -m "not llm_live" -n auto
-
-# Run all tests (live tests auto-skip if no credentials)
-pytest
-
-# Unit + integration only (no external services needed)
-pytest -m "not zammad_live and not llm_live and not discord_live" -n auto
-
-# Unit tests only
-pytest -m "not integration and not zammad_live and not llm_live and not discord_live" -n auto
-
-# Zammad live tests only
-pytest -m "zammad_live"
-
-# LLM live tests only
-pytest -m "llm_live"
-
-# Run a single test file
-pytest tests/test_engine.py
-
-# Run with coverage
-pytest --cov=src
-
-# Lint (services/ holds deployed out-of-tree Python — CI gates it too)
-flake8 src/ services/
-
-# Type check
-mypy src/ services/ --config-file mypy.ini
-
-# Run the application
-python -m src.main
+pytest -m "not llm_live" -n auto                    # default test run
+flake8 src/ services/                               # lint (services/ is deployed code; CI gates it)
+mypy src/ services/ --config-file mypy.ini          # type check
+python -m src.main                                  # run
 ```
 
-## Architecture
+Those three are the CI gates (`.github/workflows/deploy.yml`). Test tiers, markers, and
+the **mandatory test requirements** for schema/config/contract/startup changes:
+**`docs/testing.md`** — read it before changing any of those four things.
 
-Async, provider-agnostic LLM orchestration engine for chatbot automation (IT support, ticketing, conversational AI). Full architectural detail lives in:
+## Non-negotiables
 
-- **`docs/architecture/architecture.md`** — component reference, data flows, schemas, startup sequence. **Canonical.** (`memory/codebase/architecture.md` is now only a pointer stub — the two forked for months, each getting half the updates, and were converged here 2026-08-06 because the doc describes code and must version with it.)
-- **`docs/user_guide.md`** — user-facing behavior spec (commands, personas, tools, interfaces)
+**1. Every task is a DP-ID.** Branch `feature/DP-XXX-slug` or `bugfix/DP-XXX-slug`;
+commit `DP-XXX: description` (a Conventional-Commits prefix is fine, no decorative
+emoji); a ticket file at `memory/project/tasks/DP-XXX.md`. **No `Co-Authored-By: Claude`
+trailer and no "Generated with Claude Code" line.**
 
-### Testing
+**2. Fetch before you read, not just before you push.** `git fetch origin` and check
+`git log --oneline HEAD..origin/master` *before* reading, planning or editing — work on a
+stale tree is wasted twice, because the bug may already be fixed and the file you
+reasoned about is not the file that ships. Same for the notes repo (`git -C memory
+fetch`). The SessionStart git-sync line and the status-line mark are hints, not proof.
 
-4-tier test organization, ordered by execution:
+**3. All DP work happens in a worktree, cut from `origin/master`.** Including solo
+sessions — the main tree is a shared mutable surface that may already hold another
+task's edits.
 
-1. **Unit** (no marker) — single component, everything mocked, no network
-2. **Integration** (`@pytest.mark.integration`) — multi-component flows with mocked externals, no network
-3. **Zammad Live** (`@pytest.mark.zammad_live`) — requires live Zammad instance (`ZAMMAD_URL` + `ZAMMAD_API_KEY`)
-4. **LLM Live** (`@pytest.mark.llm_live`) — real LLM API calls, requires provider API keys
-
-Live tests auto-skip when credentials are absent (via `tests/conftest.py`). Test Zammad credentials are stored in `.env.test` (gitignored), loaded with `override=True` so tests never hit production.
-
-- Test fixtures and mock data in `tests/test_data/`
-
-### Mandatory Test Requirements
-
-When changing any of the following, you MUST add corresponding tests before committing:
-
-**Database schema changes** (`memory_manager.py` CREATE TABLE / ALTER TABLE):
-- Add migration tests using the `legacy_mem_manager` fixture pattern in `tests/memory/test_memory_manager.py`
-- The fixture creates a DB with the OLD schema (before your change), then tests call `create_schema()` and verify the migration works
-- Must test: column/table added, existing data preserved, indexes created, new features usable on migrated DB, idempotent on second run
-- Unit tests with `:memory:` always start fresh and will NOT catch migration bugs against existing production databases
-
-**Config schema changes** (`agents.json`, `system_personas.json`, `default_personas.json`, `global_config.py`):
-- If adding/renaming/removing a config key: test that code handles the key being absent (old config files) and present (new config files)
-- If a config value drives runtime behavior (e.g. `notification_defaults.channel`): test the behavior with realistic config, not just mocks
-- Agent config: test via `AgentManager` dependency injection in `tests/agents/test_agent_manager.py`
-- Persona config: test loading and field access in `tests/test_persona.py`
-
-**Cross-module contracts** (imports, base class APIs, interface signatures):
-- If renaming or moving a class/function: grep for all importers and update them in the same commit
-- If changing a base class API (e.g. `Agent` or `AgentLoop`): update all subclasses and their tests in the same commit
-- Run `mypy src/ services/ --config-file mypy.ini` before committing any structural change
-
-**Startup registration** (new `ServiceIntegration`, tool handler, or notifier):
-- If a component must be registered at startup to function, test that the registration actually happens — not just that the component works in isolation
-- The startup wiring test in `tests/integration/test_startup_wiring.py` asserts every tool `service_binding` in `ALL_TOOL_DEFINITIONS` has a registered handler; update it when adding new services
-
-
-## Parallel Agent Standards
-
-To support multiple agents working concurrently, the following rules are mandatory:
-
-### 1. The DP-ID Anchor
-- **Every** branch must follow: `feature/DP-XXX-slug` or `bugfix/DP-XXX-slug`.
-- **Every** commit message must follow: `DP-XXX: description` (an optional Conventional-Commits type prefix is fine, e.g. `fix: DP-238 …`; no decorative emoji).
-- **No `Co-Authored-By: Claude` trailer** and no "Generated with Claude Code" line — keep commit messages clean of tool attribution.
-- **Every** task must have a corresponding file in `memory/project/tasks/DP-XXX.md`.
-
-### 2. Workspace Isolation
-- **Before touching anything, confirm the repo is current with the remote.**
-  `git fetch origin`, then compare: `git status -sb` /
-  `git log --oneline HEAD..origin/master`. If behind, fast-forward *before*
-  reading, planning, or editing — work done on a stale tree is wasted twice (the
-  bug may already be fixed upstream, and the file you reasoned about is not the
-  file that ships). Same for the notes repo: `git -C memory fetch` +
-  `git -C memory status -sb`. The SessionStart hook's git-sync line and the
-  status-line git mark are a stale hint, not proof — fetch anyway.
-- **MUST** use Git Worktrees — for *all* DP-XXX work, including solo single-task
-  sessions, not just when agents run concurrently. The main repo directory is a
-  shared mutable surface and may already hold another task's uncommitted edits.
-- **⚠️ Always `git fetch` first, then branch off `origin/master` — never local
-  `master`.** Local `master` drifts stale between sessions; cutting a worktree
-  from it has produced duplicate DP-IDs and rework against an old base
-  (DP-286). Fetching first also means open/unmerged PRs and stray local
-  branches can't pollute your starting point:
-  `git fetch origin && git worktree add worktrees/DP-XXX -b bugfix/DP-XXX-slug origin/master`.
-  Do all editing, testing, and committing inside that worktree.
-- **Never stage or commit from the main repo directory.** Before any
-  `git add`/`git commit`, confirm you are inside `worktrees/DP-XXX/` and that
-  `git status` shows only files *you* changed. If `git status` lists another
-  DP's uncommitted changes (the main tree was left dirty), **STOP** — do not
-  `git add` (a path-broad add sweeps that unrelated WIP into your commit).
-- **Run `pytest` from inside the worktree** (using its own `.venv`), not from
-  the main repo against worktree paths. `pytest`'s `pythonpath = src .` resolves
-  relative to the run directory, so a top-level `pytest worktrees/DP-XXX/...`
-  imports `src` from the *main* tree, not the worktree — silently masking real
-  pass/fail.
-- Each worktree gets its **own isolated `.venv`**, built automatically by the
-  `post-checkout` hook via `uv` (real venv, packages hardlinked from uv's global
-  cache — fast and cheap). No shared venv, no junctions.
-- Worktree root: `worktrees/DP-XXX/`.
-- Never run `git checkout` or `git pull` in the main repository directory while a parallel agent is working, as this can corrupt their local file state.
-
-### 3. Integration & QA
-- No task is considered "QA_READY" until `pytest` passes within its dedicated worktree.
-- Verify all CI/CD checks (including `pytest`, `flake8` lint, and `mypy` type check as defined in `.github/workflows/deploy.yml`) after finishing any commit-ready change.
-- Human approval is required for all merges to `main` or `develop`.
-- After merge, tear down the worktree. Each worktree has its **own real venv**
-  (no junction, nothing shared), so teardown is straightforward:
-  1. Move every shell's cwd out of the worktree (a cwd inside it holds a Windows
-     lock → "Device or resource busy").
-  2. `git worktree remove worktrees/DP-XXX` (add `--force` only if you have
-     uncommitted changes you intend to discard).
-  3. `git worktree prune`.
-  `git worktree remove` and `rm -rf` are safe here — the worktree's `.venv` is a
-  real directory that touches nothing outside the worktree. (This replaced an
-  earlier junction-based scheme whose recursive deletes repeatedly destroyed the
-  shared venv; the per-worktree `uv` venv eliminated that footgun.)
-
-## Documentation
-
-Three living documents track the system's design:
-
-- **`docs/user_guide.md`** — Describes what users can do. Serves as both end-user reference and **spec for new features**. When planning new behavior, describe it here first in plain language before implementing. This ensures alignment on what we're building.
-- **`docs/architecture/architecture.md`** — Describes how the system works internally. Component reference, in the code repo so it versions in the same PR as the code it describes, and is visible to CI, to the public repo, and to Antigravity.
-- **`docs/capability_map.md`** — capability → implementations. The **inverse index** of the other two, which are both organized by module and therefore cannot show you that a capability now has two implementations (the second one just gets its own new section). Read it before building anything that parks, schedules, stores, notifies, retries, or spawns.
-- **`docs/mechanism_ledger.md`** — the same question keyed on **mechanism** instead of on capability-in-English: trigger · durable store · idempotency · resumer · gate. Exists because the capability map is a self-report filled in by the author of the new code, and DP-343 shipped a fourth copy of the deferred-result pipeline 26 days after the map was created *while filling in a row*. Two rows with the same shape and different module names are a duplicate. **Regenerated from source, not maintained** — if it disagrees with the code, rebuild it.
-
-**Update rules:**
-- When implementing a new feature, update `user_guide.md` with the user-facing behavior (commands, tools, modes, etc.)
-- When changing internal architecture (new components, changed data flows, new config), update `docs/architecture/architecture.md` **in the same commit as the code**. Do not re-grow structural content in `memory/codebase/architecture.md` — that file is a pointer stub holding only rationale and traps.
-- When adding a capability — or a second implementation of one — update `docs/capability_map.md` **in the same commit**. A second implementation must be recorded as `by design` with a decision record, or not written.
-- When you notice any doc is stale relative to the code, fix it — don't wait to be asked
-- Spec-before-implement: if a design conversation produces a concrete behavior description, add it to `user_guide.md` before writing code
-
-**Search by intent, not by name (DP-302).** Before adding a capability, ask "does anything already do this job?" — not "is there a function called `approve_x`?". Code here is *regenerated*, not copy-pasted, so a re-derived implementation shares neither the name nor the vocabulary of the original and no clone detector will find it. `python scripts/arch_audit.py similar concepts` catches the function-level case (and is the level that produces false positives on Protocol declarations); `docs/capability_map.md` catches the subsystem-level case *when the author recognizes the sibling*, and `docs/mechanism_ledger.md` is what catches it when they do not — compare mechanism shape, never description.
-
-## Memory System — Viking L0/L1/L2 Protocol
-
-A tiered memory system (inspired by [OpenViking](https://github.com/volcengine/OpenViking)) layered on the default auto-memory. Core principle — **progressive disclosure**: load the minimum context to decide, drill deeper only when needed. Use the system prompt's type/frontmatter conventions for individual files; organize and navigate them with the Viking tiers below.
-
-### Structure
-
-> **⚠️ Two-repo layout.** The `memory/` directory is gitignored in this repo and is its own separate git repo (`derpr-private-notes`, sibling directory). Commits to memory content go in that repo, not this one. When the user says "commit the plan/memory/task," operate in `memory/` (use `git -C memory ...` or `cd memory && git ...`). The codebase repo and the memory repo have independent histories and branches.
-
-Memory lives in the project-scoped memory directory with three tiers:
-
-- **L0** — `MEMORY.md` (auto-loaded every session). **Strictly an index** — one-line directory summaries only (~20 lines). No memory content belongs here; only pointers to help decide which L1 files are relevant. When the system prompt instructs you to "add a pointer to MEMORY.md," add a single summary line under the appropriate directory heading, not memory content.
-- **L1** — `<dir>/_overview.md` files. Component summaries, relationships, current state. ~200-300 tokens each. Purpose: usually sufficient for decision-making.
-- **L2** — Individual detail files. Full content. Purpose: schemas, signatures, implementation specifics. Only read when L1 isn't enough.
-
-```
-memory/
-├── MEMORY.md              # L0 — always loaded, directory summaries
-├── codebase/
-│   ├── _overview.md       # L1 — component map, pipeline, key patterns
-│   └── architecture.md    # L2 — POINTER STUB → docs/architecture/architecture.md
-│                          #      (rationale + traps only; structure lives in the code repo)
-├── user/
-│   ├── _overview.md       # L1 — who Adam is, collaboration guide
-│   ├── profile.md         # L2 — full background
-│   └── feedback.md        # L2 — behavioral rules (universal + project-specific)
-├── project/
-│   ├── _overview.md       # L1 — active work, decisions, roadmap summary
-│   ├── decisions/         # L2 — immutable records with rationale
-│   └── plans/             # L2 — appendable roadmaps
-└── external/
-    ├── _overview.md       # L1 — external system references
-    └── *.md               # L2 — specific external details
+```bash
+git fetch origin && git worktree add worktrees/DP-XXX -b bugfix/DP-XXX-slug origin/master
 ```
 
-### Navigation Rules
+Never branch from local `master` (it drifts, and that produced duplicate DP-IDs and
+rework against an old base). Edit, test and commit **inside** the worktree; run `pytest`
+there too, using its own `.venv`. Never `git checkout`/`git pull` in the main tree while
+another agent is working. Venv provisioning, hook behaviour and teardown:
+`memory/infrastructure/worktree_env_and_hooks.md`.
 
-1. L0 (`MEMORY.md`) is always in context — use it to decide which directories are relevant
-2. Read L1 (`_overview.md`) before drilling into L2 files
-3. Only read L2 when you need implementation-level detail (schemas, function signatures, DB tables)
-4. For code-related work, `codebase/_overview.md` is almost always worth reading
+**4. Never stage or commit from the main repo directory.** Before any `git add`, confirm
+you are inside `worktrees/DP-XXX/` and that `git status` shows only files *you* changed.
+If it lists another DP's uncommitted work, **stop** — a path-broad add sweeps it in.
 
-### Mutability Rules
+**5. `git status` in the main tree cannot see a worktree.** Check `git status` inside
+every worktree before removing it and before calling its ticket done. A merged PR, a
+green deploy and an updated capability map all pass while unstaged work sits in a sibling
+directory — that is how a security pass went unnoticed for two days.
 
-| Category | Rule | Notes |
-|----------|------|-------|
-| `user/` | Appendable | Profile, preferences, feedback evolve over time |
-| `project/decisions/` | Immutable | Historical choices with rationale — never modify, only add new |
-| `project/plans/` | Appendable | Active roadmaps, update as work progresses |
-| `codebase/` | Regenerable | Can be rebuilt from source if stale — trust code over memory |
-| `external/` | Appendable | Update when external facts change |
+**6. Human approval gates merges to `master`, not PRs.** Open the PR automatically once
+work is done and gates are green.
 
-### Memory Update Triggers
+## Memory — Viking L0/L1/L2, not the default auto-memory
 
-**Automated (hook-enforced):** A git pre-commit hook writes a marker file (`.claude/.memory_update_pending`). A `UserPromptSubmit` hook in `settings.local.json` checks for it and injects a reminder on the next user message. When you see this reminder, review what was committed and update affected L2 → L1 → L0 files before proceeding with new work.
+⚠️ **`memory/` is a separate git repo** (`derpr-private-notes`), gitignored here. "Commit
+the plan / memory / task" means `git -C memory ...`. Independent history and branches.
 
-**Self-directed:** the hook only catches commits — be vigilant where none fires. Save: user feedback/corrections on how to work; the *rationale* behind an architectural decision (code shows what, memory stores why); research conclusions (tool evals, security findings, API discoveries); new or revised plans; facts about the user's background/goals; root-cause reasoning for a non-obvious bug. Test: "would a future session benefit, and is it not derivable from code/git?" → if yes, save it.
+`memory/MEMORY.md` (L0) is auto-loaded and is **strictly an index**. Read the relevant
+`<dir>/_overview.md` (L1) before any individual file (L2). Write bottom-up — L2 first,
+then regenerate L1 from it, then touch L0 only if a directory summary changed — and
+**commit and push immediately**, no batching.
 
-**Self-check:** if a session involved research, decisions, or feedback and you've written no memory, you're probably missing something — discussions and planning have no commit-hook safety net.
+Trust the code over the memory, and the L2 over the index that points at it.
 
-### Update Protocol
+Full protocol — tiers, mutability, when to write, Hindsight's supplementary role:
+**`memory/protocol.md`**.
 
-When updating memory (whether triggered by hook or self-directed):
-1. Identify which memory directories are affected
-2. Update affected L2 files (or create new ones)
-3. Regenerate affected L1 `_overview.md` bottom-up from L2 content
-4. Update L0 `MEMORY.md` if directory-level summaries changed
+## Docs — and the duplication problem they exist to solve
 
-### Staleness Rule
+| File | Answers |
+|---|---|
+| `docs/user_guide.md` | what users can do. **Also the spec** — describe new behavior here in plain language *before* implementing |
+| `docs/architecture/architecture.md` | how it works internally. **Canonical** (`memory/codebase/architecture.md` is a pointer stub) |
+| `docs/capability_map.md` | capability → implementations. The inverse index the other two structurally cannot be |
+| `docs/mechanism_ledger.md` | the same question keyed on **mechanism** — trigger · durable store · idempotency · resumer · gate. Regenerated from source, not maintained |
 
-If an L1 or L2 memory conflicts with what you observe in the code, **trust the code**. Update the memory. Do not act on stale information.
+Update `user_guide.md`, `architecture.md` and `capability_map.md` **in the same commit as
+the code**. A second implementation of an existing capability is recorded as `by design`
+with a decision record, or it is not written. Fix any doc you notice is stale.
 
-### Scope
-Project-scoped. `user/` profile + universal feedback are conceptually global (may need manual sync across projects); codebase/project memories must never leak across projects.
+**Search by mechanism, never by name.** Before adding a capability ask "does anything
+already do this job?", not "is there a function called `approve_x`?". Code here is
+*regenerated*, not copy-pasted, so a re-derived implementation shares neither the name nor
+the vocabulary of the original and no clone detector will find it. The capability map
+catches this only when the author recognizes the sibling; the mechanism ledger is what
+catches it when they do not — **two rows with the same shape and different module names
+are a duplicate.** `python scripts/arch_audit.py similar concepts` covers the
+function-level case.
 
-### Hindsight Recall (supplementary)
-The `mcp__hindsight__*` tools auto-ingest session transcripts for associative `recall` — **supplementary to Viking, which stays authoritative** (Hindsight has stale entries; trust Viking on conflicts). Use recall for episodic gaps Viking missed; flag stale/wrong-project results in conversation. Mental-model candidates: `project/plans/hindsight_mental_models.md`.
+> This is not hypothetical: `docs/mechanism_ledger.md` exists because a fourth copy of the
+> deferred-result pipeline shipped 26 days after the capability map was created — *while
+> its author was filling in a row of that map*.
