@@ -70,29 +70,72 @@ def write_kcpps(template, model_path, dest, contextsize, genamt):
     return cfg
 
 
-def wait_ready(proc, timeout):
-    """Poll until koboldcpp serves, or the process dies, or we run out of patience."""
+def served_model():
+    """The model name port 5099 currently reports, or None if nothing is serving."""
+    try:
+        return http_json(BASE + "/api/v1/model", timeout=10).get("result", "")
+    except Exception:
+        return None
+
+
+def wait_ready(proc, timeout, expect):
+    """Poll until koboldcpp serves THE MODEL WE ASKED FOR.
+
+    Checking only that the port answers is not enough. koboldcpp spawns a child
+    process, and terminating the parent leaves that child holding port 5099 -- so
+    the next model's first probe succeeds instantly against the PREVIOUS model
+    and every row after it is silently attributed to the wrong weights. Observed
+    exactly once: 'gemma-4-26b-a4b-it: ready in 0.0s -- served as
+    koboldcpp/Qwen3.6-35B-A3B-Uncensored'. The name check is the guard that makes
+    a stale server impossible to mistake for a loaded one.
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
         if proc.poll() is not None:
             return False, f"koboldcpp exited with code {proc.returncode} during load"
-        try:
-            info = http_json(BASE + "/api/v1/model", timeout=10)
-            return True, info.get("result", "")
-        except Exception:
-            time.sleep(5)
+        name = served_model()
+        if name:
+            if expect.lower() in name.lower():
+                return True, name
+            return False, f"port {PORT} is serving {name!r}, expected {expect!r} -- stale server"
+        time.sleep(5)
     return False, f"not ready after {timeout}s"
 
 
+def kill_tree(pid):
+    """Kill a process AND its children. koboldcpp's child outlives a plain terminate."""
+    subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
+                   capture_output=True, check=False)
+
+
 def shutdown(proc):
-    if proc.poll() is not None:
-        return
-    proc.terminate()
-    try:
-        proc.wait(timeout=60)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait(timeout=60)
+    if proc.poll() is None:
+        kill_tree(proc.pid)
+        try:
+            proc.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    # the tree kill can still race, so do not return until the port is actually free
+    for _ in range(24):
+        if served_model() is None:
+            return True
+        time.sleep(5)
+    return False
+
+
+def ensure_port_free():
+    """Refuse to launch on top of a server left behind by an earlier run."""
+    name = served_model()
+    if name is None:
+        return True
+    log(f"  port {PORT} still serving {name!r} -- killing leftover koboldcpp")
+    subprocess.run(["taskkill", "/F", "/T", "/IM", "koboldcpp.exe"],
+                   capture_output=True, check=False)
+    for _ in range(24):
+        time.sleep(5)
+        if served_model() is None:
+            return True
+    return False
 
 
 def parse_load_log(path):
@@ -201,13 +244,24 @@ def run_model(model, bodies, meta, args, out_fh, done):
     load_log = (workdir / f"{model['id']}.load.log").resolve()
 
     log(f"{model['id']}: launching koboldcpp ({model.get('size_gb', '?')} GB, {len(todo)} calls to make)")
+    if not ensure_port_free():
+        log(f"{model['id']}: ABORTING -- port {PORT} will not free up")
+        out_fh.write(json.dumps({
+            "model_id": model["id"], "fixture_id": None, "repeat": None,
+            "error": "port_busy", "ts": now(),
+        }) + "\n")
+        out_fh.flush()
+        return
+
+    # koboldcpp reports the gguf's basename, so that is what we require it to serve
+    expect = Path(model["path"]).stem
     t_load = time.time()
     with open(load_log, "w", encoding="utf-8") as lf:
         proc = subprocess.Popen(
             [KOBOLD_EXE, "--config", str(kcpps)],
             stdout=lf, stderr=subprocess.STDOUT, cwd=str(Path(KOBOLD_EXE).parent),
         )
-        ok, detail = wait_ready(proc, args.load_timeout)
+        ok, detail = wait_ready(proc, args.load_timeout, expect)
     load_secs = round(time.time() - t_load, 1)
 
     if not ok:
@@ -250,7 +304,8 @@ def run_model(model, bodies, meta, args, out_fh, done):
                 + (f" ERROR {result['error']}" if result["error"] else ""))
     finally:
         log(f"{model['id']}: shutting down")
-        shutdown(proc)
+        if not shutdown(proc):
+            log(f"{model['id']}: WARNING -- port {PORT} still answering after shutdown")
         time.sleep(args.cooldown)
 
 
