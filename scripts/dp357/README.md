@@ -155,3 +155,67 @@ magnitude, not just frequency.
 3 quants x 3 KV settings, to measure a rate instead of a point. Note the limit: n=10
 separates 40% from 5%, not 40% from 20%. Ranking the good configs needs the scaled corpus
 check, not more repeats on ten fixtures.
+
+## Reproducibility — the recipe (settled 2026-09-01)
+
+The harness was not reproducible, and two independent variables were loose. Both are
+now closed, each verified by experiment rather than argument.
+
+**1. Prompt-cache path dependence — fixed by `nofastforward: true`.**
+These bodies share a long system prompt, so koboldcpp fast-forwards the common prefix,
+and the numerics of a reused prefix differ from a recomputed one. At temperature 0.1
+against a bimodal outcome that flips the result. Measured, same weights / KV / bodies /
+repeats, moving only `dark_roast`'s slot:
+
+| | first | last |
+|---|---|---|
+| fast-forward ON (default) | 2/10 | **8/10** |
+| fast-forward OFF | **6/10** | **6/10** |
+
+⚠️ **Consequence: every absolute rate measured before this is a cache artifact**, Phase 0's
+included. The true `dark_roast` leak rate for Q4_K_M at f16 KV is ~60%, not the 0% the
+power run reported at position 2 nor the 17% pooled from the grid. Model-to-model
+comparisons within a single run survive, because the confound applied equally to all.
+
+**2. Sampler nondeterminism — fixed by seeding the body.**
+The real Hindsight retain body is `temperature 0.1`, no seed, no `top_p`. Verified on the
+box: koboldcpp's `/v1/chat/completions` **does** honour `seed` (two calls at `seed=1234`
+returned byte-identical content), while the native `sampler_seed` field is **not** mapped
+on that endpoint, and unseeded calls differ. `run_bakeoff.py` now sends
+`seed = --seed-base + repeat` (default base 1000) and records it per row.
+
+Seeding *by repeat* rather than to one fixed value is deliberate: a single seed pins every
+repeat to the same draw, which on a bimodal outcome measures one point of the distribution
+ten times and reports it as certainty. Seeding by repeat is reproducible *and* samples.
+
+**To reproduce any run:** same `.kcpps` with `nofastforward: true`, same `--seed-base`,
+same fixture order, fresh koboldcpp process per config. `--seed-base -1` restores the old
+unseeded behaviour for comparison against pre-2026-09-01 results.
+
+## ⚠️ The gate is one-sided — use `score_recall.py` alongside
+
+`score_bakeoff.py` counts only `must_not_extract` violations, but **9 of the 10 fixtures
+carry a non-empty `must_extract`**. A model that extracts nothing scores perfectly.
+`score_recall.py` reports silence and violation as separate axes.
+
+Re-scored on both axes, Phase 0's verdict moves:
+
+| model | silence | violation | clean/27 |
+|---|---|---|---|
+| `gemma-4-26b-a4b-uncensored` | **0%** | **0%** | **27/27** |
+| `granite-4.2-8b` | **22%** | 0% | 21/27 |
+| `incumbent-qwen3.6-a3b` | 22% | 26% | 14/27 |
+
+Granite's headline zero violations come with a 22% silence rate, and on
+`narrator_attribution` **no granite config ever succeeds** — it abstains 10/10 or violates
+10/10 depending on quant and KV. What survives is that the incumbent is worst on both axes.
+
+⚠️ That table excludes `dark_roast` (no `must_extract`, so silence is correct there), where
+granite leaked 0 and the gemma leaked 9 — a real precision failure it hides. And "not
+silent" means ≥1 durable fact, not good coverage.
+
+**Neither instrument identifies a best model.** Note the direct conflict with
+`docs/eval_results/lme.md`, where this same incumbent A3B scores 100% (n=7) on M-tier and
+`granite-4.1-8b` scores 33% (n=3) — with two of granite's three failures being facts it
+never extracted. LME scores end-to-end recall on real questions; these fixtures score
+keyword rules on ten hand-picked chunks. Trust LME.

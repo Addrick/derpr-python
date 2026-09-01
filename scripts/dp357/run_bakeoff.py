@@ -174,10 +174,21 @@ def done_keys(out_path):
     return done
 
 
-def do_call(model, bodies, fid, args):
-    """One extraction call. Returns the record fields describing what came back."""
+def do_call(model, bodies, fid, args, repeat=0):
+    """One extraction call. Returns the record fields describing what came back.
+
+    The body carries an explicit seed derived from the repeat index. Verified
+    2026-09-01: koboldcpp's /v1/chat/completions DOES honour `seed` (two calls at
+    seed=1234 returned byte-identical content; the native `sampler_seed` field is
+    NOT mapped on this endpoint, and unseeded calls differ). Seeding by repeat
+    keeps every run bit-reproducible while still sampling the distribution across
+    repeats -- a single fixed seed would pin every repeat to one draw, which on a
+    bimodal outcome is worse than no seed at all.
+    """
     body = dict(bodies[fid])
     body["model"] = model.get("served_name") or model["id"]
+    if args.seed_base is not None:
+        body["seed"] = args.seed_base + repeat
     t0 = time.time()
     error = raw = None
     try:
@@ -283,7 +294,7 @@ def run_model(model, bodies, meta, args, out_fh, done):
 
     try:
         for fid, rep in todo:
-            result = do_call(model, bodies, fid, args)
+            result = do_call(model, bodies, fid, args, repeat=rep)
             out_fh.write(json.dumps({
                 "ts": now(),
                 "model_id": model["id"],
@@ -294,6 +305,7 @@ def run_model(model, bodies, meta, args, out_fh, done):
                 "load_secs": load_secs,
                 "load_facts": load_facts,
                 "contextsize": args.contextsize,
+                "seed": (args.seed_base + rep) if args.seed_base is not None else None,
                 "fixture_id": fid,
                 "repeat": rep,
                 "harness_meta": meta,
@@ -325,8 +337,12 @@ def main():
     ap.add_argument("--load-timeout", type=int, default=1800)
     ap.add_argument("--call-timeout", type=int, default=1800)
     ap.add_argument("--cooldown", type=int, default=15)
+    ap.add_argument("--seed-base", type=int, default=1000,
+                    help="body seed = this + repeat index; pass -1 to send no seed")
     ap.add_argument("--only", action="append", help="run only these model ids")
     args = ap.parse_args()
+    if args.seed_base is not None and args.seed_base < 0:
+        args.seed_base = None
 
     payload = json.loads(Path(args.bodies).read_text(encoding="utf-8-sig"))
     bodies, meta = payload["bodies"], payload["meta"]
