@@ -276,7 +276,10 @@ def run_model(model, bodies, meta, args, out_fh, done):
         return
 
     load_facts = parse_load_log(load_log)
-    log(f"{model['id']}: ready in {load_secs}s -- served as {detail!r}, gpu_layers={load_facts.get('auto_gpu_layers', '?')}")
+    # "Auto Recommended GPU Layers" is koboldcpp's pre-scan guess and reads 0 even when
+    # everything ends up on the card; the "offloaded N/M layers" line is the real split.
+    split = load_facts.get("offloaded") or f"auto={load_facts.get('auto_gpu_layers', '?')}"
+    log(f"{model['id']}: ready in {load_secs}s -- served as {detail!r}, {split}")
 
     try:
         for fid, rep in todo:

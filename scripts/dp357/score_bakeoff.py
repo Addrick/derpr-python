@@ -162,9 +162,14 @@ def score(results, fixtures, violations_fh):
         stats["size_gb"] = rec.get("size_gb") or stats["size_gb"]
         if rec.get("load_secs") is not None:
             stats["load_secs"] = rec["load_secs"]
-        layers = (rec.get("load_facts") or {}).get("auto_gpu_layers")
-        if layers:
-            stats["gpu_layers"] = layers
+        # "Auto Recommended GPU Layers" is koboldcpp's pre-scan guess and reads 0 even for
+        # a model that ends up entirely on the card; "offloaded N/M layers" is the truth.
+        facts = rec.get("load_facts") or {}
+        split = facts.get("offloaded")
+        if split:
+            stats["gpu_layers"] = split.replace("load_tensors:", "").strip()
+        elif facts.get("auto_gpu_layers") and not stats["gpu_layers"]:
+            stats["gpu_layers"] = f"auto={facts['auto_gpu_layers']}"
 
         fid = rec.get("fixture_id")
         if fid is None:  # a load failure / missing-file marker row
