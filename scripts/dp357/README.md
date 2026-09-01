@@ -75,3 +75,38 @@ fits itself to the 16 GB card; the chosen split is recorded per run).
 
 ⚠️ dt21's incumbent copy is `Q4_K_M`; production extraction ran omen's `Q4_K_P` build. The
 quant is recorded per row — do not treat them as the same model.
+
+## Quant ladder (step 2, after Phase 0)
+
+Phase 0 named `granite-4.2-8b` at **Q4_K_M with `quantkv 2`**. Adam's call 2026-09-01 is to
+lean **reliability over speed**: no KV quantisation, and consider raising the base quant —
+the reasoning being that this model's failure modes will be as hard to spot as the CKA
+false-attributions were, so silent degradation is the thing to spend VRAM against.
+
+Raising the quant ships a model that was never scored, so the ladder is measured rather
+than assumed monotone:
+
+| file | rows | template | output |
+|---|---|---|---|
+| `models.quantladder.json` | Q4_K_M · Q6_K · Q8_0 | `tmpl-f16kv.kcpps` (`quantkv 0`) | `results.quantladder.jsonl` |
+
+Q4_K_M is **re-run**, not compared against its Phase 0 row: that row was scored at
+`quantkv 2`, so reading Q6/Q8 against it would confound quant with KV precision. Every row
+here is f16 KV, so the quant is the only variable.
+
+```powershell
+# on dt21, both detached via Win32_Process.Create (Start-Process dies with the ssh session)
+powershell -File _launch_quants.ps1     # fetch Q6_K + Q8_0, verify published byte counts
+powershell -File _launch_ladder.ps1     # waits for the downloads, verifies, then runs
+```
+
+Scored offline with the Phase 0 scorer, with the control moved to the Q4 rung:
+
+```bash
+python score_bakeoff.py --results results.quantladder.jsonl --fixtures fixtures.json \
+    --control granite-4.2-8b-q4km-f16kv \
+    --out-summary quantladder-summary.md --out-violations quantladder-violations.jsonl
+```
+
+The chosen rung then sets the throughput bench, because VRAM couples them: at 16 GB,
+Q8_0 (8.70 GiB) fits one instance, Q6_K (6.72) possibly two, Q4_K_M (4.98) three.

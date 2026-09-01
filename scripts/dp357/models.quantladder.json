@@ -1,0 +1,26 @@
+[
+ {
+  "id": "granite-4.2-8b-q4km-f16kv",
+  "role": "control",
+  "path": "F:/Machine Learning/LLM Weights/dp357/granite-4.2-8b-Q4_K_M.gguf",
+  "quant": "Q4_K_M",
+  "size_gb": 4.98,
+  "note": "The Phase 0 winner, re-run at quantkv=0 (f16 KV). This is the CONTROL for the ladder: the Phase 0 row it reproduces was scored at quantkv=2, so comparing Q6/Q8 against that row would confound quant with KV precision. Every row here is f16 KV."
+ },
+ {
+  "id": "granite-4.2-8b-q6k-f16kv",
+  "role": "production_candidate",
+  "path": "F:/Machine Learning/LLM Weights/dp357/granite-4.2-8b-Q6_K.gguf",
+  "quant": "Q6_K",
+  "size_gb": 6.72,
+  "note": "Middle rung. 6.72 GiB leaves room for two instances on a 16 GB card if the ladder is flat."
+ },
+ {
+  "id": "granite-4.2-8b-q8-f16kv",
+  "role": "production_candidate",
+  "path": "F:/Machine Learning/LLM Weights/dp357/granite-4.2-8b-Q8_0.gguf",
+  "quant": "Q8_0",
+  "size_gb": 8.7,
+  "note": "Top rung, the reliability-first choice. 8.70 GiB means ONE instance on a 16 GB card - concurrency is the price."
+ }
+]
