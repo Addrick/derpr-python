@@ -1,0 +1,10 @@
+[
+ {
+  "id": "gr42-q4km-f16kv-darkfirst-nff",
+  "role": "order_probe",
+  "path": "F:/Machine Learning/LLM Weights/dp357/granite-4.2-8b-Q4_K_M.gguf",
+  "quant": "Q4_K_M",
+  "size_gb": 4.98,
+  "note": "Position re-test with nofastforward=true. Prediction: if prefix reuse is the mechanism, the two orderings converge. If they still diverge, the cache is not the cause and the harness has a third uncontrolled variable."
+ }
+]
