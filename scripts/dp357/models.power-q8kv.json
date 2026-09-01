@@ -1,0 +1,26 @@
+[
+ {
+  "id": "gr42-q4km-q8kv",
+  "role": "power_run",
+  "path": "F:/Machine Learning/LLM Weights/dp357/granite-4.2-8b-Q4_K_M.gguf",
+  "quant": "Q4_K_M",
+  "size_gb": 4.98,
+  "note": "Power run: quantkv=1 (q8kv). 10 repeats on the disputed fixtures to measure a RATE, not a point - temp is 0.1 with no seed and the outcomes are bimodal, so n=3 cannot separate a property from three equal coin flips."
+ },
+ {
+  "id": "gr42-q6k-q8kv",
+  "role": "power_run",
+  "path": "F:/Machine Learning/LLM Weights/dp357/granite-4.2-8b-Q6_K.gguf",
+  "quant": "Q6_K",
+  "size_gb": 6.72,
+  "note": "Power run: quantkv=1 (q8kv). 10 repeats on the disputed fixtures to measure a RATE, not a point - temp is 0.1 with no seed and the outcomes are bimodal, so n=3 cannot separate a property from three equal coin flips."
+ },
+ {
+  "id": "gr42-q80-q8kv",
+  "role": "power_run",
+  "path": "F:/Machine Learning/LLM Weights/dp357/granite-4.2-8b-Q8_0.gguf",
+  "quant": "Q8_0",
+  "size_gb": 8.7,
+  "note": "Power run: quantkv=1 (q8kv). 10 repeats on the disputed fixtures to measure a RATE, not a point - temp is 0.1 with no seed and the outcomes are bimodal, so n=3 cannot separate a property from three equal coin flips."
+ }
+]

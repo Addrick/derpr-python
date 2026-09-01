@@ -110,3 +110,48 @@ python score_bakeoff.py --results results.quantladder.jsonl --fixtures fixtures.
 
 The chosen rung then sets the throughput bench, because VRAM couples them: at 16 GB,
 Q8_0 (8.70 GiB) fits one instance, Q6_K (6.72) possibly two, Q4_K_M (4.98) three.
+
+## ⚠️ The KV scale, and a label error
+
+koboldcpp's `--quantkv` is **`0=f16, 1=q8, 2=q4`**. `tmpl.kcpps` — the template Phase 0
+ran — carries `quantkv 2`, which is **q4 KV, the most aggressive setting**, not q8.
+
+This was mislabeled as "q8 KV" throughout the first pass of the ladder analysis, and the
+error inverted the reading: it made Phase 0's config look like the conservative choice when
+it was the aggressive one. Adam's install-template note of 2026-08-20 already settled this
+axis — `--quantkv 1` is correct because q4 degrades quality — which also means **q8 KV was
+never tested** until the power run added it.
+
+The `results.quantladder-q8kv.jsonl` / `models.quantladder-q8kv.json` artifacts carried the
+wrong name for the same reason and were renamed to `-q4kv`; the model ids inside the results
+were rewritten and a `kv_precision` field added. The data was always fine — only the labels
+were wrong.
+
+## The power run — why n=3 was not enough
+
+The ladder's per-config numbers do not mean what they appear to. Hindsight's real retain body
+is **temperature 0.1, no seed, no top_p**, and the outcomes on the negative fixtures are
+**bimodal**: a call emits either nothing or ~5 facts, essentially never 1-2. Pooled over the
+six cells of the 2x3 grid, 18 calls per fixture:
+
+| fixture | fires | rate |
+|---|---|---|
+| `narrator_attribution` | 7/18 | 39% |
+| `dark_roast` | 3/18 | 17% |
+| `optional_personas` | 18/18 | 100% (the coverage control, as intended) |
+
+`granite-4.2-8b-q6k-q4kv` emitted **7, 6, then 0** on `narrator_attribution` — one config,
+three runs, the full range the ladder was reading as a config property. At a 39% base rate a
+config draws a clean `0,0,0` about 23% of the time, so across six cells one or two spotless
+rows are expected by chance; three appeared.
+
+⚠️ **Consequence for the Phase 0 verdict.** "Zero refutation drops" is not a well-defined
+test against a stochastic bimodal process — at n=3 it largely measures luck, and the
+recorded claim that granite-4.2-8b *sweeps* is over-stated. What likely survives is the
+incumbent comparison: 18 drops with 14 on one fixture is well above this base rate in
+magnitude, not just frequency.
+
+`run_power.ps1` therefore re-runs the three disputed fixtures at **10 repeats** across
+3 quants x 3 KV settings, to measure a rate instead of a point. Note the limit: n=10
+separates 40% from 5%, not 40% from 20%. Ranking the good configs needs the scaled corpus
+check, not more repeats on ten fixtures.
