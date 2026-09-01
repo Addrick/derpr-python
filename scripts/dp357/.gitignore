@@ -1,0 +1,9 @@
+# run artifacts — the results file is data, kept with the ticket, not in the code repo
+results*.jsonl
+smoke*.jsonl
+violations*.jsonl
+summary*.md
+bakeoff_work/
+run.log
+run.err
+download.log
