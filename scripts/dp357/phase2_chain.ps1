@@ -84,7 +84,12 @@ if ($added.Count -eq 0) {
 }
 
 Copy-Item "$dir\models.json" "$dir\models.pass1.json" -Force
-$models | ConvertTo-Json -Depth 5 | Set-Content "$dir\models.json" -Encoding utf8
+# PowerShell 5.1's -Encoding utf8 writes a BOM, and Python's json.loads rejects it
+# ("Unexpected UTF-8 BOM") -- which killed the first relaunch. Write BOM-less UTF-8.
+# run_bakeoff.py also reads with utf-8-sig now, so either side alone is sufficient.
+[System.IO.File]::WriteAllText("$dir\models.json",
+    ($models | ConvertTo-Json -Depth 5),
+    (New-Object System.Text.UTF8Encoding($false)))
 Write-Output "$(Get-Date -Format o)  models.json now has $($models.Count) rows; added: $($added -join ', ')"
 
 # 4. relaunch; results.jsonl skips everything already scored

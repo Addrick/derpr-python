@@ -48,7 +48,7 @@ def http_json(url, payload=None, timeout=900):
 
 
 def write_kcpps(template, model_path, dest, contextsize, genamt):
-    cfg = json.loads(Path(template).read_text(encoding="utf-8"))
+    cfg = json.loads(Path(template).read_text(encoding="utf-8-sig"))
     cfg["model_param"] = model_path
     cfg["model"] = []
     cfg["port"] = PORT
@@ -328,9 +328,9 @@ def main():
     ap.add_argument("--only", action="append", help="run only these model ids")
     args = ap.parse_args()
 
-    payload = json.loads(Path(args.bodies).read_text(encoding="utf-8"))
+    payload = json.loads(Path(args.bodies).read_text(encoding="utf-8-sig"))
     bodies, meta = payload["bodies"], payload["meta"]
-    models = json.loads(Path(args.models).read_text(encoding="utf-8"))
+    models = json.loads(Path(args.models).read_text(encoding="utf-8-sig"))
     if args.only:
         models = [m for m in models if m["id"] in args.only]
 
