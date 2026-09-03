@@ -132,18 +132,20 @@ recorded anywhere as deliberate. Same `unreviewed` row in the capability map.
 | kcpp adapter | `httpx.AsyncClient` | — | `httpx.RequestError` | — |
 | MCP server | `ClientSession` | — | reconnect loop | `MCP_ENABLED` |
 
-**Finding D1 — two doors, one wall, and the gates differ.**
-`HFToolHandler._run` is a near-verbatim copy of `ProxmoxToolHandler._run` (same
-try / `SSHError` / `returncode` / result-dict shape), minus the semaphore and
-minus the in-`_run` enable check. Both reach the same node through the same
-`SSHRunner`, so the in-flight cap that bounds pve traffic does not bound HF
-traffic, and an HF tool added without its own `_enabled()` line is ungated.
-Putting the check in `_run` is structurally stronger than putting it at each call
-site for the same reason `validate_tool_capabilities` beats a test.
+**Finding D1 — RESOLVED (DP-348, merged).** There is now **one** node door:
+`proxmox.ssh.run_node_command`, imported by both `huggingface/handler.py` and
+`proxmox/handler.py`, so the in-flight cap that bounds pve traffic bounds HF
+traffic too and the enable check cannot be forgotten per-tool. Pinned by
+`tests/integration/test_node_transport_gate.py`.
 
-**Already fixed, not yet merged:** `bugfix/DP-348-one-node-door` (`62822d8`)
-collapses these into one door and adds `tests/integration/test_node_transport_gate.py`
-(+244 lines). This row should go back to one line when that merges.
+Kept as a row because the *shape* of the defect is the reusable lesson:
+`HFToolHandler._run` had been a near-verbatim copy of `ProxmoxToolHandler._run`
+(same try / `SSHError` / `returncode` / result-dict shape) minus the semaphore and
+minus the in-`_run` enable check. Two doors through one wall with different gates
+is invisible to a capability map — both authors would describe their row honestly
+and differently. Putting the check in `_run` is structurally stronger than putting
+it at each call site, for the same reason `validate_tool_capabilities` beats a
+test.
 
 ---
 
@@ -203,9 +205,20 @@ why it never caught DP-343.
    wake text as a durable user row. Named as future work in `deferral_kinds.py`;
    `capability_map.md`'s `single` verdict should read `single mechanism, one
    implementation outstanding` until it lands.
-2. **D1** — two node doors with different gates. Fixed on `bugfix/DP-348-one-node-door`,
-   unmerged.
-3. **F1** — tool-layer raw SQL through `MemoryManager` privates.
-4. **B1** — fourth "fire once at a future time"; capability-map row lists three.
-5. **C1** — proposal expiry has no boot pass where the structurally identical
-   park expiry does.
+2. **F1** — tool-layer raw SQL through `MemoryManager` privates.
+   `MemoryToolHandler._update_core_memory` (`tools/tool_manager.py`) calls
+   `memory_manager._get_connection()` and issues its own `UPDATE Memory_Summaries`
+   + `INSERT OR REPLACE INTO vec_Memory_Summaries`. Four writers of that table pair.
+3. **B1** — fourth "fire once at a future time"; capability-map row lists three.
+   `_arm_idle` / `_idle_fallback` (`self_edit/integration.py:325`).
+4. **C1** — proposal expiry has no boot pass where the structurally identical
+   park expiry does. `confirmations.rebuild_from_store` runs at boot
+   (`bootstrap/__init__.py:129`); `expire_stale_proposals` is driven only from
+   `ManagrAgent` (`agents/managr_agent.py:624`).
+
+**Closed:** **D1** — one node door as of DP-348 (see §D).
+
+> ⚠️ **Re-verify before acting on any row here.** This file is *regenerated*, not
+> maintained, so a row states what was true at its last regeneration. D1 sat in this
+> list claiming "fixed, unmerged" for ten days after DP-348 merged. A1, B1, C1 and F1
+> were each re-confirmed live in `origin/master` on 2026-09-03; D1 was not.
