@@ -63,6 +63,21 @@ directory — that is how a security pass went unnoticed for two days.
 **6. Human approval gates merges to `master`, not PRs.** Open the PR automatically once
 work is done and gates are green.
 
+**7. Docs-only changes are not PR-worthy — land them straight on `master`.** No branch, no
+worktree, no PR, no ticket. "Docs-only" means the diff touches **nothing but** `docs/`,
+`readme.md`, `CLAUDE.md` and `.agents/AGENTS.md`; one line under `src/`, `services/`,
+`config/`, `tests/`, `scripts/` or `.github/` and rules 1–6 apply to the whole change.
+Fixing a stale doc you noticed is the common case and it should cost one commit.
+
+⚠️ Rule 4 still holds in spirit: **stage explicit paths, never `git add -A`**, and confirm
+`git status` lists only files you touched — the main tree is still shared, and a path-broad
+add still sweeps another task's WIP. That is the hazard rule 4 exists for; the branch was
+never the protection.
+
+⚠️ A doc that ships *with* code is not this rule — CLAUDE.md's §Docs table still requires
+`user_guide.md`, `architecture.md` and `capability_map.md` to move **in the same commit as
+the code**. This rule is for standalone doc work: a staleness fix, a correction, a rewrite.
+
 ## Memory — Viking L0/L1/L2, not the default auto-memory
 
 ⚠️ **`memory/` is a separate git repo** (`derpr-private-notes`), gitignored here. "Commit
