@@ -40,6 +40,14 @@
   "note": "THE STANDING CONTENDER. The only Phase 0 row clean on BOTH axes (0% silence, 0% violation, 27/27). It was rejected on a coverage ratio computed against the incumbent's narration-inflated fact count - a metric since invalidated - so it was never actually eliminated. 26B/4B active: A3B-class speed at 15.6 GB, the only large candidate that fully offloads."
  },
  {
+  "id": "gemma-4-26b-a4b-it",
+  "role": "production_candidate",
+  "path": "C:/Server/koboldcpp/weights/gemma-4-26B-A4B-it-UD-Q4_K_XL.gguf",
+  "quant": "UD-Q4_K_XL",
+  "size_gb": 15.84,
+  "note": "The STOCK, unmodified a4b - the other half of the abliteration pair, added 2026-09-03 so the finetune question gets answered on a deployable model rather than only on the 31B. Phase 0 gave it 4 refutation drops against the uncensored build's 0, which would say the finetune HELPS - a surprising enough result to be worth re-measuring on a clean instrument. WARNING: QUANT-CONFOUNDED against its sibling: UD-Q4_K_XL here vs Q4_K_M for the uncensored build. If this pair and the quant-matched gemma-4-31b pair ever disagree, the 31B pair wins and the difference here is quant, not abliteration."
+ },
+ {
   "id": "granite-4.2-30b",
   "role": "production_candidate",
   "path": "C:/Server/koboldcpp/weights/granite-4.2-30b-Q4_K_M.gguf",
