@@ -1,0 +1,50 @@
+[
+ {
+  "id": "granite-4.2-3b",
+  "role": "production_candidate",
+  "path": "C:/Server/koboldcpp/weights/granite-4.2-3b-Q4_K_M.gguf",
+  "quant": "Q4_K_M",
+  "size_gb": 2.24,
+  "note": "Runs FIRST, and not because it is the most interesting - it is the cheapest proof that the harness works on omen at all before four hours of big models. Dense 4B, the speed floor of the granite 4.2 generation. ibm-granite official gguf. If it scores badly, re-test at Q8_0 (3.89 GB, near-free on a 16 GB card) before concluding the model is incapable rather than over-quantized."
+ },
+ {
+  "id": "incumbent-a3b-q4kp",
+  "role": "control",
+  "path": "C:/Server/koboldcpp/weights/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf",
+  "quant": "Q4_K_P",
+  "size_gb": 21.82,
+  "note": "THE CONTROL, and it must be re-run: the fixed (nofastforward) harness has NEVER measured the incumbent - results.ordernff.jsonl holds two rows and both are granite-4.2-8b. Every A3B number in existence came off the contaminated Phase 0 instrument, so nothing here can be ranked without it. Second in the order so a truncated run still yields a baseline. NB this is Q4_K_P, PRODUCTION's actual quant; dt21 only ever tested Q4_K_M. 21.8 GB on a 16.3 GB card - heavy partial offload, expect it to be the slowest row."
+ },
+ {
+  "id": "granite-4.2-8b",
+  "role": "production_candidate",
+  "path": "C:/Server/koboldcpp/weights/granite-4.2-8b-Q4_K_M.gguf",
+  "quant": "Q4_K_M",
+  "size_gb": 4.98,
+  "note": "Phase 0's retracted 'winner'. Re-measured here on both axes: its headline zero violations concealed 22% SILENCE, and on narrator_attribution no granite config ever succeeded - it abstained 10/10 or violated 10/10. This run decides whether that was the instrument or the model."
+ },
+ {
+  "id": "qwen3-8b",
+  "role": "production_candidate",
+  "path": "C:/Server/koboldcpp/weights/Qwen3-8B-Q4_K_M.gguf",
+  "quant": "Q4_K_M",
+  "size_gb": 4.68,
+  "note": "Tests whether backing DOWN a Qwen generation helps - we run Qwen3.6 and it is the worst row. Phase 0 measured 12 refutation drops, 17 dark_roast leaks and 6 invalid JSON / 6 truncated out of 30, the only candidate with JSON failures at all. Re-run because those 30 calls came off the contaminated instrument, not to give it a second chance on merit."
+ },
+ {
+  "id": "gemma-4-26b-a4b-uncensored",
+  "role": "production_candidate",
+  "path": "C:/Server/koboldcpp/weights/Gemma4-26B-A4B-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf",
+  "quant": "Q4_K_M",
+  "size_gb": 15.64,
+  "note": "THE STANDING CONTENDER. The only Phase 0 row clean on BOTH axes (0% silence, 0% violation, 27/27). It was rejected on a coverage ratio computed against the incumbent's narration-inflated fact count - a metric since invalidated - so it was never actually eliminated. 26B/4B active: A3B-class speed at 15.6 GB, the only large candidate that fully offloads."
+ },
+ {
+  "id": "granite-4.2-30b",
+  "role": "production_candidate",
+  "path": "C:/Server/koboldcpp/weights/granite-4.2-30b-Q4_K_M.gguf",
+  "quant": "Q4_K_M",
+  "size_gb": 17.72,
+  "note": "Never tested anywhere. Downloaded to dt21 2026-09-01 and written off because get30b.ps1 HEADed the resolve/ URL and read the redirect stub's Content-Length=49; true X-Linked-Size is 17721455328. 29B MoE. Does NOT fit omen's 16303 MiB - granite 4.x is hybrid Mamba so KV stays flat, but RECORD THE SPLIT AND tok/s: if it is slow it is disqualified as the repair's extractor no matter how faithful it scores. Last in the order because it is the longest row."
+ }
+]
