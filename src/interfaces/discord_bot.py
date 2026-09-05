@@ -17,6 +17,8 @@ from src.personas.store import save_personas_to_file
 from src.chat_system import ChatSystem
 from src.persona import Persona
 from src.self_edit.dispatcher import DispatcherError
+from src.generation_events import format_internal_error
+from src.security.scrubber import get_scrubber
 
 # THE FIX: Initialize the logger at the top of the module.
 logger = logging.getLogger(__name__)
@@ -552,11 +554,12 @@ def create_discord_bot(chat_system: 'ChatSystem') -> CustomDiscordBot:
                         approved=(emoji == '✅'),
                     )
         except Exception as e:
-            logger.error(f"Error resolving proposal {token}: {e}", exc_info=True)
-            await channel.send(
-                "A critical error occurred resolving that action. "
-                "Please check the logs."
+            err_id, err_msg = format_internal_error(e, scrub=get_scrubber().scrub)
+            logger.error(
+                f"[err {err_id}] Error resolving proposal {token}: {e}",
+                exc_info=True,
             )
+            await channel.send(err_msg)
             return
 
         if final_text and final_text.strip():
@@ -729,8 +732,12 @@ def create_discord_bot(chat_system: 'ChatSystem') -> CustomDiscordBot:
                 await reset_discord_status(client, chat_system)
                 return
             except Exception as e:
-                logger.error(f"An unexpected error occurred in on_message: {e}", exc_info=True)
-                await message.channel.send("A critical error occurred. Please check the logs.")
+                err_id, err_msg = format_internal_error(e, scrub=get_scrubber().scrub)
+                logger.error(
+                    f"[err {err_id}] An unexpected error occurred in on_message: {e}",
+                    exc_info=True,
+                )
+                await message.channel.send(err_msg)
                 await reset_discord_status(client, chat_system)
                 return
 
