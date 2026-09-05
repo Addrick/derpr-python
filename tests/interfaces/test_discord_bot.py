@@ -1,5 +1,8 @@
 # tests/interfaces/test_discord_bot.py
 
+import logging
+import re
+
 import pytest
 import discord
 from unittest.mock import MagicMock, AsyncMock, patch, PropertyMock
@@ -154,14 +157,49 @@ async def test_logs_ambiently_but_does_not_respond(monkeypatch, mock_discord_cli
 
 @pytest.mark.asyncio
 @patch('src.interfaces.discord_bot.reset_discord_status', new_callable=AsyncMock)
-async def test_graceful_failure_on_exception(mock_reset, mock_discord_client, mock_chat_system, mock_message):
-    """Tests the outermost try/except block in the on_message handler for truly unexpected errors."""
-    mock_chat_system.generate_response.side_effect = Exception("A critical backend error!")
+async def test_graceful_failure_on_exception(mock_reset, mock_discord_client, mock_chat_system, mock_message,
+                                             caplog):
+    """The outermost on_message handler surfaces a diagnosable error, not a fixed string (DP-362).
+
+    It used to send "A critical error occurred. Please check the logs." — which
+    told the user nothing, named no exception, and carried no id to grep the log
+    by. A `set model` command sat broken for two weeks partly because of it.
+    """
+    mock_chat_system.generate_response.side_effect = RuntimeError("A critical backend error!")
+
+    with caplog.at_level(logging.ERROR, logger="src.interfaces.discord_bot"):
+        await mock_discord_client.on_message(mock_message)
+
+    sent = mock_message.channel.send.call_args.args[0]
+    assert "[RuntimeError]" in sent
+    assert "A critical backend error!" in sent
+
+    ref = re.search(r"\(ref ([0-9a-f]{8})\)", sent)
+    assert ref, f"no correlation ref in {sent!r}"
+
+    # The ref is worthless unless the same id reaches the log beside the traceback.
+    assert f"[err {ref.group(1)}]" in caplog.text
+    mock_reset.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch('src.interfaces.discord_bot.reset_discord_status', new_callable=AsyncMock)
+async def test_on_message_error_scrubs_secrets(mock_reset, mock_discord_client, mock_chat_system, mock_message):
+    """The exception string now reaches Discord verbatim, so a provider key in it must not (DP-225).
+
+    This is the cost of surfacing detail at all: the old fixed string could not
+    leak anything. The handler pays it by passing `get_scrubber().scrub`, which
+    redacts unregistered key shapes as well as registered vault secrets.
+    """
+    secret = "sk-DP362testsecretvalue0123456789"
+    mock_chat_system.generate_response.side_effect = RuntimeError(
+        f"upstream rejected key {secret}"
+    )
 
     await mock_discord_client.on_message(mock_message)
 
-    mock_message.channel.send.assert_called_once_with("A critical error occurred. Please check the logs.")
-    mock_reset.assert_called_once()
+    sent = mock_message.channel.send.call_args.args[0]
+    assert secret not in sent
 
 
 @pytest.mark.asyncio
@@ -606,6 +644,55 @@ async def test_a_raw_click_on_a_live_park_resolves_it(mock_discord_client,
         mock_chat_system.resolve_park.assert_awaited_once()
         assert mock_chat_system.resolve_park.await_args.kwargs["approved"] is True
         assert 4242 not in db._confirm_registry
+    finally:
+        db._confirm_registry.clear()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_park_resolution_reports_the_exception(mock_discord_client,
+                                                              mock_chat_system,
+                                                              caplog):
+    """The reaction handler carried the same detail-less string as on_message (DP-362).
+
+    A park resolution that blows up is worse than a failed message: the user
+    clicked ✅, the reactions were already cleared, and "A critical error occurred
+    resolving that action" left them with no way to tell an expired token from a
+    broken tool.
+    """
+    from src.interfaces import discord_bot as db
+
+    mock_chat_system.resolve_park = AsyncMock(
+        side_effect=KeyError("park token vanished"))
+
+    message = AsyncMock(spec=discord.Message)
+    channel = AsyncMock(spec=discord.TextChannel, typing=MagicMock())
+    channel.fetch_message = AsyncMock(return_value=message)
+    channel.send = AsyncMock(return_value=MagicMock(id=7))
+
+    payload = MagicMock(spec=discord.RawReactionActionEvent)
+    payload.user_id = 123
+    payload.member = None
+    payload.emoji = '✅'
+    payload.message_id = 4242
+    payload.channel_id = 77
+
+    db._confirm_registry.clear()
+    db._confirm_registry[4242] = ("tok", "123", "p")
+    try:
+        with (
+            patch.object(db, "_resolve_channel", AsyncMock(return_value=channel)),
+            patch.object(db, "_post_pending_proposals", AsyncMock()),
+            caplog.at_level(logging.ERROR, logger="src.interfaces.discord_bot"),
+        ):
+            await mock_discord_client.on_raw_reaction_add(payload)
+
+        sent = channel.send.await_args.args[0]
+        assert "[KeyError]" in sent
+        assert "park token vanished" in sent
+
+        ref = re.search(r"\(ref ([0-9a-f]{8})\)", sent)
+        assert ref, f"no correlation ref in {sent!r}"
+        assert f"[err {ref.group(1)}]" in caplog.text
     finally:
         db._confirm_registry.clear()
 

@@ -362,6 +362,21 @@ makes for fuzzy model matching.
 | `help` | Show command list and active personas |
 | `update_models` | Refresh available model list from configuration |
 
+**When something breaks, the error names itself (DP-362).** A Discord turn that dies
+unexpectedly — and a ✅/❌ click on a gated action that fails to resolve — replies with
+the exception class, a one-line detail, and a short reference id:
+
+> Internal error [PermissionError] (ref 4f2ab910): [Errno 13] Permission denied:
+> '/app/data/personas.json' — you may want to rephrase and try again.
+
+The class and detail are usually enough to tell a transient provider hiccup from a
+real fault without leaving Discord. The **ref** is the bridge to the full traceback:
+the same id is logged beside it, so `grep 'err 4f2ab910' derpr.log` finds the stack
+for whoever can reach the logs. Both sites previously replied *"A critical error
+occurred. Please check the logs."*, which named nothing and gave no id to search by —
+a broken `set model` went unnoticed for two weeks behind it. Provider keys and vault
+secrets are redacted from the detail before it is sent.
+
 ### Antigravity (`agy`) — OAuth-tier provider
 
 `agy-*` models (e.g. `set model agy-flash`) route through Google Antigravity's
