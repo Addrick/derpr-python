@@ -1,0 +1,42 @@
+[
+ {
+  "id": "incumbent-qwen3.6-35b-a3b-uncensored",
+  "role": "control",
+  "path": "F:/Machine Learning/LLM Weights/Qwen3/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
+  "quant": "Q4_K_M",
+  "size_gb": 19.7,
+  "note": "THE INCUMBENT. Every row is read against this. NB dt21's copy is Q4_K_M; prod extraction ran omen's Q4_K_P build - record the quant, do not treat them as the same model."
+ },
+ {
+  "id": "gemma-4-26b-a4b-it",
+  "role": "production_candidate",
+  "path": "F:/Machine Learning/LLM Weights/Gemma4/gemma-4-26B-A4B-it-UD-Q4_K_XL.gguf",
+  "quant": "UD-Q4_K_XL",
+  "size_gb": 15.8,
+  "note": "The favourite. 26B/4B active, A3B-class speed, 5.2% on Vectara vs the Qwen lineage's 10.5%."
+ },
+ {
+  "id": "gemma-4-26b-a4b-uncensored",
+  "role": "diagnostic",
+  "path": "F:/Machine Learning/LLM Weights/Gemma4/Gemma4-26B-A4B-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf",
+  "quant": "Q4_K_M",
+  "size_gb": 15.6,
+  "note": "Abliteration pair for gemma-4-26b-a4b-it on a deployable model. QUANT-CONFOUNDED (UD-Q4_K_XL vs Q4_K_M); if this pair and the 31B pair disagree, the 31B pair wins."
+ },
+ {
+  "id": "gemma-4-31b-it",
+  "role": "diagnostic_optional",
+  "path": "F:/Machine Learning/LLM Weights/Gemma4/gemma-4-31B-it-Q4_K_M.gguf",
+  "quant": "Q4_K_M",
+  "size_gb": 17.1,
+  "note": "Stock half of the quant-matched abliteration pair - the clean version of the question. Not deployable at 16 GB; run for the mechanism, not to ship."
+ },
+ {
+  "id": "gemma-4-31b-abliterated",
+  "role": "diagnostic_optional",
+  "path": "F:/Machine Learning/LLM Weights/Gemma4/gemma-4-31b-abliterated-Q4_K_M.gguf",
+  "quant": "Q4_K_M",
+  "size_gb": 17.4,
+  "note": "Abliterated half of the quant-matched pair. Census-stamped as a real extractor."
+ }
+]

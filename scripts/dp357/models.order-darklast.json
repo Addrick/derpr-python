@@ -1,0 +1,10 @@
+[
+ {
+  "id": "gr42-q4km-f16kv-darklast",
+  "role": "order_probe",
+  "path": "F:/Machine Learning/LLM Weights/dp357/granite-4.2-8b-Q4_K_M.gguf",
+  "quant": "Q4_K_M",
+  "size_gb": 4.98,
+  "note": "Order probe: dark_roast is LAST (most reused prefix). Identical weights, template, bodies and repeats - only fixture position differs."
+ }
+]
