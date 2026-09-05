@@ -26,6 +26,9 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+# dt21's koboldcpp. omen keeps its own at C:\Server\koboldcpp\koboldcpp.exe, so this
+# is a default, not a constant -- override with --kobold-exe. Hardcoding it is what
+# pinned the harness to one box.
 KOBOLD_EXE = r"F:\Machine Learning\koboldcpp\koboldcpp.exe"
 PORT = 5099
 BASE = f"http://127.0.0.1:{PORT}"
@@ -269,8 +272,8 @@ def run_model(model, bodies, meta, args, out_fh, done):
     t_load = time.time()
     with open(load_log, "w", encoding="utf-8") as lf:
         proc = subprocess.Popen(
-            [KOBOLD_EXE, "--config", str(kcpps)],
-            stdout=lf, stderr=subprocess.STDOUT, cwd=str(Path(KOBOLD_EXE).parent),
+            [args.kobold_exe, "--config", str(kcpps)],
+            stdout=lf, stderr=subprocess.STDOUT, cwd=str(Path(args.kobold_exe).parent),
         )
         ok, detail = wait_ready(proc, args.load_timeout, expect)
     load_secs = round(time.time() - t_load, 1)
@@ -339,6 +342,8 @@ def main():
     ap.add_argument("--cooldown", type=int, default=15)
     ap.add_argument("--seed-base", type=int, default=1000,
                     help="body seed = this + repeat index; pass -1 to send no seed")
+    ap.add_argument("--kobold-exe", default=KOBOLD_EXE,
+                    help=r"koboldcpp binary; omen's is C:\Server\koboldcpp\koboldcpp.exe")
     ap.add_argument("--only", action="append", help="run only these model ids")
     args = ap.parse_args()
     if args.seed_base is not None and args.seed_base < 0:
@@ -356,6 +361,7 @@ def main():
         f"({len(done)} already recorded)")
     log(f"prompt: {meta['system_prompt_chars']} chars, schema {meta['schema_chars']} chars, "
         f"mode={meta['extraction_mode']}, causal={meta['extract_causal_links']}")
+    log(f"koboldcpp: {args.kobold_exe}")
 
     with open(args.out, "a", encoding="utf-8") as out_fh:
         for model in models:

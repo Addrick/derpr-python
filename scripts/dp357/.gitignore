@@ -7,3 +7,7 @@ bakeoff_work/
 run.log
 run.err
 download.log
+recall*.md
+metrics*.md
+manual_review*.jsonl
+run.omen.log
