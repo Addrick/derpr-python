@@ -23,6 +23,7 @@ from typing import Dict, Any, Iterable, Optional, List
 from config import global_config
 from src.tool_policy import ToolPolicy
 from src.tools.composition import validate_policy_composition
+from src.utils.atomic_json import write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +56,7 @@ def save_models_to_file(models_dict: Dict[str, Any], file_path_override: Optiona
         save_data = {"personas": [], "models": {}}
 
     save_data['models'] = models_dict
-    with open(save_file, 'w') as file:
-        json.dump(save_data, file, indent=4)
+    write_json_atomic(save_file, save_data)
     logger.debug(f"Updated model save to {save_file}.")
 
 
@@ -100,8 +100,7 @@ def save_personas_to_file(
     persona_dict: List[Dict[str, Any]] = to_dict(user_personas)
     save_data['personas'] = persona_dict
 
-    with open(save_file, 'w') as file:
-        json.dump(save_data, file, indent=4)
+    write_json_atomic(save_file, save_data)
     logger.debug(f"Updated persona save to {save_file}.")
 
 

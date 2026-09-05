@@ -41,7 +41,6 @@ import asyncio
 import contextlib
 import json
 import logging
-import os
 import re
 from contextlib import asynccontextmanager
 from datetime import timedelta
@@ -69,6 +68,7 @@ from src.tools.definitions import (
     register_tool_definition,
     unregister_tool_definition,
 )
+from src.utils.atomic_json import write_json_atomic
 
 if TYPE_CHECKING:
     from src.persona import Persona
@@ -772,8 +772,6 @@ class MCPClientManager:
     def _save_config(self, config: Dict[str, Any]) -> None:
         # Write-then-rename: a crash mid-write must never truncate the config
         # (a truncated file silently drops every server at the next startup).
-        self._config_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = self._config_path.with_name(self._config_path.name + ".tmp")
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2)
-        os.replace(tmp_path, self._config_path)
+        # DP-361 moved the mechanism to utils/atomic_json so this store and
+        # personas.json cannot drift apart on durability again.
+        write_json_atomic(self._config_path, config, indent=2)

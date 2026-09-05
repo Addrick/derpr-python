@@ -248,3 +248,81 @@ def test_save_personas_excludes_system_personas(temp_save_file: Path):
     with open(temp_save_file) as f:
         data = json.load(f)
     assert [entry["name"] for entry in data["personas"]] == ["joy"]
+
+
+# --- DP-361: atomic save ------------------------------------------------------
+#
+# Prod's personas.json sat root-owned for two weeks after a root-run maintenance
+# pass. The old truncate-in-place write needed write permission on the *file*, so
+# every persona-mutating Discord command raised PermissionError while the data
+# directory itself stayed perfectly writable. These tests pin the two properties
+# that fixes it: the write goes through a sibling temp file + rename, and it
+# leaves nothing behind when it fails.
+
+
+def _read_only_file(path: Path, payload: dict) -> None:
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    os.chmod(path, 0o444)
+
+
+def test_save_personas_replaces_a_read_only_file(temp_save_file: Path, mock_personas: dict):
+    """A file the process cannot open for writing is still replaced (DP-361).
+
+    This is the prod failure verbatim: chmod 0444 stands in for the root:root
+    ownership, since the container user could not truncate it either way.
+    """
+    _read_only_file(temp_save_file, {"personas": [], "models": {}})
+
+    save_utils.save_personas_to_file(
+        mock_personas, set(), file_path_override=str(temp_save_file)
+    )
+
+    loaded = save_utils.load_personas_from_file(file_path_override=str(temp_save_file))
+    assert set(loaded.keys()) == {"p1", "p2"}
+
+
+def test_save_models_replaces_a_read_only_file(temp_save_file: Path):
+    """save_models_to_file shares the same file and the same old failure mode."""
+    _read_only_file(temp_save_file, {"personas": [], "models": {}})
+
+    save_utils.save_models_to_file(
+        {"provider": ["m1", "m2"]}, file_path_override=str(temp_save_file)
+    )
+
+    assert save_utils.load_models_from_file(
+        file_path_override=str(temp_save_file)
+    ) == {"provider": ["m1", "m2"]}
+
+
+def test_save_personas_leaves_no_temp_file_behind(temp_save_file: Path, mock_personas: dict):
+    """The sibling temp file must not survive a successful save."""
+    save_utils.save_personas_to_file(
+        mock_personas, set(), file_path_override=str(temp_save_file)
+    )
+
+    assert [p.name for p in temp_save_file.parent.iterdir()] == [temp_save_file.name]
+
+
+def test_failed_save_preserves_the_previous_file_and_cleans_up(
+    temp_save_file: Path, mock_personas: dict, monkeypatch
+):
+    """A crash mid-write leaves the old catalog intact, not a truncated one.
+
+    The old in-place write had already emptied the file by the time json.dump
+    raised, so a serialization bug destroyed the persona catalog outright.
+    """
+    original = {"personas": [{"name": "keepme"}], "models": {"p": ["m"]}}
+    temp_save_file.write_text(json.dumps(original), encoding="utf-8")
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("serialization blew up")
+
+    monkeypatch.setattr(save_utils.json, "dump", boom)
+
+    with pytest.raises(RuntimeError):
+        save_utils.save_personas_to_file(
+            mock_personas, set(), file_path_override=str(temp_save_file)
+        )
+
+    assert json.loads(temp_save_file.read_text(encoding="utf-8")) == original
+    assert [p.name for p in temp_save_file.parent.iterdir()] == [temp_save_file.name]
