@@ -41,9 +41,10 @@ from src.memory.backend.hindsight import HindsightRESTClient
 
 from .lme_judge import (
     ANSWER_PROMPT,
+    DEFAULT_MODEL,
     JUDGE_PROMPT,
+    _agy_call,
     _fact_text,
-    _gemini_call,
     _parse_verdict,
     _stream_load_qids,
 )
@@ -77,7 +78,7 @@ async def _frozen_prediction(
     context = "\n".join(f"- {t}" for t in facts)
     ans_prompt = ANSWER_PROMPT.format(context=context, question=q["question"])
     try:
-        predicted = _gemini_call(ans_prompt, model=answer_model)
+        predicted = _agy_call(ans_prompt, model=answer_model)
         err = None
     except Exception as e:
         predicted, err = "", str(e)[:200]
@@ -99,7 +100,7 @@ def _judge(pred: Dict[str, Any], judge_model: str) -> Dict[str, Any]:
         predicted=pred["predicted_answer"] or "(empty)",
     )
     try:
-        raw = _gemini_call(prompt, model=judge_model)
+        raw = _agy_call(prompt, model=judge_model)
         err = None
     except Exception as e:
         raw, err = "", str(e)[:200]
@@ -117,6 +118,7 @@ def _md_table(rows: List[Dict[str, Any]], judges: List[str]) -> str:
     head = ["qid", "qtype", "gold", "predicted"] + judges + ["agree?", "human"]
     lines = ["| " + " | ".join(head) + " |",
              "|" + "|".join(["---"] * len(head)) + "|"]
+
     # disagreement rows first
     def disagree(r):
         labs = {r["judges"][j]["label"] for j in judges}
@@ -217,9 +219,9 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--specs", required=True,
                     help="comma list of tier:qid, e.g. s:1c0ddc50,m:8fb83627")
-    ap.add_argument("--answer-model", default="lme-t0",
-                    help="FIXED across the run; frozen prediction every judge sees")
-    ap.add_argument("--judge-models", default="lme-t0,lme-25pro-t0,lme-g3-t0",
+    ap.add_argument("--answer-model", default=DEFAULT_MODEL,
+                    help=f"FIXED across the run; frozen prediction every judge sees (default: {DEFAULT_MODEL})")
+    ap.add_argument("--judge-models", default=f"{DEFAULT_MODEL},gemini-3.8-flash-medium,gemini-3.1-pro-low",
                     help="comma list of judge models/aliases to compare")
     ap.add_argument("--top-k", type=int, default=10)
     ap.add_argument("--max-tokens", type=int, default=512)

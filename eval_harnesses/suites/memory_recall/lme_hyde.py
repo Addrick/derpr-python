@@ -34,9 +34,10 @@ from src.memory.backend.hindsight import HindsightRESTClient
 
 from .lme_smoke import TIER_FILES
 from .lme_judge import (
+    DEFAULT_MODEL,
     _stream_load_qids,
     _score_at_k,
-    _gemini_call,
+    _agy_call,
 )
 
 # Classic HyDE: ask the model to write the passage it *would* expect to find,
@@ -98,8 +99,8 @@ async def main(
               f"pred={base['predicted_answer'][:80]!r}", file=sys.stderr)
 
         # HyDE: generate hypothetical passage, recall on that.
-        hyde_doc = _gemini_call(HYDE_PROMPT.format(question=q["question"]),
-                                model=model_answer)
+        hyde_doc = _agy_call(HYDE_PROMPT.format(question=q["question"]),
+                             model=model_answer)
         print(f"  hyde_doc={hyde_doc[:120]!r}", file=sys.stderr)
         hyde = await _recall_score(client, q, bank, hyde_doc,
                                    top_k, max_tokens, model_answer, model_judge)
@@ -113,7 +114,7 @@ async def main(
             "bank": bank,
             "question": q["question"],
             "gold_answer": q["answer"],
-            "gold_session_ids": sorted(gold_sessions := set(q["answer_session_ids"])),
+            "gold_session_ids": sorted(set(q["answer_session_ids"])),
             "answer_model": model_answer,
             "judge_model": model_judge,
             "top_k": top_k,
@@ -143,8 +144,8 @@ if __name__ == "__main__":
     ap.add_argument("--qids", required=True)
     ap.add_argument("--bank-prefix", required=True)
     ap.add_argument("--bank-suffix", default="")
-    ap.add_argument("--model-answer", default="gemini-2.5-flash")
-    ap.add_argument("--model-judge", default="gemini-2.5-flash")
+    ap.add_argument("--model-answer", default=DEFAULT_MODEL)
+    ap.add_argument("--model-judge", default=DEFAULT_MODEL)
     ap.add_argument("--max-tokens", type=int, default=512)
     ap.add_argument("--top-k", type=int, default=10)
     ap.add_argument("--out", type=Path, required=True)

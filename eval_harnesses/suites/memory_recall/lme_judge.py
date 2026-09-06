@@ -1,12 +1,11 @@
-"""LongMemEval end-to-end scoring via gemini-cli.
+"""LongMemEval end-to-end scoring via agy (Google Antigravity CLI).
 
 Per question, runs:
     1. arecall(bank, question, tags=[qid]) — top-K facts from Hindsight
-    2. Answer-generation LLM (gemini CLI, headless `-p`) given question + context
-    3. Judge LLM (gemini CLI) grades predicted vs gold answer → boolean
+    2. Answer-generation LLM (agy CLI, headless `-p`) given question + context
+    3. Judge LLM (agy CLI) grades predicted vs gold answer → boolean
 
-Both LLM calls go through the local `gemini` CLI as a subprocess so billing
-hits the user's paid OAuth tier rather than the API-key free quota.
+Both LLM calls go through the local `agy` CLI as a subprocess on the OAuth tier.
 Substituted for the paper's GPT-4o judge — model name is recorded in the
 result file for reproducibility.
 
@@ -39,12 +38,11 @@ import argparse
 import asyncio
 import json
 import os
-import queue
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -176,12 +174,23 @@ def _judge_prompt(qtype: str, qid: str, question: str, answer: str, response: st
     """Build the judge prompt. Mirrors upstream's `_abs` qid-suffix detection
     for abstention; otherwise dispatches by qtype."""
     if "_abs" in qid:
-        tmpl = _JUDGE_TEMPLATE_ABSTENTION
-    else:
-        tmpl = _JUDGE_TEMPLATES_BY_QTYPE.get(qtype)
-        if tmpl is None:
-            raise ValueError(f"no judge template for qtype={qtype!r} qid={qid!r}")
+        return _JUDGE_TEMPLATE_ABSTENTION.format(question=question, answer=answer, response=response)
+    tmpl = _JUDGE_TEMPLATES_BY_QTYPE.get(qtype)
+    if tmpl is None:
+        raise ValueError(f"no judge template for qtype={qtype!r} qid={qid!r}")
     return tmpl.format(question=question, answer=answer, response=response)
+
+
+# Backwards-compatibility prompt for scripts using legacy plain accuracy judge
+JUDGE_PROMPT = (
+    "I will give you a question, a correct answer, and a response from a model. "
+    "Please answer yes if the response contains the correct answer. Otherwise, answer no. "
+    "If the response is equivalent to the correct answer or contains all the intermediate "
+    "steps to get the correct answer, you should also answer yes. If the response only "
+    "contains a subset of the information required by the answer, answer no. "
+    "\n\nQuestion: {question}\n\nCorrect Answer: {gold}\n\nModel Response: {predicted}\n\n"
+    "Is the model response correct? Answer yes or no only."
+)
 
 
 ANSWER_PROMPT = """{context}
@@ -190,40 +199,48 @@ QUESTION: {question}
 Answer the question concisely using only the data provided above."""
 
 
-_GEMINI_BIN: Optional[str] = None
-_GEMINI_CWD: Optional[str] = None
+_AGY_BIN: Optional[str] = None
+_AGY_CWD: Optional[str] = None
+
+DEFAULT_MODEL = "gemini-3.8-flash-low"
+
+MODEL_ALIASES: Dict[str, str] = {
+    "lme-t0": "gemini-3.8-flash-low",
+    "gemini-2.5-flash": "gemini-3.8-flash-low",
+    "lme-g3-t0": "gemini-3.8-flash-low",
+    "gemini-3-flash-preview": "gemini-3.8-flash-low",
+    "lme-25pro-t0": "gemini-3.1-pro-low",
+    "gemini-2.5-pro": "gemini-3.1-pro-low",
+}
 
 
-def _gemini_bin() -> str:
-    global _GEMINI_BIN
-    if _GEMINI_BIN is None:
-        path = shutil.which("gemini")
+def resolve_lme_model(model: str) -> str:
+    return MODEL_ALIASES.get(model, model)
+
+
+def _agy_bin() -> str:
+    global _AGY_BIN
+    if _AGY_BIN is None:
+        path = os.environ.get("ANTIGRAVITY_HARNESS_PATH") or shutil.which("agy")
         if not path:
-            raise RuntimeError("`gemini` CLI not on PATH")
-        _GEMINI_BIN = path
-    return _GEMINI_BIN
+            raise RuntimeError("`agy` CLI not on PATH")
+        _AGY_BIN = path
+    return _AGY_BIN
 
 
-def _gemini_cwd() -> str:
+def _agy_cwd() -> str:
     """Empty tmp dir as cwd so the CLI doesn't auto-load workspace context.
 
-    Running from the repo root makes gemini ingest GEMINI.md / source files
-    and treat the embedded prompt as session metadata. Running from an empty
-    dir + --skip-trust keeps it as a chat endpoint. We also write a
-    .geminiignore and a minimal system.md to ensure isolation.
+    Running from the repo root makes agy ingest AGENTS.md / source files and treat
+    the embedded prompt as session metadata. Running from an empty dir + --sandbox
+    keeps it as a stateless prompt endpoint. We also write a .geminiignore to ensure
+    isolation.
     """
-    global _GEMINI_CWD
-    if _GEMINI_CWD is None:
-        _GEMINI_CWD = tempfile.mkdtemp(prefix="lme_gemini_")
-        # Write .geminiignore to the temp dir to prevent context injection
-        # from parent directories or unintended auto-loading.
-        (Path(_GEMINI_CWD) / ".geminiignore").write_text("*", encoding="utf-8")
-        # Write a neutral system.md to override the default CLI persona.
-        (Path(_GEMINI_CWD) / "system.md").write_text(
-            "You are a facts-retrieval assistant. Use only provided context.",
-            encoding="utf-8"
-        )
-    return _GEMINI_CWD
+    global _AGY_CWD
+    if _AGY_CWD is None:
+        _AGY_CWD = tempfile.mkdtemp(prefix="lme_agy_")
+        (Path(_AGY_CWD) / ".geminiignore").write_text("*", encoding="utf-8")
+    return _AGY_CWD
 
 
 # Markers that indicate the CLI's agent persona leaked instead of an
@@ -249,114 +266,75 @@ def _looks_like_agent_leak(out: str) -> bool:
     return any(m in low for m in _AGENT_LEAK_MARKERS)
 
 
-class GeminiACPClient:
-    """Persistent connection to gemini --acp for low-latency multi-prompting."""
-
-    def __init__(self, model: str, cwd: str):
-        self.model = model
-        self.cwd = cwd
-        self.responses: queue.Queue[dict] = queue.Queue()
-        self.id_counter = 0
-        self.current_response_text: list[str] = []
-        self.session_id: Optional[str] = None
-
-        env = os.environ.copy()
-        env["GEMINI_SYSTEM_MD"] = str(Path(cwd) / "system.md")
-
-        self.proc = subprocess.Popen(
-            [_gemini_bin(), "--acp", "-m", model, "--skip-trust"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-            cwd=cwd,
-            env=env,
-        )
-
-        # Start background reader
-        threading.Thread(target=self._reader, daemon=True).start()
-
-        # Protocol Handshake
-        self._call("initialize", {"protocolVersion": 1, "capabilities": {}})
-        # Start session
-        resp = self._call("session/new", {"cwd": cwd, "mcpServers": []})
-        self.session_id = resp["result"]["sessionId"]
-
-    def _reader(self):
-        for line in self.proc.stdout:
-            if not line.strip():
-                continue
-            try:
-                data = json.loads(line)
-                if data.get("method") == "session/update":
-                    upd = data["params"].get("update", {})
-                    if upd.get("sessionUpdate") == "agent_message_chunk":
-                        text = upd.get("content", {}).get("text", "")
-                        self.current_response_text.append(text)
-                self.responses.put(data)
-            except json.JSONDecodeError:
-                pass
-
-    def _call(self, method: str, params: dict, timeout: float = 300.0) -> dict:
-        self.id_counter += 1
-        msg = {"jsonrpc": "2.0", "id": self.id_counter, "method": method, "params": params}
-        self.proc.stdin.write(json.dumps(msg) + "\n")
-        self.proc.stdin.flush()
-
-        start = time.monotonic()
-        while time.monotonic() - start < timeout:
-            try:
-                resp = self.responses.get(timeout=1.0)
-                if resp.get("id") == self.id_counter:
-                    if "error" in resp:
-                        raise RuntimeError(f"ACP Error: {resp['error']}")
-                    return resp
-            except queue.Empty:
-                continue
-        raise TimeoutError(f"ACP call '{method}' timed out after {timeout}s")
-
-    def ask(self, prompt: str) -> str:
-        self.current_response_text = []
-        self._call("session/prompt", {
-            "sessionId": self.session_id,
-            "prompt": [{"type": "text", "text": prompt}]
-        })
-        return "".join(self.current_response_text).strip()
-
-    def close(self):
-        try:
-            self.proc.terminate()
-            self.proc.wait(timeout=5)
-        except:
-            self.proc.kill()
+_SYSTEM_MESSAGE_RE = re.compile(
+    r"<SYSTEM_MESSAGE>.*?</SYSTEM_MESSAGE>", flags=re.DOTALL,
+)
 
 
-_CLIENT_CACHE: dict[str, GeminiACPClient] = {}
+def strip_system_messages(text: str) -> str:
+    """Remove agy's out-of-band <SYSTEM_MESSAGE>...</SYSTEM_MESSAGE> envelopes."""
+    return _SYSTEM_MESSAGE_RE.sub("", text)
 
 
-def _gemini_call(
-    prompt: str, model: str, timeout: float = 300.0, max_retries: int = 3,
+def _agy_call(
+    prompt: str, model: str, timeout: float = 120.0, max_retries: int = 3,
 ) -> str:
-    """One-shot text generation via persistent ACP client.
+    """One-shot text generation via agy subprocess.
 
-    Maintains a pool of clients (one per model) to avoid process startup
-    overhead. Retries on 'agent leak' markers as a fallback.
+    Spawns `agy -p` in an isolated temp directory, strips <SYSTEM_MESSAGE>
+    blocks, and retries on agent leak or process failure.
     """
-    if model not in _CLIENT_CACHE:
-        _CLIENT_CACHE[model] = GeminiACPClient(model, _gemini_cwd())
-    
-    client = _CLIENT_CACHE[model]
+    resolved_model = resolve_lme_model(model)
+    binary = _agy_bin()
+    cwd = _agy_cwd()
+
+    # Windows caps the entire command line at 32767 chars (WinError 206).
+    # Clamp prompt to 20k characters on Windows to leave headroom for arguments and flags.
+    max_prompt_chars = 20 * 1024 if os.name == "nt" else 96 * 1024
+    if len(prompt) > max_prompt_chars:
+        prompt = prompt[:max_prompt_chars]
+
+    timeout_str = f"{int(timeout) + 30}s"
+    cmd = [
+        binary,
+        "--print-timeout", timeout_str,
+        "--sandbox",
+        "--disable-slash-commands",
+        "--model", resolved_model,
+        "-p", prompt,
+    ]
+
     last = ""
     for attempt in range(max_retries):
-        out = client.ask(prompt)
-        if not _looks_like_agent_leak(out):
-            return out
-        last = out
-        print(f"  [gemini retry {attempt+1}/{max_retries}] agent-leak in ACP: {out[:80]!r}", file=sys.stderr)
-        # On leak, we might want to reset the session or restart the client,
-        # but for now we just try again (ACP often self-corrects on next turn).
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+            )
+            out = strip_system_messages(proc.stdout).strip()
+            if proc.returncode == 0 and out and not _looks_like_agent_leak(out):
+                return out
+            last = out or proc.stderr.strip()
+            print(
+                f"  [agy retry {attempt + 1}/{max_retries}] code={proc.returncode} "
+                f"out={out[:80]!r} err={proc.stderr[:80]!r}",
+                file=sys.stderr,
+            )
+        except subprocess.TimeoutExpired:
+            print(f"  [agy retry {attempt + 1}/{max_retries}] timeout after {timeout}s", file=sys.stderr)
+            last = "timeout"
+        time.sleep(0.5)
+
     return last
+
+
+# Backwards compatibility alias
+_gemini_call = _agy_call
 
 
 def _parse_verdict(raw: str) -> Optional[bool]:
@@ -390,14 +368,15 @@ def _fact_text(hit: Dict[str, Any]) -> str:
 
 def _hit_session_id(hit: Dict[str, Any]) -> Optional[str]:
     sid = (hit.get("source") or {}).get("document_id")
-    if sid:
-        return sid
+    if sid is not None:
+        return str(sid)
     md = hit.get("metadata") or {}
-    return md.get("session_id")
+    session_id = md.get("session_id")
+    return str(session_id) if session_id is not None else None
 
 
 def _score_at_k(
-    q: Dict[str, Any], hits: List[Dict[str, Any]], gold_sessions: set,
+    q: Dict[str, Any], hits: List[Dict[str, Any]], gold_sessions: set[str],
     k: int, model_answer: str, model_judge: str,
 ) -> Dict[str, Any]:
     """Answer + judge given a precomputed hit list, sliced to K. CC-1."""
@@ -410,7 +389,7 @@ def _score_at_k(
 
     t0 = time.monotonic()
     try:
-        predicted = _gemini_call(ans_prompt, model=model_answer)
+        predicted = _agy_call(ans_prompt, model=model_answer)
         ans_err = None
     except Exception as e:
         predicted, ans_err = "", str(e)[:200]
@@ -425,7 +404,7 @@ def _score_at_k(
     )
     t0 = time.monotonic()
     try:
-        judge_raw = _gemini_call(judge_prompt, model=model_judge)
+        judge_raw = _agy_call(judge_prompt, model=model_judge)
         judge_err = None
     except Exception as e:
         judge_raw, judge_err = "", str(e)[:200]
@@ -462,7 +441,7 @@ async def _score_one(
     client: HindsightRESTClient, q: Dict[str, Any], bank: str,
     top_k: int, max_tokens: int, model_answer: str, model_judge: str,
     per_k_sweep: bool = False,
-    k_values: tuple = DEFAULT_K_SWEEP,
+    k_values: tuple[int, ...] = DEFAULT_K_SWEEP,
 ) -> Dict[str, Any]:
     qid = q["question_id"]
     gold_sessions = set(q["answer_session_ids"])
@@ -579,7 +558,7 @@ async def main(
         verdict = r["judge_verdict"]
         print(
             f"  sess={flag_sess} judge={verdict}  "
-            f"pred={r['predicted_answer'][:100].replace(chr(10),' ')!r}",
+            f"pred={r['predicted_answer'][:100].replace(chr(10), ' ')!r}",
             file=sys.stderr,
         )
 
@@ -597,8 +576,10 @@ if __name__ == "__main__":
                     help="comma-separated question_ids")
     ap.add_argument("--bank-prefix", required=True,
                     help="bank name is f'{prefix}_{qid}'")
-    ap.add_argument("--model-answer", default="gemini-2.5-flash")
-    ap.add_argument("--model-judge", default="gemini-2.5-flash")
+    ap.add_argument("--model-answer", default=DEFAULT_MODEL,
+                    help=f"model for answer generation (default: {DEFAULT_MODEL})")
+    ap.add_argument("--model-judge", default=DEFAULT_MODEL,
+                    help=f"model for judging (default: {DEFAULT_MODEL})")
     # Tightened defaults: max_tokens=512 caps the recall budget so the bank
     # can't dump its entire fact-set into context. top_k=10 caps the post-
     # recall slice for the answerer/judge. Either alone is a real constraint;

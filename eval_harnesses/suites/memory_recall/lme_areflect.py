@@ -41,8 +41,9 @@ from config.global_config import HINDSIGHT_URL
 from src.memory.backend.hindsight import HindsightAPIError, HindsightRESTClient
 
 from .lme_judge import (
+    DEFAULT_MODEL,
     JUDGE_PROMPT,
-    _gemini_call,
+    _agy_call,
     _parse_verdict,
     _stream_load_qids,
 )
@@ -99,7 +100,7 @@ async def _reflect_one(
     judge_error: Optional[str] = None
     if predicted.strip():
         try:
-            judge_raw = _gemini_call(
+            judge_raw = _agy_call(
                 JUDGE_PROMPT.format(
                     question=q["question"], gold=q["answer"], predicted=predicted,
                 ),
@@ -184,7 +185,7 @@ if __name__ == "__main__":
     ap.add_argument("--bank-prefix", required=True,
                     help="bank name is f'{prefix}_{qid}{suffix}'")
     ap.add_argument("--bank-suffix", default="")
-    ap.add_argument("--model-judge", default="gemini-2.5-flash")
+    ap.add_argument("--model-judge", default=DEFAULT_MODEL)
     ap.add_argument("--timeout", type=float, default=300.0,
                     help="per-qid areflect timeout seconds (default 300)")
     ap.add_argument("--out", type=Path,
