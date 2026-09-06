@@ -749,9 +749,13 @@ def test_hypr_template_leaves_the_vram_arithmetic_to_the_tool_layer():
     deployment hand-maintained in `data/personas.json` on a docker volume, so
     it does not ship with the merge that changes the tools it describes.
 
-    The budget equation now lives on `install_model.contextsize` (the one
-    argument it constrains), the GTT-spill consequence on `gpu_status`, and the
-    arithmetic itself in `install_status`'s result — where its own inputs are.
+    ⚠️ DP-360 REVERSED the destination, not the rule. There is no budget
+    equation on `install_model.contextsize` any more and no arithmetic in
+    `install_status`'s result: the equation needed a bytes-per-element term
+    nothing can source, so all three tool descriptions now point at the
+    `gpu_status` measurement instead. What DP-337 established and DP-360 kept
+    is that whatever the answer is, it lives with the code that produces it.
+
     What stays here is the cross-tool routine and the tone, which no single
     tool owns.
     """
@@ -765,6 +769,12 @@ def test_hypr_template_leaves_the_vram_arithmetic_to_the_tool_layer():
     for tool in ("hf_search", "hf_files", "gpu_status", "install_model"):
         assert tool in prompt
     assert "which quant you chose" in prompt
+    # DP-360: and it must not ALSO demand the derivation it forbids two
+    # sentences later. The prompt asked hypr to say "what it leaves for the KV
+    # cache" while telling it not to multiply the header shape into a VRAM
+    # figure — one instruction requiring what the other bans, in one paragraph.
+    assert "what it leaves for the KV cache" not in prompt
+    assert "Do not multiply the header shape" in prompt
 
 
 def test_hypr_prompt_states_the_free_vs_total_trap_exactly_once():
@@ -1066,9 +1076,15 @@ def test_hypr_prompt_requires_saying_which_numbers_were_read_vs_derived():
 
 def test_hypr_template_still_leaves_the_arithmetic_itself_to_the_tools():
     """DP-344 added a routine to the prompt, not facts. The guard from DP-337
-    stays green: no equation, no constants, no header field names — those live
-    on `install_status`, `install_model.contextsize` and `gpu_status`, where
-    they version with the code that produces them.
+    stays green: no equation, no constants, no header field names.
+
+    ⚠️ Do not read this as "the constants live on the tools" — DP-360 deleted
+    them everywhere, and a reader who takes this test as licence for the
+    ~1010/~500 MiB figures in a tool description is reinstating the estimate
+    the ticket removed. `install_status` ships the header shape it MEASURED;
+    the tools that used to carry the equation now carry the reason there is
+    not one. See `test_no_model_facing_string_names_a_flag_no_tool_can_pass`
+    for the invariant that covers the tool descriptions themselves.
     """
     prompt = _hypr_entry()["prompt"]
     for gone in ("1010 MiB", "500 MiB", "bytes per element", "n_kv_head",

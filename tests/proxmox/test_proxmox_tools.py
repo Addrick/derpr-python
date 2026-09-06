@@ -649,6 +649,13 @@ def _exec(model: str, ctx: int | None = None, quantkv: int | None = None,
 
 @pytest.mark.asyncio
 async def test_list_models_reports_each_units_contextsize_and_quantkv(enabled):
+    """DP-360 renamed the second field. `contextsize` is what the unit RUNS —
+    a unit serving :5001 has demonstrated that context fits. `--quantkv` is
+    what the unit file ASKS for: CT101's `model-policy.conf` wrapper
+    substitutes it per model at exec, which is the exact reason the KV
+    estimate was deleted. Publishing them under sibling names invited the
+    model to read both as evidence, and the caveat had to travel with the
+    value rather than sit in a tool description beside it."""
     runner = FakeRunner(
         SSHResult(0, "active", ""),
         exec_start={
@@ -660,9 +667,9 @@ async def test_list_models_reports_each_units_contextsize_and_quantkv(enabled):
     res = await h._list_models()
     rows = {m["name"]: m for m in res["models"]}
     assert rows["fable"]["contextsize"] == 163840
-    assert rows["fable"]["quantkv"] == 1
+    assert rows["fable"]["quantkv_requested"] == 1
     assert rows["gemma"]["contextsize"] == 32768
-    assert rows["gemma"]["quantkv"] == 2
+    assert rows["gemma"]["quantkv_requested"] == 2
 
 
 @pytest.mark.asyncio
@@ -694,7 +701,7 @@ async def test_a_unit_that_names_no_context_omits_the_field(enabled):
     res = await h._list_models()
     row = next(m for m in res["models"] if m["name"] == "fable")
     assert "contextsize" not in row
-    assert "quantkv" not in row
+    assert "quantkv_requested" not in row
 
 
 @pytest.mark.asyncio
@@ -713,7 +720,7 @@ async def test_the_equals_spelling_of_the_flags_is_parsed_too(enabled):
     res = await h._list_models()
     row = next(m for m in res["models"] if m["name"] == "fable")
     assert row["contextsize"] == 131072
-    assert row["quantkv"] == 1
+    assert row["quantkv_requested"] == 1
 
 
 @pytest.mark.asyncio
@@ -733,7 +740,7 @@ async def test_a_non_numeric_context_is_dropped_not_passed_through(enabled):
     res = await h._list_models()
     row = next(m for m in res["models"] if m["name"] == "fable")
     assert "contextsize" not in row
-    assert row["quantkv"] == 1
+    assert row["quantkv_requested"] == 1
 
 
 @pytest.mark.asyncio

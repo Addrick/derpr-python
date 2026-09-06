@@ -117,8 +117,10 @@ _STATUS_FIELDS: Dict[str, type] = {
     # DP-344. Present *instead of* the three numbers, when the node determined
     # this model's cache is not a linear function of context (per-layer KV head
     # counts, sliding-window attention). A node older than DP-344 never sends
-    # it, which degrades to the pre-existing "header did not publish" message —
-    # node artifacts and the container image are two independent deploys.
+    # it; since DP-360 that degrades to the plain measurement note, which is
+    # already the right advice — the shape note only ever *added* the reason
+    # the cache is non-linear. Node artifacts and the container image are two
+    # independent deploys, so both ages are live at once.
     "kv_shape_note": str,
 }
 
@@ -454,8 +456,16 @@ def _kv_measurement_note(job: Dict[str, Any]) -> Optional[str]:
 
     The header shape still ships in the job status. It is read off the file,
     not derived, and it is useful. What is gone is the multiplication.
+
+    Installs only. ``job_status`` reads promote jobs (``derpr-model-tier``) out
+    of the same JOBS_DIR under the same schema, and a promotion creates no
+    unit, sets no contextsize and reads no header -- it copies weights to the
+    SSD. Telling its operator to "read gpu_status before the unit is first
+    enabled" describes a decision that was made when the unit was installed,
+    about a unit that is usually already serving, and `completion.py` posts
+    this straight to Discord. Same branch `_instruction` takes.
     """
-    if job.get("state") != "done":
+    if job.get("state") != "done" or job.get("kind") == "promote":
         return None
     note = (
         "Size this unit's contextsize by measurement, not by arithmetic: read "

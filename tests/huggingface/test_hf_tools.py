@@ -684,15 +684,15 @@ async def test_status_of_a_running_job_carries_no_kv_note(enabled):
     assert res["job"]["state"] == "running"
 
 
-def test_no_model_facing_string_names_a_flag_no_tool_can_pass():
-    """DP-337's placement rule, as an executable invariant.
+def _model_facing_blob() -> str:
+    """Every string this deployment can put in front of the model about sizing.
 
-    `install_model` takes repo/file/name/contextsize; `set_active_model` takes
-    a name; `gpu_status` takes nothing. So --useswa, --quantkv 2 and the
-    full-attention KV ratio are context cost with no reachable action, and they
-    belong in the koboldcpp skill and the infra notes instead. DP-360 removed
-    the last exception: there is no bytes-per-element constant any more, so
-    no --quantkv value needs defending in a model-facing string either.
+    The three tool-definition modules plus the hypr template. Assembled in one
+    place because DP-360's real defect was that the deletion landed in one of
+    four homes: the persona prompt lost the arithmetic while
+    `install_model.contextsize`, `install_status` and `gpu_status` kept
+    shipping it, and the capability map ranks a tool description ABOVE the
+    prompt. Anything that checks only one of these proves nothing.
     """
     import json as _json
     import os
@@ -706,5 +706,89 @@ def test_no_model_facing_string_names_a_flag_no_tool_can_pass():
         "r", encoding="utf-8",
     ) as fh:
         blob += fh.read()
-    for banned in ("useswa", "quantkv 2", "Q4 KV", "2.3x"):
+    return blob
+
+
+@pytest.mark.asyncio
+async def test_a_finished_promotion_gets_no_contextsize_advice(enabled):
+    """DP-360. `job_status` reads promote jobs (`derpr-model-tier`) out of the
+    same JOBS_DIR under the same schema, and `completion.py` posts this note
+    straight to Discord.
+
+    A promotion copies weights to the SSD. It creates no unit, sets no
+    contextsize and reads no header — and the unit it belongs to is usually
+    already enabled and serving. "Read gpu_status before the unit is first
+    enabled and again after" describes a decision made at install time, about
+    a moment that is in the past, announced to an operator who did not make a
+    sizing choice. `completion._instruction` already branches on `kind`.
+    """
+    payload = _done_job(kind="promote", step="promoted")
+    for k in ("n_layer", "n_kv_head", "head_dim"):
+        payload.pop(k)
+    runner = FakeRunner(SSHResult(0, json.dumps(payload), ""))
+    res = await make(runner=runner).job_status("newmodel-abc123")
+    assert "note" not in res
+    assert res["job"]["state"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_a_finished_install_still_gets_it(enabled):
+    """The other half of the branch above: suppressing the note for promotions
+    must not suppress it for the case it was written for."""
+    runner = FakeRunner(SSHResult(0, json.dumps(_done_job(kind="install")), ""))
+    res = await make(runner=runner).job_status("newmodel-abc123")
+    assert "gpu_status" in res["note"]
+
+
+def test_no_model_facing_string_names_a_flag_no_tool_can_pass():
+    """DP-337's placement rule, as an executable invariant.
+
+    `install_model` takes repo/file/name/contextsize; `set_active_model` takes
+    a name; `gpu_status` takes nothing. So --useswa, a --quantkv VALUE and the
+    full-attention KV ratio are context cost with no reachable action, and they
+    belong in the koboldcpp skill and the infra notes instead.
+
+    `--quantkv` is named without a value, and deliberately: since DP-360 it is
+    the *reason* no cache arithmetic is offered, and a bare refusal invites the
+    next reader to supply the constant it is missing. Naming a setting is the
+    line — a value would read as one this deployment runs, which is precisely
+    the claim the wrapper makes unsafe.
+    """
+    blob = _model_facing_blob()
+    for banned in ("useswa", "Q4 KV", "2.3x"):
         assert banned not in blob, banned
+    for value in range(0, 4):
+        for form in (f"quantkv {value}", f"quantkv={value}"):
+            assert form not in blob, form
+
+
+def test_no_model_facing_string_still_prescribes_the_deleted_kv_budget():
+    """DP-360's deletion, checked where the model actually reads.
+
+    The ticket deleted `_COMPUTE_BUFFER_MIB`, `_VRAM_MARGIN_MIB` and the
+    four-term budget from the handler — and left both constants and the whole
+    recipe in `install_model.contextsize`'s parameter description and in
+    `gpu_status`'s, while `install_status` went on promising "the cache size
+    that follows from it". hypr received "compute it" and "do not compute it"
+    in the same turn, from strings the capability map ranks above the prompt
+    that had been fixed.
+
+    A test over the prompt alone cannot see that, and the two persona tests
+    that DO pass read only the prompt. This one reads everything the model
+    reads.
+    """
+    blob = _model_facing_blob()
+    # The constants, in the spellings they shipped in.
+    for constant in ("1010 MiB", "~1010", "500 MiB", "~500"):
+        assert constant not in blob, constant
+    # The recipe. Any of these phrasings hands the model three of four terms
+    # and lets it invent the fourth, which is the failure the deletion exists
+    # to prevent.
+    for recipe in (
+        "compute buffer + margin",
+        "KV + compute buffer",
+        "plus the KV cache plus",
+        "cache size that follows",
+        "computable rather",
+    ):
+        assert recipe not in blob, recipe
