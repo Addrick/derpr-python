@@ -409,13 +409,22 @@ cmd_run() {
     chmod 644 "$DEST"
   fi
 
-  # Header numbers, so the KV budget can be evaluated rather than only recited.
-  # Best effort: a parse failure must not fail an install whose bytes are good.
+  # Header facts about the file: the cached-layer shape, the SSM block count
+  # that says whether it is hybrid, or the reason its cache is not linear in
+  # context. Best effort -- a parse failure must not fail an install whose
+  # bytes are good.
+  #
+  # DP-360: this gate used to require a leading ,"n_layer", which accepted the
+  # shape and silently discarded everything else gguf_header.py can emit. A
+  # gemma4 model returns ,"kv_shape_note":... as its FIRST key, so its refusal
+  # -- the one output that exists specifically to stop a wrong estimate -- never
+  # reached the job status at all. Match the fragment's grammar instead of one
+  # of its keys, so a new key cannot mean silence again.
   if [ -r "$GGUF_HEADER" ] && command -v python3 >/dev/null 2>&1; then
     local hdr
     hdr="$(python3 "$GGUF_HEADER" "$DEST" 2>/dev/null)"
     case "$hdr" in
-      ,\"n_layer\":*) HEADER_JSON="$hdr" ;;
+      ,\"[a-z_]*\":*) HEADER_JSON="$hdr" ;;
       *) HEADER_JSON="" ;;
     esac
   fi

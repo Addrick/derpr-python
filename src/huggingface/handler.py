@@ -106,6 +106,11 @@ _STATUS_FIELDS: Dict[str, type] = {
     "size_bytes": int,
     "downloaded_bytes": int,
     "contextsize": int,
+    # DP-360: blocks holding a recurrent state instead of a KV cache. Non-zero
+    # means hybrid, which is what decides whether --smartcachegrid can do
+    # anything for the unit. Reported rather than inferred from an
+    # architecture name, because the name of the next hybrid arch is not known.
+    "ssm_layers": int,
     "n_layer": int,
     "n_kv_head": int,
     "head_dim": int,
@@ -123,28 +128,6 @@ _STATUS_FIELDS: Dict[str, type] = {
 _MAX_STATUS_STR = 200
 
 _GIB = 1024 ** 3
-_MIB = 1024 ** 2
-
-#: Bytes per KV element in the units ``install_model`` writes, as the exact
-#: rational that ``q8_0`` is: a block of **32** quantised elements costs **34**
-#: bytes — 32 int8 plus one f16 scale — so the cache is 1.0625 B/element, not 1.
-#: Deliberately a constant and not a parameter: ``koboldcpp-model.service.in``
-#: hardcodes ``--quantkv 1``, and no tool in this module exposes a knob for it,
-#: so the model has no reachable action that could change it.
-#:
-#: ⚠️ DP-344: this was ``1``, and the 6.25% shortfall hid because the layer
-#: count was simultaneously one too high on the model it was checked against
-#: (17/16 is exactly 1.0625, so two errors cancelled to the right answer for
-#: Qwen3.8 and to a wrong one for every other model). Kept as a ratio rather
-#: than a float so the arithmetic stays integral and exact.
-_KV_BLOCK_ELEMS = 32
-_KV_BLOCK_BYTES = 34
-
-#: koboldcpp's compute buffer and the headroom to leave beside it, in MiB.
-#: Measured on the R9700; they are the two terms of the VRAM budget that are
-#: neither the model buffer nor the KV cache.
-_COMPUTE_BUFFER_MIB = 1010
-_VRAM_MARGIN_MIB = 500
 
 
 def _err(message: str) -> Dict[str, Any]:
@@ -350,7 +333,7 @@ class HuggingFaceToolHandler:
             return _err(f"job {value} returned a non-object status")
         job = _clean_status(payload)
         result: Dict[str, Any] = {"status": "ok", "job": job}
-        note = _kv_budget_note(job)
+        note = _kv_measurement_note(job)
         if note:
             result["note"] = note
         return result
@@ -448,90 +431,50 @@ class HuggingFaceToolHandler:
         }, DEFERRAL_KIND_NODE_JOB, job_id)
 
 
-def _kv_budget_note(job: Dict[str, Any]) -> Optional[str]:
-    """The KV arithmetic for a finished install — evaluated, not recited.
+def _kv_measurement_note(job: Dict[str, Any]) -> Optional[str]:
+    """Point a finished install at the measurement instead of at an estimate.
 
-    DP-337: ``n_layer`` / ``n_kv_head`` / ``head_dim`` exist *only* in this
-    result (the node folds them in from ``gguf_header.py`` once the bytes
-    verify), so this is the one place the formula has its own inputs in hand.
-    It used to live in hypr's persona prompt, roughly four thousand tokens
-    upstream of the values it needs and unversioned relative to this code.
+    DP-360 deleted the arithmetic this used to do, and the deletion is the fix
+    rather than a retreat from one.
 
-    ``None`` while the job is unfinished: before the verify step the shape is
-    absent because it has not been read yet, which is "not yet" and not
-    "unreadable", and saying the wrong one of those is worse than saying
-    nothing.
+    The formula was never wrong. ``2 x n_layer x n_kv_head x head_dim`` is
+    right, and the node reads all three terms off the tensor index precisely
+    because a hybrid architecture's block count is not its cached-layer count.
+    What could not be sourced was the fourth term. Bytes per element is set by
+    ``--quantkv``, and on CT101 the policy wrapper substitutes that per model at
+    exec -- so the value written into a unit is not the value the process runs
+    with, and any constant compiled in here describes a configuration other
+    than the one being sized.
 
-    DP-344: ``n_layer`` is the count of layers that actually **cache** K/V, not
-    the model's block count — the node reads it off the tensor index precisely
-    because the two differ on every hybrid architecture this host serves.
+    DP-344 is why this is a deletion and not a repair. The estimate returned
+    the right total for Qwen3.8 only because a layer count one too high and a
+    bytes-per-element one too low cancelled exactly. One matching measurement
+    cannot pin a product of two unknowns, and a wrong total is worse here than
+    no total, because it reaches a human already in the shape of arithmetic.
+
+    The header shape still ships in the job status. It is read off the file,
+    not derived, and it is useful. What is gone is the multiplication.
     """
     if job.get("state") != "done":
         return None
-    # The node determined the formula does not describe this model at all
-    # (per-layer KV heads, sliding-window attention). Its reason is better than
-    # anything derivable here, and an estimate would be worse than none.
+    note = (
+        "Size this unit's contextsize by measurement, not by arithmetic: read "
+        "gpu_status before the unit is first enabled and again after, and "
+        "trust that difference. Do not multiply the header shape in this "
+        "status into a VRAM figure -- bytes per KV element depends on the "
+        "--quantkv the process actually runs with, which CT101's policy "
+        "wrapper substitutes per model at exec, so the unit file does not "
+        "settle it. Overshooting into GTT is recoverable and sometimes fine; "
+        "a confident wrong total is neither."
+    )
+    # The node's own refusal is strictly better information than the generic
+    # advice above, because it names the property that breaks the linearity.
     shape_note = job.get("kv_shape_note")
     if isinstance(shape_note, str) and shape_note.strip():
-        return (
-            f"No KV-per-token figure for this model: {shape_note.strip()}. "
-            "Read gpu_status before and after the unit is first enabled and "
-            "trust that difference over any estimate."
-        )
-    n_layer = job.get("n_layer")
-    n_kv_head = job.get("n_kv_head")
-    head_dim = job.get("head_dim")
-    if not (
-        isinstance(n_layer, int) and n_layer > 0
-        and isinstance(n_kv_head, int) and n_kv_head > 0
-        and isinstance(head_dim, int) and head_dim > 0
-    ):
-        # Best-effort by design on the node side — a header quirk must never
-        # fail an install whose bytes are good — so the absence is reported as
-        # a fact about this file rather than swallowed.
-        return (
-            "This gguf's header did not publish n_layer / n_kv_head / "
-            "head_dim, so the KV cache cannot be computed for it. Size the "
-            "contextsize by measurement instead: read gpu_status before and "
-            "after the unit is first enabled, and trust that difference over "
-            "any estimate."
-        )
-    elems = 2 * n_layer * n_kv_head * head_dim
-    per_token = elems * _KV_BLOCK_BYTES // _KV_BLOCK_ELEMS
-    note = (
-        f"KV cache for this model: {per_token} bytes per token "
-        f"(2 x n_layer {n_layer} x n_kv_head {n_kv_head} x head_dim "
-        f"{head_dim} = {elems} elements, at q8_0's "
-        f"{_KV_BLOCK_BYTES}/{_KV_BLOCK_ELEMS} bytes per element — the unit's "
-        f"--quantkv 1). n_layer here is the number of layers that CACHE K/V, "
-        "which on a hybrid architecture is a fraction of its block count. "
-        "It scales linearly with contextsize, so halving the context halves "
-        "it."
-    )
-    ctx = job.get("contextsize")
-    if isinstance(ctx, int) and ctx > 0:
-        kv_mib = per_token * ctx / _MIB
-        size_bytes = job.get("size_bytes")
-        model_mib = (
-            size_bytes / _MIB if isinstance(size_bytes, int) and size_bytes > 0
-            else None
-        )
         note += (
-            f" At the installed contextsize {ctx} that is {kv_mib:.0f} MiB."
+            " The node adds that this model's cache is not a linear function "
+            f"of contextsize at all: {shape_note.strip()}."
         )
-        if model_mib is not None:
-            total = (
-                model_mib + kv_mib + _COMPUTE_BUFFER_MIB + _VRAM_MARGIN_MIB
-            )
-            note += (
-                f" With the model buffer (~{model_mib:.0f} MiB, the gguf's own "
-                f"size), ~{_COMPUTE_BUFFER_MIB} MiB of compute buffer and "
-                f"~{_VRAM_MARGIN_MIB} MiB of margin, this unit wants roughly "
-                f"{total:.0f} MiB. Check that against gpu_status TOTAL MiB "
-                "before anyone enables it."
-            )
-        else:
-            note += " Check the total against gpu_status before enabling it."
     return note
 
 

@@ -550,12 +550,16 @@ async def test_status_of_an_unwritten_job_reads_as_not_ready(enabled):
     assert "may not exist yet" in res["message"]
 
 
-# -- DP-337: the KV budget is evaluated here, not recited in a prompt ---------
+# -- DP-360: the note points at a measurement; it no longer does arithmetic ---
 #
-# The three header numbers exist ONLY in this result, so this is the one layer
-# that can compute rather than estimate. These tests pin the arithmetic, the
-# two absence cases that must NOT read as "unreadable", and the invariant that
-# nothing model-facing mentions a flag no tool can pass.
+# DP-337 put the KV formula here because this is the one layer holding the
+# header numbers. DP-344 then showed the result was right on Qwen3.8 only
+# because two errors cancelled, and DP-360 deleted it: bytes per element is
+# whatever --quantkv the process runs with, and CT101's policy wrapper
+# substitutes that per model at exec, so no constant here can be sourced.
+#
+# These tests pin the deletion. The estimate coming back -- in any shape, from
+# any well-meaning repair -- is the regression they exist to catch.
 
 def _done_job(**over: Any) -> Dict[str, Any]:
     job = {
@@ -572,71 +576,70 @@ def _done_job(**over: Any) -> Dict[str, Any]:
 
 
 @pytest.mark.asyncio
-async def test_status_computes_the_kv_budget_from_the_header_numbers(enabled):
-    """2 x 48 x 8 x 128 = 98304 elements; at q8_0's 34/32 that is 104448
-    B/token, and at 8192 ctx 816 MiB.
+async def test_a_finished_install_is_told_to_measure_not_to_calculate(enabled):
+    """The whole of what the note may say: read gpu_status either side."""
+    runner = FakeRunner(SSHResult(0, json.dumps(_done_job()), ""))
+    res = await make(runner=runner).job_status("newmodel-abc123")
+    note = res["note"]
+    assert "gpu_status" in note
+    assert "measurement" in note
 
-    The point of the note is that these are *computed from this payload*, not
-    quoted from a prompt written before the model existed.
 
-    DP-344: the element count used to be multiplied by 1 byte, understating
-    every model by 6.25%. q8_0 stores a block of 32 quantised values in 34
-    bytes — 32 int8 plus one f16 scale.
+@pytest.mark.asyncio
+async def test_the_note_emits_no_kv_arithmetic_even_with_a_full_shape(enabled):
+    """DP-360 regression, and the reason this file still carries a full shape
+    in `_done_job`.
+
+    A complete, valid n_layer/n_kv_head/head_dim is exactly the input that
+    tempts a repair: every term of `2 x 48 x 8 x 128` is present and correct.
+    The missing term is bytes per element, and it is not in this payload and
+    cannot be -- so the product must not appear at any bit width.
+
+    98304 elements is 98304 B/token at f16-per-element, 104448 at q8_0's 34/32,
+    and 55296 at q4_0's 18/32. None of the three may show up, nor may the MiB
+    totals they imply at the installed 8192 context.
     """
     runner = FakeRunner(SSHResult(0, json.dumps(_done_job()), ""))
     res = await make(runner=runner).job_status("newmodel-abc123")
     note = res["note"]
-    assert "104448 bytes per token" in note
-    assert "816 MiB" in note
-    # Model buffer + KV + 1010 compute + 500 margin, so the caller has one
-    # number to hold against gpu_status rather than four to add up.
-    assert "25214 MiB" in note
-    assert "gpu_status" in note
+    assert "bytes per token" not in note
+    assert "per token" not in note
+    for product in ("98304", "104448", "55296", "816 MiB", "432 MiB"):
+        assert product not in note, product
 
 
 @pytest.mark.asyncio
-async def test_status_kv_note_scales_linearly_with_contextsize(enabled):
-    """The claim the note makes about itself has to be true of the note."""
-    runner = FakeRunner(SSHResult(0, json.dumps(_done_job(contextsize=4096)), ""))
+async def test_the_note_says_why_it_will_not_calculate(enabled):
+    """A bare refusal invites the next reader to supply the constant it is
+    missing. Naming the wrapper is what stops that, because the wrapper is the
+    reason no constant is sourceable here."""
+    runner = FakeRunner(SSHResult(0, json.dumps(_done_job()), ""))
     res = await make(runner=runner).job_status("newmodel-abc123")
-    assert "408 MiB" in res["note"]
+    assert "quantkv" in res["note"]
+    assert "wrapper" in res["note"]
 
 
 @pytest.mark.asyncio
-async def test_status_kv_note_matches_koboldcpp_on_a_real_measured_model(enabled):
-    """DP-344 regression, pinned to kcpp's own allocation rather than to the
-    formula under test.
+async def test_the_measured_header_shape_still_reaches_the_caller(enabled):
+    """Deleting the estimate must not delete its inputs.
 
-    Qwen3.8-27B on the R9700: koboldcpp logged
-    `llama_kv_cache: Vulkan0 KV buffer size = 8712.50 MiB` at n_ctx 262400,
-    which is 34816 bytes/token. The header shape the node reports for it is
-    16 cached layers (65 blocks, 17 with a K projection, one of those the
-    uncached `nextn` draft block), 4 KV heads, head_dim 256.
-
-    Two independent errors used to cancel here: 17 layers at 1 byte/element
-    gives the same 34816. Deckard-40B is the model that separates them —
-    24 layers, measured 52224 B/token, which 24 x 1 byte cannot produce.
+    n_layer/n_kv_head/head_dim are read off the tensor index -- measured facts
+    about the file, not derived ones -- and the cached-layer count in
+    particular is the number a human cannot get anywhere else. Only the
+    multiplication was wrong.
     """
-    for n_layer, expected in ((16, 34816), (24, 52224)):
-        payload = _done_job(n_layer=n_layer, n_kv_head=4, head_dim=256)
-        runner = FakeRunner(SSHResult(0, json.dumps(payload), ""))
-        res = await make(runner=runner).job_status("newmodel-abc123")
-        assert f"{expected} bytes per token" in res["note"], n_layer
+    runner = FakeRunner(SSHResult(0, json.dumps(_done_job()), ""))
+    res = await make(runner=runner).job_status("newmodel-abc123")
+    assert res["job"]["n_layer"] == 48
+    assert res["job"]["n_kv_head"] == 8
+    assert res["job"]["head_dim"] == 128
 
 
 @pytest.mark.asyncio
-async def test_status_reports_the_nodes_reason_when_the_formula_cannot_apply(
-    enabled,
-):
-    """DP-344. Some models have no per-token figure at all: gemma4 publishes
-    `attention.head_count_kv` per layer and windows most of them, so its cache
-    is not a linear function of context at any head count.
-
-    The node says why; this must relay that reason and emit no arithmetic.
-    Before, the array read back as absent and the head count fell through to
-    the *query* head count — a confident ~2 MB/token for a model whose windowed
-    layers stop growing at 1024 tokens.
-    """
+async def test_the_note_relays_the_nodes_own_shape_refusal(enabled):
+    """The node's reason names the property that breaks linearity -- windowed
+    attention, per-layer KV heads -- which is strictly better than the generic
+    advice, so it is appended rather than replaced."""
     payload = _done_job(
         kv_shape_note="this model uses sliding-window attention, so its cache "
                       "stops growing at the window",
@@ -645,46 +648,33 @@ async def test_status_reports_the_nodes_reason_when_the_formula_cannot_apply(
     res = await make(runner=runner).job_status("newmodel-abc123")
     note = res["note"]
     assert "sliding-window attention" in note
-    assert "bytes per token" not in note
     assert "gpu_status" in note
 
 
 @pytest.mark.asyncio
-async def test_a_shape_note_wins_over_header_numbers_that_are_also_present(
-    enabled,
-):
-    """The node sends one or the other, but a node mid-upgrade could send both.
-    The refusal is the more specific signal and must not be overridden by
-    numbers that are, by the node's own determination, not applicable."""
-    payload = _done_job(kv_shape_note="per-layer attention.head_count_kv")
-    runner = FakeRunner(SSHResult(0, json.dumps(payload), ""))
-    res = await make(runner=runner).job_status("newmodel-abc123")
-    assert "bytes per token" not in res["note"]
+async def test_a_node_that_sends_no_shape_at_all_still_gets_the_note(enabled):
+    """`gguf_header.py` is best-effort by design -- a header quirk must never
+    fail an install whose bytes verified -- and node artifacts deploy
+    independently of the container image, so this handler meets nodes that send
+    a partial shape or none.
 
-
-@pytest.mark.asyncio
-async def test_a_node_older_than_dp344_still_gets_the_absent_shape_message(
-    enabled,
-):
-    """Node artifacts and the container image are two independent deploys, so
-    this handler will meet nodes that never send `kv_shape_note`. That must
-    degrade to the pre-existing message, not to a crash or to silence."""
+    Under DP-337 that was three separate messages, because each absence changed
+    what could be computed. Nothing is computed now, so the advice is the same
+    advice and the branches are gone.
+    """
     payload = _done_job()
-    payload.pop("head_dim")
-    assert "kv_shape_note" not in payload
+    for k in ("n_layer", "n_kv_head", "head_dim"):
+        payload.pop(k)
     runner = FakeRunner(SSHResult(0, json.dumps(payload), ""))
     res = await make(runner=runner).job_status("newmodel-abc123")
-    assert "did not publish" in res["note"]
+    assert "gpu_status" in res["note"]
 
 
 @pytest.mark.asyncio
 async def test_status_of_a_running_job_carries_no_kv_note(enabled):
-    """Absent shape before the verify step means NOT YET, not unreadable.
-
-    The node folds the header in only once the bytes check out, so reporting
-    an unfinished job as "this gguf publishes no header" would be a confident
-    wrong answer — silence is the correct one.
-    """
+    """Silence before the verify step. The node folds the header in only once
+    the bytes check out, so an unfinished job has nothing to say about the
+    file yet -- and "not yet" must not read as a finding."""
     payload = _done_job(state="running", step="download", finished="")
     for k in ("n_layer", "n_kv_head", "head_dim"):
         payload.pop(k)
@@ -694,38 +684,15 @@ async def test_status_of_a_running_job_carries_no_kv_note(enabled):
     assert res["job"]["state"] == "running"
 
 
-@pytest.mark.asyncio
-async def test_status_says_so_when_a_finished_gguf_published_no_shape(enabled):
-    """`gguf_header.py` is best-effort by design — a header quirk must never
-    fail an install whose bytes verified. So the absence is a fact about the
-    file and gets reported, rather than leaving the caller to infer it."""
-    payload = _done_job()
-    payload.pop("head_dim")
-    runner = FakeRunner(SSHResult(0, json.dumps(payload), ""))
-    res = await make(runner=runner).job_status("newmodel-abc123")
-    note = res["note"]
-    assert "did not publish" in note
-    assert "bytes per token" not in note
-    assert "gpu_status" in note
-
-
-@pytest.mark.asyncio
-async def test_status_note_survives_a_partial_shape_of_zeroes(enabled):
-    """A zero from the node is a parse artefact, not a real dimension — it
-    would divide the budget into nonsense rather than fail loudly."""
-    runner = FakeRunner(SSHResult(0, json.dumps(_done_job(n_kv_head=0)), ""))
-    res = await make(runner=runner).job_status("newmodel-abc123")
-    assert "did not publish" in res["note"]
-
-
 def test_no_model_facing_string_names_a_flag_no_tool_can_pass():
     """DP-337's placement rule, as an executable invariant.
 
     `install_model` takes repo/file/name/contextsize; `set_active_model` takes
     a name; `gpu_status` takes nothing. So --useswa, --quantkv 2 and the
     full-attention KV ratio are context cost with no reachable action, and they
-    belong in the koboldcpp skill and the infra notes instead. `--quantkv 1`
-    survives only as the reason the bytes-per-element term is a constant.
+    belong in the koboldcpp skill and the infra notes instead. DP-360 removed
+    the last exception: there is no bytes-per-element constant any more, so
+    no --quantkv value needs defending in a model-facing string either.
     """
     import json as _json
     import os

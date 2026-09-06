@@ -1110,7 +1110,7 @@ the same node — there is no second credential and no second host.
 | `hf_search` | Read | Search HuggingFace for repos that publish gguf, most-downloaded first: repo id, downloads, likes, gated flag, tags. A hit means the *repo* is tagged as containing gguf, not that any particular file exists — follow up with `hf_files`. Results are third-party text, so this tool is flagged as producing untrusted content and taints the turn. |
 | `hf_files` | Read | One repo's gguf files with the exact **byte size** and **sha256** the Hub publishes for each. This is what you size a quant against (compare with `gpu_status`) and where the exact filename comes from. A file whose `sha256` is `null` — a non-LFS file, with no published digest — cannot be installed at all. |
 | `install_model` | **Write (parked)** | Download one gguf onto the model host and write a koboldcpp systemd unit for it. **The unit lands disabled and is not started**, and the bytes land in the **cold** tier on the archive disk, not on the SSD (see [Where a model lives](#where-a-model-lives--hot-and-cold-storage-dp-340)) — so an install can never consume the space the running guests need. Takes `repo`, `file`, `name`, and an optional `contextsize`. Returns a `job_id` immediately; the download continues on the node. |
-| `install_status` | Read | Poll one node job — an install, or a promotion started by `set_active_model`: `state` (running / done / failed), current step, bytes downloaded, and on failure a short fixed-vocabulary reason. Also reports `n_layer` / `n_kv_head` / `head_dim` read out of the downloaded gguf and, on a finished job, a `note` that **evaluates** the KV budget from them — bytes per token, the cache size at the installed `contextsize`, and what the unit wants in total once the model buffer, ~1010 MiB compute buffer and ~500 MiB margin are added (DP-337). A gguf whose header omits the three numbers says so instead, and asks for the budget to be measured against `gpu_status` rather than estimated. |
+| `install_status` | Read | Poll one node job — an install, or a promotion started by `set_active_model`: `state` (running / done / failed), current step, bytes downloaded, and on failure a short fixed-vocabulary reason. Also reports what the node read out of the downloaded gguf: `n_layer` / `n_kv_head` / `head_dim`, and `ssm_layers` — the count of blocks holding a recurrent state instead of a KV cache, so a non-zero value means the model is a hybrid and `--smartcachegrid` can do something for it. On a finished job it adds a `note` telling you to **measure** the VRAM cost rather than calculate it: read `gpu_status` before the unit is first enabled and again after, and trust the difference. **It no longer computes a KV budget (DP-360)** — the bytes-per-element term depends on the `--quantkv` the process actually runs with, and CT101's policy wrapper substitutes that per model at exec, so the unit file does not settle it and no constant here could. Where the node determines the cache is not linear in context at all (windowed attention, per-layer KV heads) it says which, and that reason is relayed. |
 
 #### What the approval card shows
 
@@ -1249,8 +1249,8 @@ the ping caused derpr to read.
 
 What you see, in the channel you talk to that persona in:
 
-- **An install finished** → the persona posts what landed (repo, file, unit, and
-  the KV-budget arithmetic `install_status` computes), and reminds you that the
+- **An install finished** → the persona posts what landed (repo, file, unit, the
+  header shape and whether the model is hybrid), and reminds you that the
   unit is disabled and nothing is serving it. If you had already told it in that
   conversation to activate the model when it arrived, it calls
   `set_active_model` for you — which parks for your approval like always, so the

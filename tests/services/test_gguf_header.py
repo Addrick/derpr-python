@@ -87,7 +87,9 @@ def test_reads_the_three_numbers_a_kv_budget_needs(tmp_path):
         _kv_u32("qwen3.attention.head_count_kv", 8),
         _kv_u32("qwen3.attention.key_length", 128),
     ])
-    assert gguf_header.fragment(str(path)) == ',"n_layer":48,"n_kv_head":8,"head_dim":128'
+    assert gguf_header.fragment(str(path)) == (
+        ',"n_layer":48,"n_kv_head":8,"head_dim":128,"ssm_layers":0'
+    )
 
 
 def test_published_key_length_wins_over_the_derived_one(tmp_path):
@@ -113,7 +115,9 @@ def test_head_dim_is_derived_when_the_model_publishes_no_key_length(tmp_path):
         _kv_u32("llama.attention.head_count", 32),
         _kv_u32("llama.embedding_length", 4096),
     ])
-    assert gguf_header.fragment(str(path)) == ',"n_layer":32,"n_kv_head":8,"head_dim":128'
+    assert gguf_header.fragment(str(path)) == (
+        ',"n_layer":32,"n_kv_head":8,"head_dim":128,"ssm_layers":0'
+    )
 
 
 def test_head_count_kv_falls_back_to_head_count_for_non_gqa_models(tmp_path):
@@ -176,19 +180,33 @@ def test_an_implausible_kv_count_is_refused_rather_than_allocated(tmp_path):
     assert gguf_header.fragment(str(path)) == ""
 
 
-def test_missing_architecture_key_yields_nothing(tmp_path):
+def test_missing_architecture_key_yields_no_shape(tmp_path):
+    """Every shape key is namespaced by the architecture, so without it there
+    is nothing to read. DP-360: the SSM count survives, because it is counted
+    off the tensor index and never touches the metadata -- an unnameable
+    architecture is still observably not hybrid."""
     path = _write_gguf(tmp_path / "m.gguf", [_kv_u32("qwen3.block_count", 48)])
-    assert gguf_header.fragment(str(path)) == ""
+    out = gguf_header.fragment(str(path))
+    assert out == ',"ssm_layers":0'
+    assert '"n_layer"' not in out
 
 
-def test_partial_shape_yields_nothing_rather_than_a_guess(tmp_path):
+def test_partial_shape_yields_no_guess_but_keeps_what_was_measured(tmp_path):
     """Two of three numbers is not two-thirds of an answer — a cache estimate
-    built from a defaulted head_dim is a confident wrong number."""
+    built from a defaulted head_dim is a confident wrong number.
+
+    DP-360 draws the line where it belongs: the refusal is of the *derivation*,
+    not of everything. ssm_layers is counted, not derived, and withholding it
+    because a neighbouring metadata key is missing would be discarding a fact
+    to punish an unrelated absence.
+    """
     path = _write_gguf(tmp_path / "m.gguf", [
         _kv_string("general.architecture", "qwen3"),
         _kv_u32("qwen3.block_count", 48),
     ])
-    assert gguf_header.fragment(str(path)) == ""
+    out = gguf_header.fragment(str(path))
+    assert out == ',"ssm_layers":0'
+    assert '"head_dim"' not in out
 
 
 # -- DP-344: n_layer is the CACHED layer count, not the block count ----------
@@ -218,8 +236,11 @@ def test_hybrid_layer_count_comes_from_the_tensor_index_not_block_count(tmp_path
         + _blocks(72, "attn_qkv.weight", "ssm_conv1d.weight", start=24),
     )
     assert gguf_header.fragment(str(path)) == (
-        ',"n_layer":24,"n_kv_head":4,"head_dim":256'
+        ',"n_layer":24,"n_kv_head":4,"head_dim":256,"ssm_layers":72'
     )
+    # DP-360: 24 + 72 is the fixture's own block_count, so the two counts
+    # partition the model rather than merely coexisting.
+    assert 24 + 72 == 96
 
 
 def test_the_mtp_draft_block_is_not_counted(tmp_path):
@@ -243,15 +264,17 @@ def test_the_mtp_draft_block_is_not_counted(tmp_path):
             _kv_u32("qwen35.attention.key_length", 256),
         ],
         _blocks(16, "attn_k.weight")
-        + _blocks(48, "attn_qkv.weight", start=16)
+        + _blocks(48, "attn_qkv.weight", "ssm_conv1d.weight", start=16)
         + [
             _tensor_info("blk.64.attn_k.weight"),
             _tensor_info("blk.64.nextn.eh_proj.weight"),
         ],
     )
     assert gguf_header.fragment(str(path)) == (
-        ',"n_layer":16,"n_kv_head":4,"head_dim":256'
+        ',"n_layer":16,"n_kv_head":4,"head_dim":256,"ssm_layers":48'
     )
+    # 16 attending + 48 SSM + the 1 nextn draft block = the 65 it declares.
+    assert 16 + 48 + 1 == 65
 
 
 def test_fused_qkv_models_count_their_qkv_blocks(tmp_path):
@@ -368,3 +391,87 @@ def test_an_unreadable_tensor_index_still_yields_the_other_two_numbers(tmp_path)
     assert gguf_header.fragment(str(path)) == (
         ',"n_layer":32,"n_kv_head":8,"head_dim":128'
     )
+
+
+# -- DP-360: hybrid-ness is counted off the same walk, and reported either way -
+#
+# `--smartcachegrid` is useful on a hybrid and costs a dense model its parallel
+# swap slots, so the install card has to be able to say which this is. The
+# question is answered by counting recurrent blocks, not by matching an
+# architecture name: `qwen35` and `qwen35moe` are the hybrids today, and the
+# next one will be called something else.
+
+def test_ssm_layers_rides_alongside_a_refusal_note(tmp_path):
+    """Whether the KV formula applies and whether the model is hybrid are
+    different questions with different answers.
+
+    gemma4 is refused for windowed attention and is *definitively* not hybrid,
+    and the second fact is worth having precisely when the first is missing --
+    a refusal is when someone is most likely to go looking for a cache flag.
+    """
+    path = _write_gguf(tmp_path / "gemma.gguf", [
+        _kv_string("general.architecture", "gemma4"),
+        _kv_u32("gemma4.block_count", 60),
+        _kv_u32("gemma4.attention.head_count_kv", 8),
+        _kv_u32("gemma4.attention.key_length", 256),
+        _kv_u32("gemma4.attention.sliding_window", 1024),
+    ], _blocks(60, "attn_k.weight"))
+    out = gguf_header.fragment(str(path))
+    assert '"kv_shape_note"' in out
+    assert out.endswith(',"ssm_layers":0')
+
+
+def test_ssm_layers_is_never_the_leading_key(tmp_path):
+    """`derpr-model-install` reads this fragment with a shell `case` on its
+    leading key. That gate was widened in the same change, but node artifacts
+    and the container image are independent deploys, so this runs against an
+    installer older than itself. Appending is what keeps that pairing working
+    -- a new FIRST key is how a fragment gets silently discarded whole.
+    """
+    hybrid = _write_gguf(tmp_path / "h.gguf", [
+        _kv_string("general.architecture", "qwen35"),
+        _kv_u32("qwen35.block_count", 8),
+        _kv_u32("qwen35.attention.head_count_kv", 4),
+        _kv_u32("qwen35.attention.key_length", 256),
+    ], _blocks(4, "attn_k.weight") + _blocks(4, "ssm_conv1d.weight", start=4))
+    out = gguf_header.fragment(str(hybrid))
+    assert out.startswith(',"n_layer"')
+    assert '"ssm_layers":4' in out
+
+
+def test_an_unreadable_index_reports_no_ssm_count_rather_than_zero(tmp_path):
+    """None and 0 are different claims. The index not being walkable means
+    "unknown", and publishing that as "not hybrid" would be the estimate
+    problem again in a new place -- a confident answer with nothing behind it.
+    """
+    blob = b"GGUF" + struct.pack("<I", 3) + struct.pack("<Q", 4)
+    pairs = [
+        _kv_string("general.architecture", "llama"),
+        _kv_u32("llama.block_count", 32),
+        _kv_u32("llama.attention.head_count_kv", 8),
+        _kv_u32("llama.attention.key_length", 128),
+    ]
+    blob += struct.pack("<Q", len(pairs)) + b"".join(pairs)
+    blob += b"\x00" * 3
+    path = tmp_path / "trunc_index.gguf"
+    path.write_bytes(blob)
+    assert "ssm_layers" not in gguf_header.fragment(str(path))
+
+
+def test_a_draft_block_carrying_an_ssm_tensor_is_still_excluded(tmp_path):
+    """The nextn exclusion applies to both counts. koboldcpp does not run the
+    draft block without --usemtp, and no unit here passes it, so a block it
+    skips must not be described as part of the model's recurrent state either.
+    """
+    path = _write_gguf(tmp_path / "mtp.gguf", [
+        _kv_string("general.architecture", "qwen35"),
+        _kv_u32("qwen35.block_count", 6),
+        _kv_u32("qwen35.attention.head_count_kv", 4),
+        _kv_u32("qwen35.attention.key_length", 256),
+    ], _blocks(2, "attn_k.weight")
+       + _blocks(3, "ssm_conv1d.weight", start=2)
+       + [
+           _tensor_info("blk.5.ssm_conv1d.weight"),
+           _tensor_info("blk.5.nextn.eh_proj.weight"),
+       ])
+    assert gguf_header.fragment(str(path)).endswith(',"ssm_layers":3')
