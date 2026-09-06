@@ -14,8 +14,8 @@ from config.global_config import HINDSIGHT_URL
 from src.memory.backend.hindsight import HindsightRESTClient
 
 from .lme_judge import (
-    ANSWER_PROMPT, JUDGE_PROMPT, _fact_text, _gemini_call, _hit_session_id,
-    _parse_verdict,
+    ANSWER_PROMPT, DEFAULT_MODEL, JUDGE_PROMPT, _agy_call, _fact_text,
+    _hit_session_id, _parse_verdict,
 )
 from .lme_smoke import TIER_FILES
 
@@ -56,8 +56,8 @@ async def main(tier: str, qid: str, bank: str, model: str) -> int:
             "history" in (_fact_text(h) or "").lower() for h in top
         )
 
-        ans = _gemini_call(ANSWER_PROMPT.format(context=ctx, question=q["question"]), model=model)
-        jr = _gemini_call(
+        ans = _agy_call(ANSWER_PROMPT.format(context=ctx, question=q["question"]), model=model)
+        jr = _agy_call(
             JUDGE_PROMPT.format(question=q["question"], gold=q["answer"], predicted=ans or "(empty)"),
             model=model,
         )
@@ -85,6 +85,6 @@ if __name__ == "__main__":
     ap.add_argument("--tier", default="s", choices=list(TIER_FILES.keys()))
     ap.add_argument("--qid", required=True)
     ap.add_argument("--bank", required=True)
-    ap.add_argument("--model", default="gemini-2.5-flash")
+    ap.add_argument("--model", default=DEFAULT_MODEL)
     args = ap.parse_args()
     raise SystemExit(asyncio.run(main(args.tier, args.qid, args.bank, args.model)))

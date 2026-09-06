@@ -2,7 +2,11 @@
 
 Per-question evaluation of Hindsight memory recall on the LongMemEval V1 cleaned dataset (`xiaowu0162/longmemeval-cleaned`). 14 banks total: 5 S-tier baseline, 7 M-tier baseline, 2 variant ("v2a") banks ingested under a modified retain mission.
 
-All judging via local `gemini` CLI subprocess (paid OAuth tier) over the ACP transport. A judge meta-eval (below) showed the judge verdict is invariant to judge-model on fixed predictions, so the judge is **locked to `gemini-2.5-flash`** (which benchmarks above the paper's GPT-4o); the answer-model is the experimental variable.
+All judging via local `agy` (Google Antigravity) CLI subprocess (paid OAuth tier)
+in one-shot mode (`-p`). After Google sunsetted `@google/gemini-cli` (DP-363),
+the harness migrated to `agy`, defaulting to `gemini-3.8-flash-low` with legacy
+aliases (`lme-t0`, `gemini-2.5-flash`) mapped. A judge meta-eval (below) showed the
+judge verdict is invariant to judge-model on fixed predictions.
 
 ## Run conditions (constant across rows unless noted)
 
@@ -272,7 +276,7 @@ python -m eval_harnesses.suites.memory_recall.lme_judge \
 ```
 
 Source files:
-- `eval_harnesses/suites/memory_recall/lme_judge.py` — recall → answer → judge pipeline (gemini ACP subprocess)
+- `eval_harnesses/suites/memory_recall/lme_judge.py` — recall → answer → judge pipeline (agy subprocess)
 - `eval_harnesses/suites/memory_recall/lme_smoke.py` — Hindsight ingest of a tier into one bank per qid with tag isolation
 - `eval_harnesses/suites/memory_recall/lme_ingest_queue.py` — multi-bank queue runner used for the M-tier and v2a ingests
 - `eval_harnesses/suites/memory_recall/lme_hyde.py` — HyDE probe: runs baseline (recall on question) and HyDE (recall on an LLM-generated hypothetical answer) side-by-side per qid. Pin `--model-answer lme-t0 --model-judge lme-t0` for temp=0 scoring

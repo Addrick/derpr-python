@@ -50,7 +50,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from config.global_config import HINDSIGHT_URL
 from src.memory.backend.hindsight import HINDSIGHT_API_PREFIX, HindsightRESTClient
 
-from .lme_judge import _hit_session_id, _stream_load_qids
+from .lme_judge import DEFAULT_MODEL, _hit_session_id, _stream_load_qids
 from .lme_smoke import TIER_FILES
 
 K_SWEEP = (1, 3, 5, 10, 20)
@@ -245,8 +245,8 @@ def _print_summary(results: List[Dict[str, Any]]) -> None:
 async def main(
     tier: str, qids: List[str], bank_prefix: str, out: Path,
     bank_suffix: str = "", primary: str = "hybrid", top_k: int = 5,
-    judge: bool = False, model_answer: str = "gemini-2.5-flash",
-    model_judge: str = "gemini-2.5-flash",
+    judge: bool = False, model_answer: str = DEFAULT_MODEL,
+    model_judge: str = DEFAULT_MODEL,
 ) -> int:
     src = TIER_FILES[tier]
     if not src.exists():
@@ -280,12 +280,12 @@ async def _judge_methods(
     client: HindsightRESTClient, q: Dict[str, Any], row: Dict[str, Any],
     top_k: int, model_answer: str, model_judge: str,
 ) -> None:
-    """Optional: answer+judge each method's top-K session text via gemini.
+    """Optional: answer+judge each method's top-K session text via agy.
 
-    Imported lazily so the pure-retrieval path needs no gemini CLI on PATH.
+    Imported lazily so the pure-retrieval path needs no agy CLI on PATH.
     """
     from .lme_judge import (
-        ANSWER_PROMPT, JUDGE_PROMPT, _gemini_call, _parse_verdict,
+        ANSWER_PROMPT, JUDGE_PROMPT, _agy_call, _parse_verdict,
     )
     bank = row["bank"]
     docs = await _session_texts(client, bank)
@@ -293,11 +293,11 @@ async def _judge_methods(
         top_sids = mdata["ranking"][:top_k]
         context = "\n\n".join(docs.get(s, "") for s in top_sids)
         try:
-            predicted = _gemini_call(
+            predicted = _agy_call(
                 ANSWER_PROMPT.format(context=context, question=q["question"]),
                 model=model_answer,
             )
-            judge_raw = _gemini_call(
+            judge_raw = _agy_call(
                 JUDGE_PROMPT.format(question=q["question"], gold=q["answer"],
                                     predicted=predicted or "(empty)"),
                 model=model_judge,
@@ -330,8 +330,8 @@ if __name__ == "__main__":
     ap.add_argument("--top-k", type=int, default=5)
     ap.add_argument("--judge", action="store_true",
                     help="also answer+judge each method via gemini CLI")
-    ap.add_argument("--model-answer", default="gemini-2.5-flash")
-    ap.add_argument("--model-judge", default="gemini-2.5-flash")
+    ap.add_argument("--model-answer", default=DEFAULT_MODEL)
+    ap.add_argument("--model-judge", default=DEFAULT_MODEL)
     ap.add_argument("--out", type=Path,
                     default=Path(".eval_cache/lme_results/bm25.json"))
     args = ap.parse_args()
