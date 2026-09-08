@@ -1,19 +1,28 @@
 #!/usr/bin/env python3
-"""Read the numbers a KV-cache budget needs out of a gguf header (DP-265).
+"""Read a gguf's *measured* cache shape out of its header (DP-265).
 
 Deployed to the Proxmox node beside ``derpr-model-install``, which calls it after
-a download verifies and folds the output into the job status. It exists so hypr
-can *evaluate*
+a download verifies and folds the output into the job status.
+
+⚠️ **This module reports what the file says; it does not size anything.** It was
+built to feed
 
     KV_bytes_per_token = 2 · n_layer · n_kv_head · head_dim · bytes_per_elem
 
-rather than only recite it. Without these numbers a context size is still picked
-by hand with nothing to check it against.
+and **DP-360 deleted that evaluation**, because ``bytes_per_elem`` is set by the
+``--quantkv`` the process actually runs with and CT101's policy wrapper
+substitutes that per model at exec — so no constant on derpr's side describes the
+configuration being sized. The three numbers below still ship, because they are
+*read off the file* rather than derived and the cached-layer count is available
+nowhere else; what is gone is the multiplication. The caller's answer to "how big
+a context fits" is now a measurement: ``gpu_status`` either side of first
+enabling the unit.
 
 ⚠️ **``n_layer`` is the count of layers that actually cache K/V, which is NOT
 ``block_count`` on every architecture** (DP-344). Getting that wrong is worse
-than having no number, because the formula's output is quoted to a human as
-arithmetic. Two ways the header lies to a naive reader, both measured on models
+than having no number: it is reported to a human as a fact about the file, and a
+wrong fact about the file survives the deletion of the arithmetic that once
+consumed it. Two ways the header lies to a naive reader, both measured on models
 this node serves:
 
 - **Hybrid (Gated DeltaNet) archs** — ``qwen35``, ``qwen35moe`` — interleave
@@ -42,25 +51,42 @@ something else. Validated to the byte against koboldcpp's own
 Stdlib only, and it reads the header and the tensor index, never the tensor
 *data* — a 30 GB file costs a few hundred KB of I/O here.
 
-Output is a **JSON fragment**, not a document::
+Output is a **JSON fragment**, not a document, and its well-formedness is this
+module's responsibility rather than the caller's — ``fragment`` parses what it
+built before returning it, so the bash caller needs no grammar of its own::
 
-    ,"n_layer":48,"n_kv_head":8,"head_dim":128
+    ,"n_layer":48,"n_kv_head":8,"head_dim":128,"ssm_layers":0
 
 or, when the model's cache cannot be described by the formula::
 
-    ,"kv_shape_note":"per-layer attention.head_count_kv ..."
+    ,"kv_shape_note":"per-layer attention.head_count_kv ...","ssm_layers":0
+
+``ssm_layers`` is the count of blocks holding a recurrent state instead of a KV
+cache, and it rides on both shapes because it answers a different question
+(DP-360). Non-zero means hybrid, which is what decides whether
+``--smartcachegrid`` can do anything for a unit; the same walk yields it, so it
+costs nothing to report.
 
 That shape is deliberate: the caller is a bash script on a node with no ``jq``,
 and it appends this straight into the status object it is already printf-ing.
 A file it cannot parse produces **no output and exit 0** — a header quirk must
 never fail an install whose bytes verified.
+
+⚠️ The exit status is the caller's whole gate (DP-360). ``0`` means "stdout is a
+complete fragment, possibly empty"; anything else means this process died before
+it could say that, and the caller must discard whatever it captured. The caller
+used to pattern-match the output instead, which re-derived the grammar above in
+shell and got it wrong twice — first accepting only ``,"n_layer"`` and silently
+discarding every refusal note, then accepting any leading key and with it a
+truncated write. Keep the contract here, where the grammar is.
 """
 
 from __future__ import annotations
 
+import json
 import struct
 import sys
-from typing import Any, BinaryIO, Dict, NamedTuple, Optional, Set
+from typing import Any, BinaryIO, Dict, List, NamedTuple, Optional, Set
 
 _MAGIC = b"GGUF"
 
@@ -108,6 +134,26 @@ _K_TENSOR = "attn_k.weight"
 #: `attn_qkv.weight` is what the *SSM* blocks carry, so preferring it there
 #: would reintroduce exactly the overcount this module exists to avoid.
 _QKV_TENSOR = "attn_qkv.weight"
+#: The tensor that proves a block holds a *recurrent* state instead of a KV
+#: cache. Counting it is what makes hybrid-ness an observation rather than an
+#: architecture-name lookup: `qwen35` and `qwen35moe` are hybrid today, the
+#: next one will not be called either, and a name table is a thing that goes
+#: stale silently (DP-360).
+#:
+#: Counted here rather than read from the `<arch>.ssm.*` metadata keys, which
+#: would also answer yes/no more cheaply. Those keys give the SSM's *shape* and
+#: not how many blocks carry it, and the count is the part that matters: it is
+#: what says 49 of Qwen3.8-27B's 65 blocks cache nothing per token, which is
+#: the same fact `attn_layers` exists to establish, arrived at independently.
+#: All three kinds come off one pass, which makes
+#: `attn + ssm + nextn == block_count` a free check on the walk — a walk that
+#: does not add up is one to distrust. It is not enforced here, because the
+#: recognised-nothing fallback legitimately fails it (0 + 0 + 0 against a real
+#: block_count) and refusing that model would trade a safe overstatement for
+#: silence. `Header.nextn_layers` exists so the check can be made by whoever
+#: has the metadata; `tests/services/test_gguf_header.py` makes it on every
+#: fixture whose naming this module claims to recognise.
+_SSM_TENSOR = "ssm_conv1d.weight"
 #: Prefix of the multi-token-prediction draft block's tensors. Such a block has
 #: a real K projection and is still **not cached**: koboldcpp only runs MTP with
 #: ``--usemtp``, which needs ROCm, and no unit ``install_model`` writes passes
@@ -149,6 +195,15 @@ class Header(NamedTuple):
     #: Blocks carrying a K projection, or None if the tensor index was
     #: unreadable. ``0`` means the index read fine and named no such tensor.
     attn_layers: Optional[int]
+    #: Blocks carrying an SSM convolution. ``0`` on a pure attention model,
+    #: non-zero is what "hybrid" means concretely, and None means the walk
+    #: could not establish either — an unreadable index, or one that named no
+    #: block tensor at all.
+    ssm_layers: Optional[int]
+    #: Blocks excluded as MTP draft layers. Not published to the model; it is
+    #: here so ``attn + ssm + nextn == block_count`` — the partition this walk
+    #: claims to compute — can actually be checked against the metadata.
+    nextn_layers: int = 0
 
 
 def _read(fh: BinaryIO, size: int) -> bytes:
@@ -189,50 +244,108 @@ def _value(fh: BinaryIO, type_id: int) -> Any:
     return _scalar(fh, type_id)
 
 
-def _attention_layers(fh: BinaryIO, tensor_count: int) -> Optional[int]:
-    """Blocks that cache K/V, or None if the index could not be walked.
+def _index_entry(fh: BinaryIO) -> Optional["tuple[str, str]"]:
+    """Consume one tensor-index entry; return ``(block index, suffix)`` or None.
+
+    The consuming is the point and happens on every path, including the two
+    that return None: the index is a packed stream with no entry lengths, so a
+    caller that skipped the fixed-size tail of an uninteresting tensor would
+    resume mid-entry and read subsequent names out of dimension bytes.
+    """
+    name = _string(fh)
+    (n_dims,) = struct.unpack("<I", _read(fh, 4))
+    if n_dims > 8:
+        raise _Bad(f"implausible tensor rank {n_dims}")
+    _read(fh, 8 * n_dims)          # dims
+    _read(fh, 4)                   # ggml type
+    _read(fh, 8)                   # offset
+    if not name.startswith("blk."):
+        return None
+    parts = name.split(".", 2)
+    if len(parts) != 3:
+        return None
+    return parts[1], parts[2]
+
+
+def _block_kinds(
+    fh: BinaryIO, tensor_count: int
+) -> "tuple[int, Optional[int], int]":
+    """``(attention, SSM, draft)`` block counts, all off one index walk.
 
     Counting distinct block indices rather than tensors is deliberate: a block
     is either cached or it is not, and a future arch that splits K across two
     tensors must not count twice.
+
+    The SSM and draft counts ride along on the pass that was already happening.
+    Reading the index twice for them would double the I/O to learn something
+    this walk passes over anyway — and having all three off one walk is what
+    makes ``attn + ssm + nextn == block_count`` checkable by the caller.
+
+    The SSM count is ``None`` when the walk named no block tensor at all, which
+    is a different claim from zero; see the guard below.
     """
     if tensor_count > _MAX_TENSORS:
         raise _Bad(f"implausible tensor count {tensor_count}")
-    k_blocks: Set[str] = set()
-    qkv_blocks: Set[str] = set()
-    nextn_blocks: Set[str] = set()
+    # One set per thing a block index can prove about itself. Kept as sets of
+    # the index string so a block that carries two interesting tensors lands in
+    # both without either being counted twice.
+    seen: Dict[str, Set[str]] = {
+        _K_TENSOR: set(), _QKV_TENSOR: set(), _SSM_TENSOR: set(),
+        _NEXTN_PREFIX: set(),
+    }
     for _ in range(tensor_count):
-        name = _string(fh)
-        (n_dims,) = struct.unpack("<I", _read(fh, 4))
-        if n_dims > 8:
-            raise _Bad(f"implausible tensor rank {n_dims}")
-        _read(fh, 8 * n_dims)          # dims
-        _read(fh, 4)                   # ggml type
-        _read(fh, 8)                   # offset
-        if not name.startswith("blk."):
+        entry = _index_entry(fh)
+        if entry is None:
             continue
-        parts = name.split(".", 2)
-        if len(parts) != 3:
-            continue
-        index, suffix = parts[1], parts[2]
-        if suffix == _K_TENSOR:
-            k_blocks.add(index)
-        elif suffix == _QKV_TENSOR:
-            qkv_blocks.add(index)
-        elif suffix.startswith(_NEXTN_PREFIX):
-            nextn_blocks.add(index)
+        index, suffix = entry
+        if suffix.startswith(_NEXTN_PREFIX):
+            seen[_NEXTN_PREFIX].add(index)
+        elif suffix in seen:
+            seen[suffix].add(index)
+    if not any(seen.values()):
+        # The walk completed and named no block tensor of any kind. That is
+        # "unknown", not "zero of each" — an unfamiliar naming convention, an
+        # index of nothing but output tensors. Reporting 0 SSM blocks off an
+        # index that named none at all is the confident-answer-with-nothing-
+        # behind-it failure this module exists to avoid, so the count is
+        # withheld the same way an unwalkable index withholds it. The
+        # attention count still degrades to 0, which makes `kv_shape` fall
+        # back to `block_count` — overstating the cache, the safe direction.
+        return 0, None, 0
+    nextn_blocks = seen[_NEXTN_PREFIX]
+    # Every candidate set is narrowed BEFORE any of them is tested, so the set
+    # that decides the branch is the set that gets counted. Testing the raw
+    # `attn_k` set and counting the narrowed one disagreed for a model whose
+    # only K projection lives on the draft block: the branch was taken and
+    # returned 0.
+    #
+    # An SSM block is never also a draft block, but subtract anyway: the
+    # exclusion is about what koboldcpp runs, and the two sets are maintained
+    # by different upstreams.
+    ssm_blocks = seen[_SSM_TENSOR] - nextn_blocks
+    k_blocks = seen[_K_TENSOR] - nextn_blocks
+    # ⚠️ The fused set loses the SSM blocks too, and that subtraction is the
+    # whole reason this is a fallback rather than a preference. On the hybrid
+    # archs `attn_qkv.weight` is what the *recurrent* blocks carry, so a hybrid
+    # whose attention blocks are ALSO fused — no separate `attn_k` anywhere —
+    # reaches this line with every block in `qkv_blocks`. Counting them all is
+    # the DP-344 overcount arriving by a second route, and the corrective set
+    # is already in hand.
+    qkv_blocks = seen[_QKV_TENSOR] - nextn_blocks - ssm_blocks
+    ssm = len(ssm_blocks)
+    nextn = len(nextn_blocks)
     if k_blocks:
-        return len(k_blocks - nextn_blocks)
-    return len(qkv_blocks - nextn_blocks)
+        return len(k_blocks), ssm, nextn
+    return len(qkv_blocks), ssm, nextn
 
 
 def read_header(path: str) -> Header:
-    """Metadata plus the attention-layer count. Raises ``_Bad`` on garbage.
+    """Metadata plus the block-kind counts. Raises ``_Bad`` on garbage.
 
     The tensor index is best-effort *within* an otherwise good file: a header
     whose metadata parsed but whose index did not still yields a usable
-    ``n_kv_head``/``head_dim``, and ``kv_shape`` will fall back for the layer
-    count rather than lose the whole estimate.
+    ``n_kv_head``/``head_dim``, and ``kv_shape`` falls back to ``block_count``
+    for the layer count rather than discarding the two numbers that did read.
     """
     with open(path, "rb") as fh:
         if _read(fh, 4) != _MAGIC:
@@ -249,11 +362,21 @@ def read_header(path: str) -> Header:
             value = _value(fh, type_id)
             if value is not None:
                 meta[key] = value
+        attn_layers: Optional[int]
+        ssm_layers: Optional[int]
+        nextn_layers = 0
         try:
-            attn_layers: Optional[int] = _attention_layers(fh, tensor_count)
+            attn_layers, ssm_layers, nextn_layers = _block_kinds(
+                fh, tensor_count
+            )
         except (_Bad, struct.error, UnicodeDecodeError):
-            attn_layers = None
-    return Header(meta=meta, attn_layers=attn_layers)
+            attn_layers = ssm_layers = None
+    return Header(
+        meta=meta,
+        attn_layers=attn_layers,
+        ssm_layers=ssm_layers,
+        nextn_layers=nextn_layers,
+    )
 
 
 def read_metadata(path: str) -> Dict[str, Any]:
@@ -352,26 +475,72 @@ def _json_str(text: str) -> str:
 
 
 def fragment(path: str) -> str:
-    """The JSON fragment for ``path``, or an empty string if unreadable."""
+    """The JSON fragment for ``path``, or an empty string if unreadable.
+
+    ``ssm_layers`` is appended rather than prepended, and that placement is
+    load-bearing for one deploy shape only: an installer OLDER than DP-360 still
+    gates on the leading key, and a node whose artifacts are older than the
+    container is a shape this project keeps meeting. The current installer gates
+    on this process's exit status instead and does not care about key order.
+
+    It is emitted beside a ``kv_shape_note`` as well as beside a shape. Whether
+    the KV formula applies and whether the model is hybrid are separate
+    questions -- gemma4 is refused for windowed attention and is still
+    definitively not hybrid, and that is worth saying.
+
+    The result is parsed before it is returned. The caller splices this into an
+    object it is printf-ing with no encoder anywhere in the path, so a fragment
+    that does not compose is a job document nothing can read -- and the grammar
+    is this module's to keep, not the bash script's to re-derive.
+    """
     try:
         header = read_header(path)
     except (_Bad, OSError, struct.error, UnicodeDecodeError):
         return ""
+    parts: List[str] = []
     shape = kv_shape(header.meta, header.attn_layers)
-    if shape is None:
+    if shape is not None:
+        parts.extend(f',"{k}":{v}' for k, v in shape.items())
+    else:
         note = kv_shape_note(header.meta)
-        if note is None:
-            return ""
-        return f',"kv_shape_note":"{_json_str(note)}"'
-    return "".join(f',"{k}":{v}' for k, v in shape.items())
+        if note is not None:
+            parts.append(f',"kv_shape_note":"{_json_str(note)}"')
+    # None means the index could not be walked, or walked and named no block
+    # tensor at all. Neither is the same claim as zero, and neither may be
+    # reported as "not hybrid".
+    if header.ssm_layers is not None:
+        parts.append(f',"ssm_layers":{header.ssm_layers}')
+    out = "".join(parts)
+    if not out:
+        return ""
+    try:
+        json.loads("{" + out[1:] + "}")
+    except ValueError:
+        # Unreachable barring a bug above, which is exactly when it matters:
+        # silence costs the caller a shape it can measure instead, while a
+        # malformed splice costs it the whole job record.
+        return ""
+    return out
 
 
 def main() -> int:
+    """Write the fragment and exit 0; the exit status IS the caller's gate.
+
+    Exit 0 promises "stdout is a complete fragment", empty included -- a header
+    this cannot read is a normal outcome and must never fail an install whose
+    bytes verified. Every other status means this process did not get to make
+    that promise (an unhandled error, an OOM kill, a failed flush), and the
+    caller discards whatever it captured rather than splicing a partial write
+    into a JSON document. `flush` is explicit so a write that fails does so
+    here, where the interpreter turns it into a non-zero exit, rather than
+    silently at shutdown.
+    """
     if len(sys.argv) != 2:
         return 0
     text = fragment(sys.argv[1])
     if text:
         sys.stdout.write(text)
+    sys.stdout.flush()
     return 0
 
 

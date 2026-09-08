@@ -7,6 +7,11 @@ colliding destination name, and steps reported done off a discarded exit status.
 None of it is reachable from derpr's side, and the node is deployed by hand —
 so a test that mocks the script proves nothing about the file that ships.
 
+DP-360 added a second reason to keep this file: the gguf-header gate lives in
+shell too, and it silently discarded every refusal fragment for months while
+four Python tests of the *producer* passed. A boundary with tests on only one
+side of it is a boundary nothing tests.
+
 The container is a shim directory on `PATH`. It answers the two probes the
 installer now demands positive answers from, which is itself the point of
 defect 6: a `pct exec` that fails is evidence about the *container*, never about
@@ -311,6 +316,130 @@ def test_a_finished_job_releases_its_claim(tmp_path):
     assert _job(tmp_path)["state"] == "done"
     reservation = tmp_path / "archive" / ".jobs" / ".reservations" / "newmodel-1"
     assert not reservation.exists(), "a finished job still holds its space"
+
+
+# -- DP-360: the gguf header gate, exercised in the shell it lives in ---------
+#
+# This section exists because of how DP-360's bug was found. `gguf_header.py`
+# had four Python-side tests covering `kv_shape_note` and all four passed,
+# while the shell `case` that decides whether the fragment is kept required a
+# leading ,"n_layer" and silently dropped every refusal note ever emitted --
+# for months. Nothing tested the boundary, so nothing could catch it.
+#
+# The producer is shimmed rather than run for real: `python3` may not exist on
+# a dev box, and what is under test here is the installer's side of the
+# contract, not the reader's. `test_gguf_header.py` owns the reader.
+
+
+def _header_shim(bindir: Path, tmp_path: Path, script: str) -> str:
+    """Stand in for `python3 $GGUF_HEADER <file>` and return the header path.
+
+    The gate reads `if hdr="$(python3 "$GGUF_HEADER" "$DEST" 2>/dev/null)"`, so
+    both halves have to be shimmed: `python3` becomes a trampoline that runs
+    its first argument under bash, and `$GGUF_HEADER` becomes the bash script
+    standing in for the reader. `script` is that reader's body — it writes a
+    fragment on stdout and exits with the status being tested.
+    """
+    producer = tmp_path / "header-producer"
+    producer.write_text("#!/bin/bash\n" + script, encoding="utf-8")
+    producer.chmod(0o755)
+    trampoline = bindir / "python3"
+    trampoline.write_text('#!/bin/bash\nexec bash "$@"\n', encoding="utf-8")
+    trampoline.chmod(0o755)
+    return producer.as_posix()
+
+
+def _run_with_header(tmp_path, script: str) -> dict:
+    bindir = _shims(tmp_path)
+    env = _env(tmp_path, bindir)
+    env["GGUF_HEADER"] = _header_shim(bindir, tmp_path, script)
+    res = _run(tmp_path, env, "run")
+    assert res.returncode == 0, res.stderr
+    return _job(tmp_path)
+
+
+def test_a_refusal_note_reaches_the_job_status(tmp_path):
+    """The live bug, at the layer it lived in.
+
+    gemma4 emits ,"kv_shape_note":... as its FIRST key. Under the old gate --
+    `case "$hdr" in ,\\"n_layer\\"*)` -- that fragment matched nothing and was
+    dropped, so the one output that exists specifically to STOP a wrong
+    estimate never reached derpr. Four passing Python tests said otherwise.
+    """
+    job = _run_with_header(
+        tmp_path,
+        'printf \'%s\' \',"kv_shape_note":"sliding-window","ssm_layers":0\'\n'
+        "exit 0\n",
+    )
+    assert job["kv_shape_note"] == "sliding-window"
+    assert job["ssm_layers"] == 0
+
+
+def test_a_shape_fragment_reaches_the_job_status(tmp_path):
+    job = _run_with_header(
+        tmp_path,
+        'printf \'%s\' \',"n_layer":16,"n_kv_head":4,"head_dim":256'
+        ',"ssm_layers":48\'\n'
+        "exit 0\n",
+    )
+    assert job["n_layer"] == 16
+    assert job["ssm_layers"] == 48
+
+
+def test_a_key_this_installer_has_never_seen_is_still_kept(tmp_path):
+    """The regression-proofing the widened glob did not actually buy.
+
+    A pattern gate has to be re-widened for every key the reader ever grows,
+    and the failure mode when it is not is silence. Gating on the exit status
+    means the installer never has to know the key names at all -- which is the
+    point, because it is the half of the pair that gets deployed late.
+    """
+    job = _run_with_header(
+        tmp_path,
+        'printf \'%s\' \',"some_future_key":7,"n_layer":16\'\n'
+        "exit 0\n",
+    )
+    assert job["n_layer"] == 16
+
+
+def test_a_reader_that_dies_mid_write_contributes_nothing(tmp_path):
+    """A partial fragment spliced into the status makes the WHOLE job record
+    unparseable, which derpr reports to the operator as "no readable status" --
+    strictly worse than having no header facts.
+
+    The old glob accepted this: `,"n_layer":48,"n_kv` starts with a comma, a
+    quote and lowercase letters, and contains a '":'. Nothing about a pattern
+    match can tell a complete fragment from a truncated one; the exit status
+    can, and it is the producer's to set.
+    """
+    job = _run_with_header(
+        tmp_path,
+        'printf \'%s\' \',"n_layer":48,"n_kv\'\n'
+        "exit 1\n",
+    )
+    assert job["state"] == "done"
+    assert "n_layer" not in job
+    assert "n_kv_head" not in job
+
+
+def test_a_reader_that_reads_nothing_is_not_a_failed_install(tmp_path):
+    """A header quirk must never fail an install whose bytes verified. Empty
+    output with exit 0 is the reader saying "I could not read this file", which
+    is a normal outcome, not an error."""
+    job = _run_with_header(tmp_path, "exit 0\n")
+    assert job["state"] == "done"
+    assert "n_layer" not in job
+    assert "ssm_layers" not in job
+
+
+def test_a_missing_reader_still_finishes_the_install(tmp_path):
+    """The node artifact and the container image are independent deploys, so a
+    node that has not been given `gguf_header.py` yet is a live shape."""
+    env = _env(tmp_path, _shims(tmp_path))  # GGUF_HEADER: no-such-header.py
+    assert _run(tmp_path, env, "run").returncode == 0
+    job = _job(tmp_path)
+    assert job["state"] == "done"
+    assert "n_layer" not in job
 
 
 # -- defect 5: the token plumbing is gone -------------------------------------

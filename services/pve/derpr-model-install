@@ -409,15 +409,35 @@ cmd_run() {
     chmod 644 "$DEST"
   fi
 
-  # Header numbers, so the KV budget can be evaluated rather than only recited.
-  # Best effort: a parse failure must not fail an install whose bytes are good.
+  # Header facts about the file: the cached-layer shape, the SSM block count
+  # that says whether it is hybrid, or the reason its cache is not linear in
+  # context. Best effort -- a parse failure must not fail an install whose
+  # bytes are good.
+  #
+  # DP-360: gate on the producer's EXIT STATUS, never on a pattern matched
+  # against its output. This gate used to require a leading ,"n_layer", which
+  # accepted the shape and silently discarded everything else gguf_header.py
+  # can emit -- a gemma4 model returns ,"kv_shape_note":... as its FIRST key,
+  # so its refusal, the one output that exists specifically to stop a wrong
+  # estimate, never reached the job status at all. Widening that glob would
+  # just move the bug: any pattern here is this script re-deriving a grammar
+  # it does not own, and it has to be re-widened for every key gguf_header.py
+  # ever grows. The producer owns the grammar and validates its own output
+  # before printing it; exit 0 is its promise that stdout is a COMPLETE
+  # fragment, empty included. Anything else means it died before it could
+  # promise that -- an unhandled error, an OOM kill, a half-finished write --
+  # and a partial fragment spliced into the status document makes the whole
+  # job record unparseable for derpr, which reports it as "no readable status".
   if [ -r "$GGUF_HEADER" ] && command -v python3 >/dev/null 2>&1; then
+    # Declared on its own line on purpose: `local hdr="$(...)"` would make the
+    # exit status that of `local`, which is always 0, and this gate would
+    # accept every crash it exists to reject.
     local hdr
-    hdr="$(python3 "$GGUF_HEADER" "$DEST" 2>/dev/null)"
-    case "$hdr" in
-      ,\"n_layer\":*) HEADER_JSON="$hdr" ;;
-      *) HEADER_JSON="" ;;
-    esac
+    if hdr="$(python3 "$GGUF_HEADER" "$DEST" 2>/dev/null)"; then
+      HEADER_JSON="$hdr"
+    else
+      HEADER_JSON=""
+    fi
   fi
 
   write_status running unit "" "$SIZE"
