@@ -52,7 +52,10 @@ judge verdict is invariant to judge-model on fixed predictions.
 | **All** | **17** | **94.1%** | **82.4%** |
 
 (The granite-extract row is a separate extraction-model A/B, not folded into
-the 17-bank "All" total — see the Granite extraction A/B section below.)
+the 17-bank "All" total — see the Granite extraction A/B section below.
+⚠️ That 33.3% is **granite-4.1** and is retired: read it as the shape of failure
+to look for, not as evidence about 4.2. The granite-4.2 arm is **void and
+unscored** — see the Granite-4.2-8b section.)
 
 Per-qtype across all rows:
 
@@ -188,6 +191,79 @@ defining update fact (`finished five issues`) was never extracted (8fb83627);
 latest state. *Caveat:* single-run verdicts; per the temp=0 + k-repeat protocol
 these are unverified across repeats, but the fact-content differences above are
 structural (present/absent in the bank), not judge variance.
+
+## Granite-4.2-8b extraction arm (2026-09-05/06) — 🔴 VOID, NOT SCORED
+
+**No granite-4.2 result exists. This section records why, so the run is not
+mistaken for a finished one and the `_g42` banks are not compared to anything.**
+
+The arm re-ingested the same 3 m-tier qids on `:8890` with **granite-4.2-8b**
+(served from omen `:5099`) behind a response-wrapping shim, since the model
+cannot emit `{"facts": [...]}` unaided. **Only one of three banks landed.**
+
+| bank | docs | facts | state |
+|------|-----:|------:|-------|
+| `lme_m_1c549ce4_g42` | 471 | 11,989 | ✅ complete, `pending_consolidation: 0` |
+| `lme_m_8fb83627_g42` | 0 | 0 | ❌ empty shell — **this is the decisive qid** |
+| `lme_m_7161e7e2_g42` | — | — | ❌ never created; absent from `/v1/default/banks` |
+
+The ingest queue drained bank 1 over 6.9 h, then failed to fire bank 2 — the
+only WARN in the whole log:
+
+```
+[1c549ce4] near-drain (busy=3 <= 3); firing next [8fb83627]
+[WARN] failed to fire next 8fb83627: Hindsight API Error 500:
+  {"detail":"could not resize shared memory segment \"/PostgreSQL.3661487768\"
+   to 533794912 bytes: No space left on device"}
+```
+
+`hindsight-g42` runs postgres in-container on the **Docker default 64 MB
+`/dev/shm`**; production `hindsight-memory` has **4 GB**. 509 MB was requested
+against 64 MB. **`No space left on device` here is `/dev/shm`, not disk** — the
+thin pool was at 61% and healthy throughout. **This is deterministic: re-running
+without `--shm-size=1g` on the container fails at the same point.**
+
+Scoring was not run. Doing so would have produced a fabricated **0%** on
+`8fb83627` — the one question that separated granite-4.1 from qwen — from an
+empty bank rather than from the model.
+
+**⚠️ Two traps that made a one-third run look finished:**
+
+1. **The ingest queue downgraded a fatal queue failure to `[WARN]`**, kept
+   polling bank 1 to completion, never retried, and exited without a non-zero
+   status. Bank 1 is genuinely good, which is what makes it convincing.
+2. **`/banks/<id>/stats` cannot distinguish "drained" from "does not exist."**
+   Measured against a deliberately invented name:
+
+   ```
+   GET /v1/default/banks/lme_m_deadbeef_nope/stats
+   → HTTP 200  {"total_documents":0, …, "pending_consolidation":0}
+   ```
+
+   A nonexistent bank **passes** a `pending_consolidation == 0` readiness check.
+   `GET` on the bank itself returns `405 Method Not Allowed` either way. **Always
+   read `total_documents` / `total_nodes` alongside `pending_consolidation`.**
+
+The only datum the arm produced, from the surviving bank — facts extracted from
+the two gold documents, against the qwen baseline:
+
+| gold doc | qwen | granite-4.2 |
+|----------|-----:|------------:|
+| `answer_4cb841a8_1` | 12 | **31** |
+| `answer_4cb841a8_2` | 16 | **28** |
+
+granite-4.2 emitted ~2× the facts per gold document. **This is volume, not
+quality, and is not a positive signal**: granite-4.1 also over-emitted (the
+near-duplicate `$20`/`$120` pairs above, which pushed its correct answer to a
+larger k) and still lost the decisive qid. More facts per document predicts
+nothing about whether the *right* fact survives.
+
+**To repeat this arm:** recreate `hindsight-g42` with `--shm-size=1g`, delete
+the empty `lme_m_8fb83627_g42`, re-run the ingest queue for all three qids, and
+confirm all three banks report thousands of facts *and* non-zero
+`total_documents` before scoring. A pass would still not make granite-4.2-8b
+deployable — production has no shim, and the model cannot emit
+`{"facts": [...]}` unaided.
 
 ## Judge meta-eval (2026-05-27) — judge model is not the lever
 
