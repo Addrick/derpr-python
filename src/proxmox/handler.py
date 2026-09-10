@@ -429,15 +429,13 @@ class ProxmoxToolHandler:
         must not collapse into one another.
 
         Both are already in the tokens this call parses, so surfacing them
-        costs no extra round trip — but they are **not equally good evidence**,
-        and DP-360 is why. ``contextsize`` is empirical: a unit that has been
-        serving :5001 for weeks at a given context has demonstrated that
-        context fits, which beats any arithmetic derived from a header.
-        ``quantkv`` is a *request*: CT101's ``model-policy.conf`` wrapper
-        substitutes it per model at exec, so the number here is not necessarily
-        the number the process runs with. That is exactly the unsourceable term
-        DP-360 deleted the KV estimate over, so the caller publishes it as
-        ``quantkv_requested`` rather than letting it read as an observation.
+        costs no extra round trip. ``contextsize`` is empirical: a unit that
+        has been serving :5001 for weeks at a given context has demonstrated
+        that context fits, which beats any arithmetic derived from a header.
+        ``quantkv`` is what makes two such anchors comparable. DP-360 published
+        it as ``quantkv_requested``, because CT101's ``model-policy.conf``
+        wrapper rewrote it at exec; DP-364 removed the wrapper and writes the
+        approved tuning into the unit, so the unit file is what runs again.
         """
         res = await self._run([
             "pct", "exec", vmid, "--",
@@ -582,16 +580,12 @@ class ProxmoxToolHandler:
         # flag, so "runs 163840" and "does not say" stay distinguishable.
         if isinstance(spec.get("contextsize"), int):
             row["contextsize"] = spec["contextsize"]
-        # DP-360: published under a name that says what it is. `--quantkv` is
-        # the one flag on this line the unit file does NOT settle — CT101's
-        # `model-policy.conf` wrapper substitutes it per model at exec, which
-        # is the whole reason the KV estimate was deleted. Sending it as
-        # `quantkv` alongside a `contextsize` that IS what runs invited the
-        # reader to treat both as the box's evidence, and one of them is a
-        # request. The suffix travels with the value; a caveat in a tool
-        # description does not.
+        # DP-364: plain `quantkv` again. DP-360 renamed it `quantkv_requested`
+        # while CT101's `model-policy.conf` wrapper rewrote it at exec; with the
+        # wrapper gone the unit file is what the process runs, and an anchor's
+        # contextsize only transfers between units at the same precision.
         if isinstance(spec.get("quantkv"), int):
-            row["quantkv_requested"] = spec["quantkv"]
+            row["quantkv"] = spec["quantkv"]
         return row
 
     @staticmethod

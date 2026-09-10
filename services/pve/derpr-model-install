@@ -11,9 +11,9 @@
 # subcommands. Widening the key to arbitrary node write in order to simplify the
 # handler would trade the entire point away.
 #
-#   derpr-model-install install <repo> <file> <name> <ctx> <size> <sha256> <job>
+#   derpr-model-install install <repo> <file> <name> <ctx> <size> <sha256> <job> <tuning>
 #   derpr-model-install status  <job>
-#   derpr-model-install run     <repo> <file> <name> <ctx> <size> <sha256> <job>
+#   derpr-model-install run     <repo> <file> <name> <ctx> <size> <sha256> <job> <tuning>
 #
 # `install` validates, prechecks free space, and hands the long download to
 # systemd-run so it survives the SSH disconnect; `run` is what systemd executes
@@ -28,6 +28,13 @@
 #     has fooled this project before.
 #   * The unit is written DISABLED. Putting a model on :5001 is set_active_model's
 #     job and gets its own approval.
+#   * The unit is written COMPLETE (DP-364). <tuning> is `<kv>-<cache>`, proposed
+#     by the persona and shown on the approval card, and this script turns it
+#     into --quantkv and the smartcache flags it means. Every flag the unit runs
+#     with is in the unit file: nothing downstream rewrites argv at exec. CT101
+#     used to carry exactly that -- a policy wrapper over the koboldcpp binary,
+#     because the template hardcoded one --quantkv / --smartcache for every
+#     model -- and it also rewrote every non-derpr launch on the box.
 #   * Refuse, never truncate, on insufficient space. NOTE (DP-340): this check
 #     now guards the ARCHIVE disk, an ordinary partition where df is the truth.
 #     It used to guard /srv/models, a thin LV, where df reports the volume's
@@ -60,6 +67,12 @@ HF_BASE="${HF_BASE:-https://huggingface.co}"
 MIN_MARGIN_BYTES="${MIN_MARGIN_BYTES:-2147483648}"
 # How often the download loop republishes downloaded_bytes.
 PROGRESS_INTERVAL="${PROGRESS_INTERVAL:-5}"
+# DP-364: what the cache half of a tuning expands to. Box constants, not
+# per-model choices: the per-model choice is WHICH mode, and that is approved.
+#   swap -> --smartcache $SMARTCACHE_SLOTS       (conversations kept for switching)
+#   grid -> --smartcachegrid $SMARTCACHEGRID_MB  (checkpoint budget, megabytes)
+SMARTCACHE_SLOTS="${SMARTCACHE_SLOTS:-4}"
+SMARTCACHEGRID_MB="${SMARTCACHEGRID_MB:-32768}"
 # DP-349: the free-space precheck and the reservation ledger are one
 # critical section. Without the lock, N concurrent installs each verify the
 # same free bytes against themselves and are all admitted into space that
@@ -87,6 +100,7 @@ re_name='^[a-z0-9][a-z0-9-]{0,48}$'
 re_job='^[a-z0-9][a-z0-9-]{0,63}$'
 re_sha='^[a-f0-9]{64}$'
 re_num='^[0-9]+$'
+re_tuning='^(f16|q8|q4)-(off|swap|grid)$'
 
 # ---------------------------------------------------------------------------
 # job status
@@ -199,6 +213,7 @@ write_status() {
     "$JOB" "$state" "$step" "$reason" > "$tmp"
   printf '"repo":"%s","file":"%s","name":"%s","unit":"koboldcpp-%s.service",' \
     "$REPO" "$FILE" "$NAME" "$NAME" >> "$tmp"
+  printf '"tuning":"%s",' "$TUNING" >> "$tmp"
   printf '"size_bytes":%s,"downloaded_bytes":%s,"contextsize":%s,"sha256":"%s",' \
     "$SIZE" "$downloaded" "$CTX" "$SHA" >> "$tmp"
   printf '"started":"%s","finished":"%s"%s}\n' \
@@ -215,11 +230,38 @@ write_status() {
 }
 
 # ---------------------------------------------------------------------------
+# tuning (DP-364)
+# ---------------------------------------------------------------------------
+# <kv>-<cache>, already matched against $re_tuning.
+#   kv     f16 | q8 | q4        -> --quantkv 0 | 1 | 2
+#   cache  off | swap | grid    -> nothing | --smartcache N | --smartcachegrid MB
+# swap and grid are mutually exclusive in the fork: grid spends its whole
+# budget on checkpoint rungs and has no swap slots, so this never emits both.
+# grid is only usable by a hybrid, which cannot be known until the file is on
+# disk -- cmd_run checks it before writing the unit.
+resolve_tuning() {
+  [[ "$SMARTCACHE_SLOTS"  =~ $re_num ]] || die "SMARTCACHE_SLOTS is not a number"
+  [[ "$SMARTCACHEGRID_MB" =~ $re_num ]] || die "SMARTCACHEGRID_MB is not a number"
+  case "${TUNING%-*}" in
+    f16) QUANTKV=0 ;;
+    q8)  QUANTKV=1 ;;
+    q4)  QUANTKV=2 ;;
+  esac
+  CACHE_MODE="${TUNING#*-}"
+  case "$CACHE_MODE" in
+    off)  CACHE_FLAGS="" ;;
+    swap) CACHE_FLAGS=" --smartcache $SMARTCACHE_SLOTS" ;;
+    grid) CACHE_FLAGS=" --smartcachegrid $SMARTCACHEGRID_MB" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
 # argument gate
 # ---------------------------------------------------------------------------
 parse_job_args() {
-  [ "$#" -eq 7 ] || die "expected 7 arguments, got $#"
+  [ "$#" -eq 8 ] || die "expected 8 arguments, got $#"
   REPO="$1"; FILE="$2"; NAME="$3"; CTX="$4"; SIZE="$5"; SHA="$6"; JOB="$7"
+  TUNING="$8"
   [[ "$REPO" =~ $re_repo ]] || die "invalid repo"
   [[ "$FILE" =~ $re_file ]] || die "invalid file"
   [[ "$FILE" != *".."* ]]   || die "invalid file"
@@ -228,6 +270,8 @@ parse_job_args() {
   [[ "$SIZE" =~ $re_num  ]] || die "invalid size"
   [[ "$SHA"  =~ $re_sha  ]] || die "invalid sha256"
   [[ "$JOB"  =~ $re_job  ]] || die "invalid job id"
+  [[ "$TUNING" =~ $re_tuning ]] || die "invalid tuning"
+  resolve_tuning
   # The destination basename comes from $NAME, not from the repo file name.
   # Two unrelated repos both publishing `model-Q4_K_M.gguf` is ordinary, and
   # under a repo-derived basename the second is uninstallable while its
@@ -323,7 +367,7 @@ cmd_install() {
   # is exactly when that would bite).
   systemd-run --collect --unit="modelinstall-$JOB" \
     --setenv=STARTED="$STARTED" \
-    "$0" run "$REPO" "$FILE" "$NAME" "$CTX" "$SIZE" "$SHA" "$JOB" >/dev/null 2>&1 \
+    "$0" run "$REPO" "$FILE" "$NAME" "$CTX" "$SIZE" "$SHA" "$JOB" "$TUNING" >/dev/null 2>&1 \
     || { release_reservation; die "could not start background job"; }
   log "ALLOW install $REPO/$FILE as $NAME job=$JOB"
   cat "$JOBS_DIR/$JOB.json"
@@ -440,14 +484,36 @@ cmd_run() {
     fi
   fi
 
+  # DP-364: grid on a model that is not a hybrid gives up swapping for rungs it
+  # cannot use, and kcpp would start without complaint -- so the node refuses
+  # rather than writing a unit that is silently wrong. "Could not tell" is
+  # refused too: the approval named grid on the premise that this is a hybrid,
+  # and an unverified premise is not one. The verified bytes stay in the
+  # archive, so a retry under another tuning reuses them without a download.
+  if [ "$CACHE_MODE" = grid ]; then
+    local ssm=""
+    if [ -r "$GGUF_HEADER" ] && command -v python3 >/dev/null 2>&1; then
+      ssm="$(python3 "$GGUF_HEADER" --ssm-layers "$DEST" 2>/dev/null)" || ssm=""
+    fi
+    if ! [[ "$ssm" =~ $re_num ]] || [ "$ssm" -eq 0 ]; then
+      FINISHED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      write_status failed unit "grid_needs_hybrid" "$SIZE"
+      log "FAIL job=$JOB tuning $TUNING needs a hybrid; ssm_layers=${ssm:-unknown}"
+      exit 1
+    fi
+  fi
+
   write_status running unit "" "$SIZE"
   local tmp="/tmp/derpr-$UNIT.$$"
   sed -e "s|@@NAME@@|$NAME|g" \
       -e "s|@@JOB_ID@@|$JOB|g" \
+      -e "s|@@TUNING@@|$TUNING|g" \
       -e "s|@@KCPP_DIR@@|$KCPP_DIR|g" \
       -e "s|@@MODEL_PATH@@|$CT_MODELS_DIR/$BASENAME|g" \
       -e "s|@@PORT@@|$KCPP_PORT|g" \
       -e "s|@@CONTEXTSIZE@@|$CTX|g" \
+      -e "s|@@QUANTKV@@|$QUANTKV|g" \
+      -e "s|@@CACHE_FLAGS@@|$CACHE_FLAGS|g" \
       "$TEMPLATE" > "$tmp" || { write_status failed unit "template_failed" "$SIZE"; exit 1; }
 
   if ! pct push "$CT_VMID" "$tmp" "/etc/systemd/system/$UNIT" --perms 644; then

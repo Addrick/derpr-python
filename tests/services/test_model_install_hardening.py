@@ -90,9 +90,12 @@ def _shims(tmp_path: Path, *, unit_present: bool = False,
 
     present = "present" if unit_present else "absent"
     probe = "" if unit_probe_broken else f"echo {present}"
+    # `push` keeps a copy of what was pushed, so a test can read the unit the
+    # installer actually rendered (DP-364) rather than trusting the template.
     (bindir / "pct").write_text(
         "#!/bin/bash\n"
         'case "$*" in\n'
+        f'  push*) cp "$3" "{tmp_path.as_posix()}/pushed-$(basename "$4")" ;;\n'
         f'  *LoadState*) echo {load_state} ;;\n'
         f'  *"echo present"*) {probe or ":"} ;;\n'
         f'  *daemon-reload*) exit {reload_rc} ;;\n'
@@ -129,9 +132,10 @@ def _env(tmp_path: Path, bindir: Path) -> dict:
 
 def _run(tmp_path: Path, env: dict, verb: str, *args: str,
          size: int = SIZE, sha: str = SHA, name: str = "newmodel",
-         job: str = "newmodel-1") -> subprocess.CompletedProcess:
+         job: str = "newmodel-1",
+         tuning: str = "q8-swap") -> subprocess.CompletedProcess:
     argv = [_BASH, str(_INSTALL), verb, "owner/repo", "model-Q4_K_M.gguf",
-            name, "8192", str(size), sha, job]
+            name, "8192", str(size), sha, job, tuning]
     return subprocess.run(argv + list(args), env=env, cwd=tmp_path,
                           capture_output=True, text=True)
 
@@ -440,6 +444,107 @@ def test_a_missing_reader_still_finishes_the_install(tmp_path):
     job = _job(tmp_path)
     assert job["state"] == "done"
     assert "n_layer" not in job
+
+
+# -- DP-364: the unit is written complete -------------------------------------
+#
+# CT101 carried a policy wrapper over the koboldcpp binary because the template
+# hardcoded `--quantkv 1 --multiuser 4 --smartcache 4` into every unit, and a
+# per-model fix made by hand was reverted by the next reinstall. These render
+# the REAL template through the installer, so what is asserted is the unit the
+# node would push -- the only artefact the process ever reads.
+
+_TEMPLATE = _SERVICES / "koboldcpp-model.service.in"
+
+_HYBRID = (
+    '[ "$1" = --ssm-layers ] && { printf 48; exit 0; }\n'
+    "printf '%s' ',\"ssm_layers\":48'\n"
+)
+_DENSE = (
+    '[ "$1" = --ssm-layers ] && { printf 0; exit 0; }\n'
+    "printf '%s' ',\"ssm_layers\":0'\n"
+)
+
+
+def _render(tmp_path: Path, tuning: str, header: str | None = None,
+            **extra_env: str) -> subprocess.CompletedProcess:
+    bindir = _shims(tmp_path)
+    env = _env(tmp_path, bindir)
+    env["TEMPLATE"] = _TEMPLATE.as_posix()
+    env.update(extra_env)
+    if header is not None:
+        env["GGUF_HEADER"] = _header_shim(bindir, tmp_path, header)
+    return _run(tmp_path, env, "run", tuning=tuning)
+
+
+def _exec_start(tmp_path: Path) -> str:
+    unit = (tmp_path / "pushed-koboldcpp-newmodel.service").read_text()
+    return next(line for line in unit.splitlines() if line.startswith("ExecStart="))
+
+
+def test_the_template_hardcodes_no_per_model_flag():
+    text = _TEMPLATE.read_text(encoding="utf-8")
+    assert "@@QUANTKV@@" in text and "@@CACHE_FLAGS@@" in text
+    assert "--quantkv 1" not in text
+    assert "--smartcache 4" not in text
+    assert "--multiuser 4" not in text
+
+
+@pytest.mark.parametrize("tuning,quantkv,cache", [
+    ("q8-swap", "--quantkv 1", "--smartcache 4"),
+    ("f16-swap", "--quantkv 0", "--smartcache 4"),
+    ("q4-off", "--quantkv 2", None),
+])
+def test_the_unit_carries_the_approved_tuning(tmp_path, tuning, quantkv, cache):
+    res = _render(tmp_path, tuning)
+    assert res.returncode == 0, res.stderr
+    line = _exec_start(tmp_path)
+    assert f" {quantkv} " in f"{line} "
+    assert "--multiuser 1" in line
+    if cache:
+        assert line.endswith(cache)
+    else:
+        assert "--smartcache" not in line
+    assert _job(tmp_path)["tuning"] == tuning
+
+
+def test_grid_on_a_hybrid_writes_grid_and_no_swap_slots(tmp_path):
+    """Grid and swap are mutually exclusive in the fork; emitting both would
+    leave kcpp to pick one, which is the silent no-op DP-326 already had."""
+    res = _render(tmp_path, "q8-grid", header=_HYBRID)
+    assert res.returncode == 0, res.stderr
+    line = _exec_start(tmp_path)
+    assert line.endswith("--smartcachegrid 32768")
+    assert "--smartcache " not in line
+
+
+def test_the_grid_budget_is_a_site_setting(tmp_path):
+    res = _render(tmp_path, "q8-grid", header=_HYBRID, SMARTCACHEGRID_MB="16384")
+    assert res.returncode == 0, res.stderr
+    assert _exec_start(tmp_path).endswith("--smartcachegrid 16384")
+
+
+@pytest.mark.parametrize("header", [_DENSE, None], ids=["dense", "unreadable"])
+def test_grid_is_refused_unless_the_model_is_known_hybrid(tmp_path, header):
+    """Grid on a dense model gives up swapping for rungs it cannot use, and
+    kcpp starts without complaint. "Could not tell" is refused too: the
+    approval named grid on the premise that this is a hybrid."""
+    res = _render(tmp_path, "q8-grid", header=header)
+    assert res.returncode == 1
+    job = _job(tmp_path)
+    assert job["state"] == "failed" and job["reason"] == "grid_needs_hybrid"
+    assert not (tmp_path / "pushed-koboldcpp-newmodel.service").exists()
+    # The verified bytes stay, so a retry under another tuning is not a
+    # second multi-GB download.
+    assert (tmp_path / "archive" / "models" / "newmodel.gguf").exists()
+
+
+def test_an_unknown_tuning_is_refused_before_anything_moves(tmp_path):
+    env = _env(tmp_path, _shims(tmp_path))
+    res = _run(tmp_path, env, "install", tuning="q8-both")
+    assert res.returncode == 1
+    assert "invalid tuning" in res.stderr
+    assert not (tmp_path / "archive" / ".jobs" / "newmodel-1.json").exists()
 
 
 # -- defect 5: the token plumbing is gone -------------------------------------

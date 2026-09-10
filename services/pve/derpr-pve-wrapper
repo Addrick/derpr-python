@@ -49,6 +49,8 @@ mname='^[a-z0-9][a-z0-9-]{0,48}$'
 jobid='^[a-z0-9][a-z0-9-]{0,63}$'
 sha='^[a-f0-9]{64}$'
 num='^[0-9]+$'
+# DP-364: <kv>-<cache>, the unit tuning a human approved on the install card.
+tuning='^(f16|q8|q4)-(off|swap|grid)$'
 installer='/usr/local/sbin/derpr-model-install'
 # DP-340 tiering. `gbase` is a bare gguf basename -- the tier verbs address
 # models by filename inside two fixed directories the script owns, so no path
@@ -65,12 +67,12 @@ case "${a[0]:-}" in
   # DP-265: the ONE node-side verb for HuggingFace model provisioning. `run` is
   # deliberately absent — systemd invokes that locally; sshd must not.
   "$installer")
-    if [ "${a[1]:-}" = install ] && [ "$n" -eq 9 ] \
+    if [ "${a[1]:-}" = install ] && [ "$n" -eq 10 ] \
        && [[ "${a[2]}" =~ $repo ]] && [[ "${a[3]}" =~ $gfile ]] \
        && [[ "${a[3]}" != *".."* ]] \
        && [[ "${a[4]}" =~ $mname ]] && [[ "${a[5]}" =~ $num ]] \
        && [[ "${a[6]}" =~ $num ]] && [[ "${a[7]}" =~ $sha ]] \
-       && [[ "${a[8]}" =~ $jobid ]]; then allow; fi
+       && [[ "${a[8]}" =~ $jobid ]] && [[ "${a[9]}" =~ $tuning ]]; then allow; fi
     if [ "${a[1]:-}" = status ] && [ "$n" -eq 3 ] \
        && [[ "${a[2]}" =~ $jobid ]]; then allow; fi
     ;;

@@ -144,7 +144,9 @@ HUGGINGFACE_TOOLS: List[Dict[str, Any]] = [
                 "a koboldcpp systemd unit for it, so it becomes a choice "
                 "list_models offers and set_active_model can switch to. "
                 "Requires human approval, and the approval card shows the repo, "
-                "file, byte size and sha256 read from HuggingFace itself. "
+                "file, byte size and sha256 read from HuggingFace itself, plus "
+                "the tuning you chose. Every flag the unit runs with is written "
+                "into it, so list_models reports what it actually runs. "
                 "The download continues on the node after this returns — poll "
                 "install_status with the job_id. The unit is written DISABLED "
                 "and does NOT start: putting it on :5001 is a separate "
@@ -181,25 +183,50 @@ HUGGINGFACE_TOOLS: List[Dict[str, Any]] = [
                             "koboldcpp --contextsize for the new unit. Defaults "
                             "to a deliberately small 8192, because the unit "
                             "lands disabled and a human tunes this against "
-                            "gpu_status before enabling it. This is the ONLY "
-                            "VRAM knob any tool here exposes. Pick it by "
-                            "comparison and by measurement, not by arithmetic: "
-                            "anchor on a unit list_models already reports "
-                            "running on this card at a known contextsize, and "
-                            "confirm by reading gpu_status before the unit is "
-                            "first enabled and again after. Do NOT derive a "
-                            "VRAM total — the KV cache does scale linearly "
-                            "with this number, but its bytes-per-element term "
-                            "depends on the --quantkv the process actually "
-                            "runs with, which no tool here reports and no "
-                            "constant can stand in for, so any product you "
-                            "form is a confident wrong number. Overshooting "
-                            "into GTT is recoverable; a wrong total quoted as "
+                            "gpu_status before enabling it. With the tuning's "
+                            "precision it is one of the two VRAM knobs here. "
+                            "Pick it by comparison and by measurement, not by "
+                            "arithmetic: anchor on a unit list_models already "
+                            "reports running on this card at a known "
+                            "contextsize and the same quantkv, and confirm by "
+                            "reading gpu_status before the unit is first "
+                            "enabled and again after. Do NOT derive a VRAM "
+                            "total — a figure assembled from header terms has "
+                            "matched a real measurement on this box only by "
+                            "two errors cancelling, so any product you form is "
+                            "a confident wrong number. Overshooting into GTT "
+                            "is recoverable; a wrong total quoted as "
                             "arithmetic is not."
                         ),
                     },
+                    "tuning": {
+                        "type": "string",
+                        "enum": [
+                            f"{kv}-{cache}"
+                            for kv in ("f16", "q8", "q4")
+                            for cache in ("off", "swap", "grid")
+                        ],
+                        "description": (
+                            "How the unit holds its KV cache, as "
+                            "<precision>-<cache mode>. Precision: q8 is the "
+                            "usual choice; f16 is full precision and roughly "
+                            "doubles the cache; q4 halves it again and costs "
+                            "output quality, so propose it only when the "
+                            "context cannot fit otherwise. Cache mode: swap "
+                            "keeps several conversations' contexts so switching "
+                            "between them does not reprocess the prompt — the "
+                            "right choice for a model that will serve more "
+                            "than one conversation. grid instead checkpoints "
+                            "ONE deep conversation so edits and retries deep "
+                            "in it do not reprocess; it gives up swapping "
+                            "entirely and only works on a hybrid model "
+                            "(install_status reports ssm_layers > 0), so the "
+                            "node refuses it for anything else. off is plain "
+                            "prefix reuse. Say which you chose and why."
+                        ),
+                    },
                 },
-                "required": ["repo", "file", "name"],
+                "required": ["repo", "file", "name", "tuning"],
             },
         },
     },
@@ -238,8 +265,13 @@ HUGGINGFACE_TOOLS: List[Dict[str, Any]] = [
                 "that actually cache, which is not the block count on a hybrid "
                 "model), and ssm_layers — how many blocks hold a recurrent "
                 "state instead of a KV cache, so a non-zero value means the "
-                "model is a hybrid and --smartcachegrid can do something for "
+                "model is a hybrid and a grid tuning can do something for "
                 "it. These are measurements read off the file, not estimates. "
+                "A job that failed with reason grid_needs_hybrid downloaded "
+                "and verified the file and then refused to write a grid unit "
+                "for a model that is not a hybrid: the bytes are kept, so "
+                "installing it again under a non-grid tuning does not "
+                "download again. "
                 "It reports no cache size and no VRAM total: multiplying that "
                 "shape out needs a bytes-per-element term nothing here can "
                 "source, so the job's note points at the gpu_status "

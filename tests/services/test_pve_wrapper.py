@@ -167,7 +167,9 @@ def emitted(monkeypatch) -> List[List[str]]:
         # DP-340: the cold target promotes instead of swapping, which is a
         # different argv family and therefore a different wrapper entry.
         await pve._set_active_model("archived")
-        await hf._install_model("owner/m-GGUF", "model-Q6_K.gguf", "newmodel")
+        await hf._install_model(
+            "owner/m-GGUF", "model-Q6_K.gguf", "newmodel", tuning="q8-grid"
+        )
         await hf.job_status("newmodel-abc123def456")
 
     asyncio.run(drive())
@@ -233,15 +235,25 @@ def test_a_cold_target_promotes_and_touches_nothing_else(emitted):
     # `run` is systemd's entry point, not sshd's: admitting it would let a
     # caller skip the free-space precheck and the existing-unit refusal.
     "/usr/local/sbin/derpr-model-install run owner/m model.gguf n 8192 1 "
-    + "a" * 64 + " job1",
+    + "a" * 64 + " job1 q8-swap",
     # Arity and charset gates on the install verb.
     "/usr/local/sbin/derpr-model-install install owner/m model.gguf n 8192",
     "/usr/local/sbin/derpr-model-install install ../../etc model.gguf n 8192 1 "
-    + "a" * 64 + " job1",
+    + "a" * 64 + " job1 q8-swap",
     "/usr/local/sbin/derpr-model-install install owner/m model.gguf UPPER 8192 1 "
+    + "a" * 64 + " job1 q8-swap",
+    "/usr/local/sbin/derpr-model-install install owner/m model.gguf n 8192 1 "
+    "nothexdigest job1 q8-swap",
+    # DP-364: the pre-tuning shape is gone -- a unit written from it would
+    # carry no approved flags -- and the tuning is a closed vocabulary.
+    "/usr/local/sbin/derpr-model-install install owner/m model.gguf n 8192 1 "
     + "a" * 64 + " job1",
     "/usr/local/sbin/derpr-model-install install owner/m model.gguf n 8192 1 "
-    "nothexdigest job1",
+    + "a" * 64 + " job1 q8-both",
+    "/usr/local/sbin/derpr-model-install install owner/m model.gguf n 8192 1 "
+    + "a" * 64 + " job1 q8-swap-grid",
+    "/usr/local/sbin/derpr-model-install install owner/m model.gguf n 8192 1 "
+    + "a" * 64 + " job1 q8-swap extra",
     "/usr/local/sbin/derpr-model-install status ../../etc/passwd",
     # DP-340 tiering. `run-promote` is systemd's local entry point: admitting it
     # over ssh would let a caller skip the job-record and duplicate-job gates.
@@ -265,10 +277,31 @@ def test_hostile_shapes_are_refused(wrapper, cmd):
     assert _verdict(wrapper, shlex.split(cmd)) == "DENY"
 
 
-def test_the_install_verb_is_admitted_in_full(wrapper):
+@pytest.mark.parametrize("tuning", [
+    f"{kv}-{cache}" for kv in ("f16", "q8", "q4") for cache in ("off", "swap", "grid")
+])
+def test_the_install_verb_is_admitted_in_full(wrapper, tuning):
+    """Every tuning the tool schema offers must be one sshd admits."""
     argv = [
         "/usr/local/sbin/derpr-model-install", "install",
         "unsloth/gemma-4-31b-it-GGUF", "gemma-4-31b-it-Q4_K_M.gguf",
-        "gemma31b", "8192", str(SIZE), SHA, "gemma31b-0123456789ab",
+        "gemma31b", "8192", str(SIZE), SHA, "gemma31b-0123456789ab", tuning,
     ]
     assert _verdict(wrapper, argv) == "ALLOW"
+
+
+def test_the_schema_offers_exactly_the_tunings_the_wrapper_admits(wrapper):
+    """The enum on `install_model.tuning` and the wrapper's regex are two
+    copies of one vocabulary. A value in the enum the wrapper refuses is a
+    tool that fails only in production -- the DP-332 shape."""
+    from src.tools.tool_defs.huggingface import HUGGINGFACE_TOOLS
+
+    tool = next(t for t in HUGGINGFACE_TOOLS if t["function"]["name"] == "install_model")
+    enum = tool["function"]["parameters"]["properties"]["tuning"]["enum"]
+    assert len(enum) == 9
+    for tuning in enum:
+        argv = [
+            "/usr/local/sbin/derpr-model-install", "install", "owner/m",
+            "model.gguf", "n", "8192", "1", SHA, "job1", tuning,
+        ]
+        assert _verdict(wrapper, argv) == "ALLOW", tuning

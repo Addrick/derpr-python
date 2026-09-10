@@ -145,7 +145,12 @@ KCPP_DIR=/opt/koboldcpp
 KCPP_PORT=5001
 MIN_MARGIN_BYTES=2147483648      # free space kept beyond the download
 LOCK_WAIT=60                     # seconds to wait for the install lock (DP-349)
+SMARTCACHE_SLOTS=4               # what a `swap` tuning writes: --smartcache N (DP-364)
+SMARTCACHEGRID_MB=32768          # what a `grid` tuning writes: --smartcachegrid MB
 ```
+
+The two cache settings are **box constants**, not per-model choices. The
+per-model choice is *which* mode, and that is the approved `tuning` (below).
 
 Concurrent installs are admitted under one lock (DP-349). The precheck and the
 `systemd-run` that commits to it are a single critical section, and each running
@@ -243,13 +248,34 @@ Unset it and the turn still runs (and can still park) — nothing is announced.
 ## What `derpr-model-install` does, and what it refuses
 
 ```
-derpr-model-install install <repo> <file> <name> <ctx> <size> <sha256> <job_id>
+derpr-model-install install <repo> <file> <name> <ctx> <size> <sha256> <job_id> <tuning>
 derpr-model-install status  <job_id>
-derpr-model-install run     <repo> <file> <name> <ctx> <size> <sha256> <job_id>
+derpr-model-install run     <repo> <file> <name> <ctx> <size> <sha256> <job_id> <tuning>
 ```
 
 `run` is what `systemd-run` executes and is **not** in the wrapper's allowlist —
 it is reachable locally only.
+
+`<tuning>` (DP-364) is `<kv>-<cache>`, proposed by the persona and shown on the
+approval card:
+
+| half | values | written into the unit as |
+|---|---|---|
+| kv | `f16` · `q8` · `q4` | `--quantkv 0` · `1` · `2` |
+| cache | `off` · `swap` · `grid` | nothing · `--smartcache $SMARTCACHE_SLOTS` · `--smartcachegrid $SMARTCACHEGRID_MB` |
+
+Every other flag in `koboldcpp-model.service.in` is a box constant, including
+`--multiuser 1`. **The unit file is the whole configuration** — nothing rewrites
+its argv at exec. (CT101 used to run a policy wrapper over the koboldcpp binary
+that did, because the template hardcoded one `--quantkv` / `--smartcache` for
+every model; it is removed as part of DP-364's rollout.)
+
+⚠️ **Deploy the node artifacts and the container together.** The install arity
+changed (9 → 10 words at the wrapper), and there is no compatibility shape: a
+new container against an old wrapper is refused, and an old container against a
+new wrapper is refused. Installs are rare and human-approved, so a short window
+where `install_model` fails loudly is the chosen cost — a default tuning for the
+old shape would bring back exactly the one-size unit this replaced.
 
 Size and sha256 are **arguments**, read from the Hub by derpr and displayed on
 the approval card. The node never asks HuggingFace what the file *should* be, so
@@ -262,14 +288,19 @@ It refuses, before any bytes move:
   overwriting one silently repoints a name `list_models` already publishes;
 - a destination file that exists with a **different** sha256 (an identical one is
   reused, so a retry is cheap);
-- insufficient free space on the models dir — the larger of 2 GiB or 5% of the
-  download is kept free. `/srv/models` is a thin LV: filling it takes `:5001` and
-  every other guest's models with it, so this refuses rather than truncating.
+- insufficient free space on the archive disk — the larger of 2 GiB or 5% of the
+  download is kept free, less what running jobs have already reserved. Downloads
+  no longer touch `/srv/models` (DP-340): that is a thin LV, where `df` cannot see
+  the pool running out;
+- a tuning outside the vocabulary above.
 
 And after downloading:
 
 - a sha256 mismatch **deletes** the partial file and fails the job. Size matching
-  is not proof and has fooled this project before.
+  is not proof and has fooled this project before;
+- a `grid` tuning on a model `gguf_header.py --ssm-layers` does not report as a
+  hybrid (zero, or unreadable) fails with `grid_needs_hybrid` and writes no unit.
+  The verified file is **kept**, so a retry under another tuning reuses it.
 
 The unit it writes is **disabled and not started**. Putting a model on `:5001` is
 `set_active_model`'s job and gets its own approval.

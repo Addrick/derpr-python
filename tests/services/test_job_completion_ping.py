@@ -264,7 +264,7 @@ def _run_install(tmp_path: Path, env: dict, sha: str, size: int,
                  job: str = "newmodel-1"):
     return subprocess.run(
         [_BASH, str(_INSTALL), "run", "owner/repo", "model.gguf", "newmodel",
-         "8192", str(size), sha, job],
+         "8192", str(size), sha, job, "q8-swap"],
         env=env, cwd=tmp_path, capture_output=True, text=True,
     )
 

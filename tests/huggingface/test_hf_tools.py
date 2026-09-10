@@ -132,7 +132,8 @@ async def test_every_tool_short_circuits_when_disabled(monkeypatch):
     for coro in (
         h._hf_search("q"),
         h._hf_files("owner/model-GGUF"),
-        h._install_model("owner/model-GGUF", "model-Q6_K.gguf", "newmodel"),
+        h._install_model("owner/model-GGUF", "model-Q6_K.gguf", "newmodel",
+                         tuning="q8-swap"),
         h.job_status("newmodel-abc123"),
     ):
         res = await coro
@@ -335,7 +336,9 @@ async def test_bad_unit_names_are_refused_locally(enabled, name):
     """The name becomes a systemd unit stem we mint, so it is gated harder than
     a name discovery merely reads back."""
     runner = FakeRunner()
-    res = await make(runner=runner)._install_model("owner/m-GGUF", "model-Q6_K.gguf", name)
+    res = await make(runner=runner)._install_model(
+        "owner/m-GGUF", "model-Q6_K.gguf", name, tuning="q8-swap"
+    )
     assert res["status"] == "error"
     assert runner.calls == []
 
@@ -353,14 +356,14 @@ async def test_a_started_install_declares_a_node_job_deferral(enabled):
     """
     runner = FakeRunner()
     res = await make(runner=runner)._install_model(
-        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel"
+        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel", tuning="q8-swap"
     )
 
     assert res["status"] == "ok"
     assert declared_deferral(res) == (DEFERRAL_KIND_NODE_JOB, res["job_id"])
     # The same id the node was told to use, so the ping comes back addressed
-    # to this park. `derpr-model-install` takes it as its last argument.
-    assert runner.calls[-1][-1] == res["job_id"]
+    # to this park. `derpr-model-install` takes it as its 7th argument.
+    assert runner.calls[-1][8] == res["job_id"]
 
 
 @pytest.mark.asyncio
@@ -371,7 +374,7 @@ async def test_a_refused_install_declares_nothing(enabled):
     the tool entry reading `awaiting:node_job` for good.
     """
     res = await make(runner=FakeRunner(raises=True))._install_model(
-        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel"
+        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel", tuning="q8-swap"
     )
     assert res["status"] == "error"
     assert declared_deferral(res) is None
@@ -382,7 +385,8 @@ async def test_a_refused_install_declares_nothing(enabled):
 async def test_out_of_range_contextsize_is_refused_locally(enabled, ctx):
     runner = FakeRunner()
     res = await make(runner=runner)._install_model(
-        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel", contextsize=ctx
+        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel", contextsize=ctx,
+        tuning="q8-swap",
     )
     assert res["status"] == "error"
     assert runner.calls == []
@@ -393,7 +397,7 @@ async def test_a_file_with_no_digest_never_reaches_the_node(enabled):
     hf = FakeHF(files=[HFFile(path="model-Q6_K.gguf", size_bytes=SIZE, sha256=None)])
     runner = FakeRunner()
     res = await make(hf, runner)._install_model(
-        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel"
+        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel", tuning="q8-swap"
     )
     assert res["status"] == "error"
     assert "sha256" in res["message"]
@@ -403,7 +407,7 @@ async def test_a_file_with_no_digest_never_reaches_the_node(enabled):
 @pytest.mark.asyncio
 async def test_ssh_transport_failure_reads_as_an_error_dict(enabled):
     res = await make(runner=FakeRunner(raises=True))._install_model(
-        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel"
+        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel", tuning="q8-swap"
     )
     assert res["status"] == "error"
     assert "ssh failed" in res["message"]
@@ -417,7 +421,8 @@ async def test_install_sends_one_verb_with_hub_derived_size_and_sha(enabled):
     supplied — there is no argument for either, and that is the point."""
     runner = FakeRunner()
     res = await make(runner=runner)._install_model(
-        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel", contextsize=16384
+        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel", contextsize=16384,
+        tuning="f16-grid",
     )
     assert res["status"] == "ok"
     assert len(runner.calls) == 1
@@ -429,14 +434,33 @@ async def test_install_sends_one_verb_with_hub_derived_size_and_sha(enabled):
     assert argv[6] == str(SIZE)
     assert argv[7] == SHA
     assert argv[8] == res["job_id"]
+    assert argv[9] == "f16-grid"
+    assert len(argv) == 10
     assert res["job_id"].startswith("newmodel-")
+    assert res["tuning"] == "f16-grid"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tuning", [None, "", "q8", "q8-both", "int8-swap",
+                                    "q8-swap-grid", "q8-swap; reboot"])
+async def test_a_missing_or_unknown_tuning_is_refused_locally(enabled, tuning):
+    """DP-364: there is no default. Which cache mode a unit wants depends on
+    how it will be used -- the template's one-size `--smartcache 4` is what
+    CT101 grew a policy wrapper to undo -- so the persona has to choose."""
+    runner = FakeRunner()
+    res = await make(runner=runner)._install_model(
+        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel", tuning=tuning
+    )
+    assert res["status"] == "error"
+    assert "tuning" in res["message"]
+    assert runner.calls == []
 
 
 @pytest.mark.asyncio
 async def test_install_defaults_to_a_small_context(enabled):
     runner = FakeRunner()
     res = await make(runner=runner)._install_model(
-        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel"
+        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel", tuning="q8-swap"
     )
     assert res["contextsize"] == 8192
     assert runner.calls[0][5] == "8192"
@@ -446,7 +470,9 @@ async def test_install_defaults_to_a_small_context(enabled):
 async def test_install_result_says_the_unit_is_disabled(enabled):
     """`install_model` reporting ok must not read as 'the model is now serving'.
     Two separate approvals is the design; the result has to say so."""
-    res = await make()._install_model("owner/m-GGUF", "model-Q6_K.gguf", "newmodel")
+    res = await make()._install_model(
+        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel", tuning="q8-swap"
+    )
     assert res["unit"] == "koboldcpp-newmodel.service"
     assert "DISABLED" in res["note"]
     assert "set_active_model" in res["note"]
@@ -457,7 +483,7 @@ async def test_install_result_says_the_unit_is_disabled(enabled):
 async def test_a_node_refusal_is_surfaced_not_swallowed(enabled):
     runner = FakeRunner(SSHResult(1, "", "derpr-model-install: insufficient space"))
     res = await make(runner=runner)._install_model(
-        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel"
+        "owner/m-GGUF", "model-Q6_K.gguf", "newmodel", tuning="q8-swap"
     )
     assert res["status"] == "error"
     assert "insufficient space" in res["stderr"]
@@ -468,12 +494,27 @@ async def test_a_node_refusal_is_surfaced_not_swallowed(enabled):
 @pytest.mark.asyncio
 async def test_enricher_puts_hub_size_and_digest_on_the_card(enabled):
     text = await make()._enrich_install_model(
-        repo="owner/m-GGUF", file="model-Q6_K.gguf", name="newmodel"
+        repo="owner/m-GGUF", file="model-Q6_K.gguf", name="newmodel",
+        tuning="q8-grid",
     )
     assert text is not None
     assert "owner/m-GGUF/model-Q6_K.gguf" in text
     assert str(SIZE) in text
     assert SHA in text
+    # DP-364: the one setting the persona chose is on the card it is approved by.
+    assert "tuning q8-grid" in text
+
+
+@pytest.mark.asyncio
+async def test_enricher_flags_a_tuning_the_install_will_refuse(enabled):
+    """Approving a card whose install is certain to fail is a wasted approval,
+    so the card says so up front rather than after the human has clicked."""
+    text = await make()._enrich_install_model(
+        repo="owner/m-GGUF", file="model-Q6_K.gguf", name="newmodel",
+        tuning="q8-both",
+    )
+    assert text is not None
+    assert "INVALID tuning" in text
 
 
 @pytest.mark.asyncio
@@ -505,7 +546,7 @@ async def test_status_returns_the_nodes_job_document(enabled):
         "name": "newmodel", "unit": "koboldcpp-newmodel.service",
         "size_bytes": SIZE, "downloaded_bytes": 1024, "contextsize": 8192,
         "sha256": SHA, "started": "2026-08-20T00:00:00Z", "finished": "",
-        "n_layer": 48, "n_kv_head": 8, "head_dim": 128,
+        "n_layer": 48, "n_kv_head": 8, "head_dim": 128, "tuning": "q8-swap",
     }
     runner = FakeRunner(SSHResult(0, json.dumps(payload), ""))
     res = await make(runner=runner).job_status("newmodel-abc123")
@@ -513,6 +554,7 @@ async def test_status_returns_the_nodes_job_document(enabled):
     assert res["job"]["state"] == "running"
     assert res["job"]["downloaded_bytes"] == 1024
     assert res["job"]["n_layer"] == 48
+    assert res["job"]["tuning"] == "q8-swap"
     assert runner.calls == [[
         "/usr/local/sbin/derpr-model-install", "status", "newmodel-abc123",
     ]]
@@ -554,9 +596,10 @@ async def test_status_of_an_unwritten_job_reads_as_not_ready(enabled):
 #
 # DP-337 put the KV formula here because this is the one layer holding the
 # header numbers. DP-344 then showed the result was right on Qwen3.8 only
-# because two errors cancelled, and DP-360 deleted it: bytes per element is
-# whatever --quantkv the process runs with, and CT101's policy wrapper
-# substitutes that per model at exec, so no constant here can be sourced.
+# because two errors cancelled, and DP-360 deleted it. (DP-360 also argued
+# bytes per element was unsourceable while CT101's policy wrapper rewrote
+# --quantkv at exec; DP-364 removed the wrapper, and the deletion stands on
+# the cancellation alone.)
 #
 # These tests pin the deletion. The estimate coming back -- in any shape, from
 # any well-meaning repair -- is the regression they exist to catch.
@@ -610,13 +653,17 @@ async def test_the_note_emits_no_kv_arithmetic_even_with_a_full_shape(enabled):
 
 @pytest.mark.asyncio
 async def test_the_note_says_why_it_will_not_calculate(enabled):
-    """A bare refusal invites the next reader to supply the constant it is
-    missing. Naming the wrapper is what stops that, because the wrapper is the
-    reason no constant is sourceable here."""
+    """A bare refusal invites the next reader to supply the term it is
+    missing. The reason is the DP-344 cancellation: a header-built total has
+    matched a measurement here only by two errors cancelling.
+
+    DP-364: the reason used to be CT101's policy wrapper rewriting --quantkv
+    at exec. The wrapper is gone, so a note still citing it would be the
+    stale-home defect DP-360 was about, arriving in the other direction."""
     runner = FakeRunner(SSHResult(0, json.dumps(_done_job()), ""))
     res = await make(runner=runner).job_status("newmodel-abc123")
-    assert "quantkv" in res["note"]
-    assert "wrapper" in res["note"]
+    assert "cancelling" in res["note"]
+    assert "wrapper" not in res["note"]
 
 
 @pytest.mark.asyncio
@@ -743,16 +790,14 @@ async def test_a_finished_install_still_gets_it(enabled):
 def test_no_model_facing_string_names_a_flag_no_tool_can_pass():
     """DP-337's placement rule, as an executable invariant.
 
-    `install_model` takes repo/file/name/contextsize; `set_active_model` takes
-    a name; `gpu_status` takes nothing. So --useswa, a --quantkv VALUE and the
-    full-attention KV ratio are context cost with no reachable action, and they
-    belong in the koboldcpp skill and the infra notes instead.
+    `install_model` takes repo/file/name/contextsize/tuning; `set_active_model`
+    takes a name; `gpu_status` takes nothing. So --useswa, a raw --quantkv
+    VALUE and the full-attention KV ratio are context cost with no reachable
+    action, and they belong in the koboldcpp skill and the infra notes instead.
 
-    `--quantkv` is named without a value, and deliberately: since DP-360 it is
-    the *reason* no cache arithmetic is offered, and a bare refusal invites the
-    next reader to supply the constant it is missing. Naming a setting is the
-    line — a value would read as one this deployment runs, which is precisely
-    the claim the wrapper makes unsafe.
+    DP-364 made KV precision reachable, but through the tuning vocabulary
+    (`f16`/`q8`/`q4`), which the node owns the mapping of. A raw flag value in
+    a model-facing string would be a second copy of that mapping.
     """
     blob = _model_facing_blob()
     for banned in ("useswa", "Q4 KV", "2.3x"):
