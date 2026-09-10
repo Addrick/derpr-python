@@ -526,8 +526,9 @@ def fragment(path: str) -> str:
 def ssm_layers(path: str) -> str:
     """``ssm_layers`` for ``path`` as a bare integer, or ``""`` if unknown.
 
-    DP-364: the installer refuses a ``grid`` tuning on a model that is not a
-    hybrid, and asks this rather than picking the number out of ``fragment()``
+    DP-364: the installer picks the unit's cache mode from this (grid for a
+    hybrid, swap for a dense model), and asks it rather than picking the number
+    out of ``fragment()``
     with a shell pattern -- DP-360 is what a pattern over this module's output
     costs. Unknown stays empty rather than ``0``, so the caller can tell "not a
     hybrid" from "could not tell", and refuses on both.

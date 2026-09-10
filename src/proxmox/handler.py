@@ -435,7 +435,7 @@ class ProxmoxToolHandler:
         ``quantkv`` is what makes two such anchors comparable. DP-360 published
         it as ``quantkv_requested``, because CT101's ``model-policy.conf``
         wrapper rewrote it at exec; DP-364 removed the wrapper and writes the
-        approved tuning into the unit, so the unit file is what runs again.
+        approved KV precision into the unit, so the unit file is what runs again.
         """
         res = await self._run([
             "pct", "exec", vmid, "--",

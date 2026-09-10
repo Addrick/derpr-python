@@ -1,5 +1,5 @@
 [Unit]
-Description=koboldcpp @@NAME@@ (installed by derpr-model-install, job @@JOB_ID@@, tuning @@TUNING@@)
+Description=koboldcpp @@NAME@@ (installed by derpr-model-install, job @@JOB_ID@@, kv @@KV@@, cache @@CACHE_MODE@@)
 After=network-online.target
 Wants=network-online.target
 

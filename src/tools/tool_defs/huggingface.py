@@ -145,8 +145,11 @@ HUGGINGFACE_TOOLS: List[Dict[str, Any]] = [
                 "list_models offers and set_active_model can switch to. "
                 "Requires human approval, and the approval card shows the repo, "
                 "file, byte size and sha256 read from HuggingFace itself, plus "
-                "the tuning you chose. Every flag the unit runs with is written "
-                "into it, so list_models reports what it actually runs. "
+                "the KV precision you chose. Every flag the unit runs with is "
+                "written into it, so list_models reports what it actually runs. "
+                "The cache mode is not yours to pick: the node reads it off the "
+                "file — checkpoint grid for a hybrid model, conversation swap "
+                "for a dense one. "
                 "The download continues on the node after this returns — poll "
                 "install_status with the job_id. The unit is written DISABLED "
                 "and does NOT start: putting it on :5001 is a separate "
@@ -183,8 +186,8 @@ HUGGINGFACE_TOOLS: List[Dict[str, Any]] = [
                             "koboldcpp --contextsize for the new unit. Defaults "
                             "to a deliberately small 8192, because the unit "
                             "lands disabled and a human tunes this against "
-                            "gpu_status before enabling it. With the tuning's "
-                            "precision it is one of the two VRAM knobs here. "
+                            "gpu_status before enabling it. With kv_precision "
+                            "it is one of the two VRAM knobs here. "
                             "Pick it by comparison and by measurement, not by "
                             "arithmetic: anchor on a unit list_models already "
                             "reports running on this card at a known "
@@ -199,34 +202,23 @@ HUGGINGFACE_TOOLS: List[Dict[str, Any]] = [
                             "arithmetic is not."
                         ),
                     },
-                    "tuning": {
+                    "kv_precision": {
                         "type": "string",
-                        "enum": [
-                            f"{kv}-{cache}"
-                            for kv in ("f16", "q8", "q4")
-                            for cache in ("off", "swap", "grid")
-                        ],
+                        "enum": ["f16", "q8", "q4"],
                         "description": (
-                            "How the unit holds its KV cache, as "
-                            "<precision>-<cache mode>. Precision: q8 is the "
-                            "usual choice; f16 is full precision and roughly "
-                            "doubles the cache; q4 halves it again and costs "
-                            "output quality, so propose it only when the "
-                            "context cannot fit otherwise. Cache mode: swap "
-                            "keeps several conversations' contexts so switching "
-                            "between them does not reprocess the prompt — the "
-                            "right choice for a model that will serve more "
-                            "than one conversation. grid instead checkpoints "
-                            "ONE deep conversation so edits and retries deep "
-                            "in it do not reprocess; it gives up swapping "
-                            "entirely and only works on a hybrid model "
-                            "(install_status reports ssm_layers > 0), so the "
-                            "node refuses it for anything else. off is plain "
-                            "prefix reuse. Say which you chose and why."
+                            "KV cache precision for the unit. q8 is the usual "
+                            "choice. f16 is full precision and roughly doubles "
+                            "the cache — worth it only where it fits with room "
+                            "to spare. q4 halves it again and costs output "
+                            "quality, so propose it only when the context "
+                            "cannot fit otherwise. Anchor on an installed unit "
+                            "of the same weight, not the same family: two "
+                            "weights of one family can disagree about whether "
+                            "f16 fits. Say which you chose and why."
                         ),
                     },
                 },
-                "required": ["repo", "file", "name", "tuning"],
+                "required": ["repo", "file", "name", "kv_precision"],
             },
         },
     },
@@ -265,13 +257,13 @@ HUGGINGFACE_TOOLS: List[Dict[str, Any]] = [
                 "that actually cache, which is not the block count on a hybrid "
                 "model), and ssm_layers — how many blocks hold a recurrent "
                 "state instead of a KV cache, so a non-zero value means the "
-                "model is a hybrid and a grid tuning can do something for "
-                "it. These are measurements read off the file, not estimates. "
-                "A job that failed with reason grid_needs_hybrid downloaded "
-                "and verified the file and then refused to write a grid unit "
-                "for a model that is not a hybrid: the bytes are kept, so "
-                "installing it again under a non-grid tuning does not "
-                "download again. "
+                "model is a hybrid — and cache_mode, which the node chose from "
+                "it (grid for a hybrid, swap for a dense model). These are "
+                "measurements read off the file, not estimates. A job that "
+                "failed with reason cache_mode_unknown downloaded and verified "
+                "the file but could not read its architecture, so it wrote no "
+                "unit rather than guess; the bytes are kept, so a retry does "
+                "not download again. "
                 "It reports no cache size and no VRAM total: multiplying that "
                 "shape out needs a bytes-per-element term nothing here can "
                 "source, so the job's note points at the gpu_status "

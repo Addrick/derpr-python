@@ -248,12 +248,19 @@ def _install_env(tmp_path: Path, bindir: Path, payload: bytes) -> dict:
     template = tmp_path / "unit.in"
     template.write_text("[Service]\nExecStart=@@KCPP_DIR@@ @@MODEL_PATH@@\n",
                         encoding="utf-8")
+    # DP-364: the installer reads the cache mode off the file and refuses when
+    # it cannot, so a reader has to exist. This one reports a dense model.
+    reader = tmp_path / "reader.sh"
+    reader.write_text('#!/bin/bash\n[ "$1" = --ssm-layers ] && printf 0\nexit 0\n',
+                      encoding="utf-8")
+    (bindir / "python3").write_text('#!/bin/bash\nexec bash "$@"\n', encoding="utf-8")
+    (bindir / "python3").chmod(0o755)
     env = _env(tmp_path, bindir)
     env.update({
         "ARCHIVE_DIR": "archive/models",
         "JOBS_DIR": "archive/.jobs",
         "TEMPLATE": "unit.in",
-        "GGUF_HEADER": "no-such-header.py",
+        "GGUF_HEADER": reader.as_posix(),
         "PROGRESS_INTERVAL": "1",
         "HF_BASE": "https://hf.invalid",
     })
@@ -264,7 +271,7 @@ def _run_install(tmp_path: Path, env: dict, sha: str, size: int,
                  job: str = "newmodel-1"):
     return subprocess.run(
         [_BASH, str(_INSTALL), "run", "owner/repo", "model.gguf", "newmodel",
-         "8192", str(size), sha, job, "q8-swap"],
+         "8192", str(size), sha, job, "q8"],
         env=env, cwd=tmp_path, capture_output=True, text=True,
     )
 

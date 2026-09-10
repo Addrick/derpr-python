@@ -116,13 +116,21 @@ def _env(tmp_path: Path, bindir: Path) -> dict:
     archive.mkdir(parents=True)
     (tmp_path / "unit.in").write_text(
         "[Service]\nExecStart=@@KCPP_DIR@@ @@MODEL_PATH@@\n", encoding="utf-8")
+    # DP-364: a header reader has to exist -- the installer reads the cache
+    # mode off the file and refuses when it cannot. This default reports a
+    # dense model and no header shape; tests that need another replace it.
+    reader = tmp_path / "default-reader"
+    reader.write_text('#!/bin/bash\n[ "$1" = --ssm-layers ] && printf 0\nexit 0\n',
+                      encoding="utf-8")
+    (bindir / "python3").write_text('#!/bin/bash\nexec bash "$@"\n', encoding="utf-8")
+    (bindir / "python3").chmod(0o755)
     env = dict(os.environ)
     env.update({
         "PATH": f"{bindir.as_posix()}{os.pathsep}{env.get('PATH', '')}",
         "ARCHIVE_DIR": "archive/models",
         "JOBS_DIR": "archive/.jobs",
         "TEMPLATE": "unit.in",
-        "GGUF_HEADER": "no-such-header.py",
+        "GGUF_HEADER": reader.as_posix(),
         "PROGRESS_INTERVAL": "1",
         "HF_BASE": "https://hf.invalid",
         "DERPR_CALLBACK_URL": "",
@@ -133,9 +141,9 @@ def _env(tmp_path: Path, bindir: Path) -> dict:
 def _run(tmp_path: Path, env: dict, verb: str, *args: str,
          size: int = SIZE, sha: str = SHA, name: str = "newmodel",
          job: str = "newmodel-1",
-         tuning: str = "q8-swap") -> subprocess.CompletedProcess:
+         kv: str = "q8") -> subprocess.CompletedProcess:
     argv = [_BASH, str(_INSTALL), verb, "owner/repo", "model-Q4_K_M.gguf",
-            name, "8192", str(size), sha, job, tuning]
+            name, "8192", str(size), sha, job, kv]
     return subprocess.run(argv + list(args), env=env, cwd=tmp_path,
                           capture_output=True, text=True)
 
@@ -345,6 +353,11 @@ def _header_shim(bindir: Path, tmp_path: Path, script: str) -> str:
     fragment on stdout and exits with the status being tested.
     """
     producer = tmp_path / "header-producer"
+    # DP-364: the installer also asks `--ssm-layers` for the cache mode. A
+    # script that does not answer it is a dense model, so these fragment tests
+    # keep testing the fragment and nothing else.
+    if "--ssm-layers" not in script:
+        script = '[ "$1" = --ssm-layers ] && { printf 0; exit 0; }\n' + script
     producer.write_text("#!/bin/bash\n" + script, encoding="utf-8")
     producer.chmod(0o755)
     trampoline = bindir / "python3"
@@ -436,14 +449,18 @@ def test_a_reader_that_reads_nothing_is_not_a_failed_install(tmp_path):
     assert "ssm_layers" not in job
 
 
-def test_a_missing_reader_still_finishes_the_install(tmp_path):
-    """The node artifact and the container image are independent deploys, so a
-    node that has not been given `gguf_header.py` yet is a live shape."""
-    env = _env(tmp_path, _shims(tmp_path))  # GGUF_HEADER: no-such-header.py
-    assert _run(tmp_path, env, "run").returncode == 0
+def test_a_missing_reader_no_longer_finishes_the_install(tmp_path):
+    """DP-364 reversed this. A node without `gguf_header.py` used to finish the
+    install with no header facts; now the reader is what decides the unit's
+    cache mode, and guessing it writes a unit that is silently wrong for one of
+    the two architectures. So the job fails -- with the bytes kept, so the
+    retry after deploying the reader does not download again."""
+    env = _env(tmp_path, _shims(tmp_path))
+    env["GGUF_HEADER"] = "no-such-header.py"
+    assert _run(tmp_path, env, "run").returncode == 1
     job = _job(tmp_path)
-    assert job["state"] == "done"
-    assert "n_layer" not in job
+    assert job["state"] == "failed" and job["reason"] == "cache_mode_unknown"
+    assert (tmp_path / "archive" / "models" / "newmodel.gguf").exists()
 
 
 # -- DP-364: the unit is written complete -------------------------------------
@@ -460,21 +477,21 @@ _HYBRID = (
     '[ "$1" = --ssm-layers ] && { printf 48; exit 0; }\n'
     "printf '%s' ',\"ssm_layers\":48'\n"
 )
-_DENSE = (
-    '[ "$1" = --ssm-layers ] && { printf 0; exit 0; }\n'
-    "printf '%s' ',\"ssm_layers\":0'\n"
-)
+#: A reader that can walk no header: exit 0 with nothing to say, which is the
+#: reader's own "I could not tell" (see gguf_header.ssm_layers).
+_UNREADABLE = '[ "$1" = --ssm-layers ] && exit 0\nexit 0\n'
 
 
-def _render(tmp_path: Path, tuning: str, header: str | None = None,
+def _render(tmp_path: Path, kv: str = "q8", header: str | None = None,
             **extra_env: str) -> subprocess.CompletedProcess:
+    """`header` None keeps _env's default reader, which reports a dense model."""
     bindir = _shims(tmp_path)
     env = _env(tmp_path, bindir)
     env["TEMPLATE"] = _TEMPLATE.as_posix()
     env.update(extra_env)
     if header is not None:
         env["GGUF_HEADER"] = _header_shim(bindir, tmp_path, header)
-    return _run(tmp_path, env, "run", tuning=tuning)
+    return _run(tmp_path, env, "run", kv=kv)
 
 
 def _exec_start(tmp_path: Path) -> str:
@@ -490,60 +507,66 @@ def test_the_template_hardcodes_no_per_model_flag():
     assert "--multiuser 4" not in text
 
 
-@pytest.mark.parametrize("tuning,quantkv,cache", [
-    ("q8-swap", "--quantkv 1", "--smartcache 4"),
-    ("f16-swap", "--quantkv 0", "--smartcache 4"),
-    ("q4-off", "--quantkv 2", None),
+@pytest.mark.parametrize("kv,quantkv", [
+    ("q8", "--quantkv 1"), ("f16", "--quantkv 0"), ("q4", "--quantkv 2"),
 ])
-def test_the_unit_carries_the_approved_tuning(tmp_path, tuning, quantkv, cache):
-    res = _render(tmp_path, tuning)
+def test_the_unit_carries_the_approved_precision(tmp_path, kv, quantkv):
+    res = _render(tmp_path, kv)
     assert res.returncode == 0, res.stderr
     line = _exec_start(tmp_path)
     assert f" {quantkv} " in f"{line} "
     assert "--multiuser 1" in line
-    if cache:
-        assert line.endswith(cache)
-    else:
-        assert "--smartcache" not in line
-    assert _job(tmp_path)["tuning"] == tuning
+    job = _job(tmp_path)
+    assert job["kv_precision"] == kv
 
 
-def test_grid_on_a_hybrid_writes_grid_and_no_swap_slots(tmp_path):
-    """Grid and swap are mutually exclusive in the fork; emitting both would
-    leave kcpp to pick one, which is the silent no-op DP-326 already had."""
-    res = _render(tmp_path, "q8-grid", header=_HYBRID)
+def test_a_dense_model_gets_swap_slots(tmp_path):
+    """A dense KV cache truncates, so fast-forward already survives an edit;
+    swap slots are what let it switch conversations without reprocessing."""
+    res = _render(tmp_path)
+    assert res.returncode == 0, res.stderr
+    line = _exec_start(tmp_path)
+    assert line.endswith("--smartcache 4")
+    assert "--smartcachegrid" not in line
+    assert _job(tmp_path)["cache_mode"] == "swap"
+
+
+def test_a_hybrid_gets_the_grid_and_no_swap_slots(tmp_path):
+    """A recurrent state cannot be rewound, so only a checkpoint survives an
+    edit. And never both flags: koboldcpp.py drops --smartcache whenever
+    --smartcachegrid is set, so writing both would only look like both."""
+    res = _render(tmp_path, header=_HYBRID)
     assert res.returncode == 0, res.stderr
     line = _exec_start(tmp_path)
     assert line.endswith("--smartcachegrid 32768")
     assert "--smartcache " not in line
+    assert _job(tmp_path)["cache_mode"] == "grid"
 
 
-def test_the_grid_budget_is_a_site_setting(tmp_path):
-    res = _render(tmp_path, "q8-grid", header=_HYBRID, SMARTCACHEGRID_MB="16384")
+def test_the_cache_budgets_are_site_settings(tmp_path):
+    res = _render(tmp_path, header=_HYBRID, SMARTCACHEGRID_MB="16384")
     assert res.returncode == 0, res.stderr
     assert _exec_start(tmp_path).endswith("--smartcachegrid 16384")
 
 
-@pytest.mark.parametrize("header", [_DENSE, None], ids=["dense", "unreadable"])
-def test_grid_is_refused_unless_the_model_is_known_hybrid(tmp_path, header):
-    """Grid on a dense model gives up swapping for rungs it cannot use, and
-    kcpp starts without complaint. "Could not tell" is refused too: the
-    approval named grid on the premise that this is a hybrid."""
-    res = _render(tmp_path, "q8-grid", header=header)
+def test_a_model_whose_architecture_cannot_be_read_gets_no_unit(tmp_path):
+    """Either guess writes a unit that is silently wrong for one of the two
+    architectures, so the node refuses. The verified bytes stay, so a retry
+    is not a second multi-GB download."""
+    res = _render(tmp_path, header=_UNREADABLE)
     assert res.returncode == 1
     job = _job(tmp_path)
-    assert job["state"] == "failed" and job["reason"] == "grid_needs_hybrid"
+    assert job["state"] == "failed" and job["reason"] == "cache_mode_unknown"
     assert not (tmp_path / "pushed-koboldcpp-newmodel.service").exists()
-    # The verified bytes stay, so a retry under another tuning is not a
-    # second multi-GB download.
     assert (tmp_path / "archive" / "models" / "newmodel.gguf").exists()
 
 
-def test_an_unknown_tuning_is_refused_before_anything_moves(tmp_path):
+@pytest.mark.parametrize("kv", ["q8-grid", "int8", "Q8"])
+def test_an_unknown_precision_is_refused_before_anything_moves(tmp_path, kv):
     env = _env(tmp_path, _shims(tmp_path))
-    res = _run(tmp_path, env, "install", tuning="q8-both")
+    res = _run(tmp_path, env, "install", kv=kv)
     assert res.returncode == 1
-    assert "invalid tuning" in res.stderr
+    assert "invalid kv precision" in res.stderr
     assert not (tmp_path / "archive" / ".jobs" / "newmodel-1.json").exists()
 
 

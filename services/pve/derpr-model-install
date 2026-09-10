@@ -11,9 +11,9 @@
 # subcommands. Widening the key to arbitrary node write in order to simplify the
 # handler would trade the entire point away.
 #
-#   derpr-model-install install <repo> <file> <name> <ctx> <size> <sha256> <job> <tuning>
+#   derpr-model-install install <repo> <file> <name> <ctx> <size> <sha256> <job> <kv>
 #   derpr-model-install status  <job>
-#   derpr-model-install run     <repo> <file> <name> <ctx> <size> <sha256> <job> <tuning>
+#   derpr-model-install run     <repo> <file> <name> <ctx> <size> <sha256> <job> <kv>
 #
 # `install` validates, prechecks free space, and hands the long download to
 # systemd-run so it survives the SSH disconnect; `run` is what systemd executes
@@ -28,9 +28,10 @@
 #     has fooled this project before.
 #   * The unit is written DISABLED. Putting a model on :5001 is set_active_model's
 #     job and gets its own approval.
-#   * The unit is written COMPLETE (DP-364). <tuning> is `<kv>-<cache>`, proposed
-#     by the persona and shown on the approval card, and this script turns it
-#     into --quantkv and the smartcache flags it means. Every flag the unit runs
+#   * The unit is written COMPLETE (DP-364). <kv> is the KV precision, proposed
+#     by the persona and shown on the approval card; the cache mode is read off
+#     the downloaded file, because it follows from the architecture and is not
+#     a preference. Every flag the unit runs
 #     with is in the unit file: nothing downstream rewrites argv at exec. CT101
 #     used to carry exactly that -- a policy wrapper over the koboldcpp binary,
 #     because the template hardcoded one --quantkv / --smartcache for every
@@ -67,10 +68,10 @@ HF_BASE="${HF_BASE:-https://huggingface.co}"
 MIN_MARGIN_BYTES="${MIN_MARGIN_BYTES:-2147483648}"
 # How often the download loop republishes downloaded_bytes.
 PROGRESS_INTERVAL="${PROGRESS_INTERVAL:-5}"
-# DP-364: what the cache half of a tuning expands to. Box constants, not
-# per-model choices: the per-model choice is WHICH mode, and that is approved.
-#   swap -> --smartcache $SMARTCACHE_SLOTS       (conversations kept for switching)
-#   grid -> --smartcachegrid $SMARTCACHEGRID_MB  (checkpoint budget, megabytes)
+# DP-364: what each cache mode writes. Box constants; the mode itself is
+# derived per model from the file (see resolve_cache_mode).
+#   dense  -> --smartcache $SMARTCACHE_SLOTS       (conversations kept for switching)
+#   hybrid -> --smartcachegrid $SMARTCACHEGRID_MB  (checkpoint budget, megabytes)
 SMARTCACHE_SLOTS="${SMARTCACHE_SLOTS:-4}"
 SMARTCACHEGRID_MB="${SMARTCACHEGRID_MB:-32768}"
 # DP-349: the free-space precheck and the reservation ledger are one
@@ -100,7 +101,7 @@ re_name='^[a-z0-9][a-z0-9-]{0,48}$'
 re_job='^[a-z0-9][a-z0-9-]{0,63}$'
 re_sha='^[a-f0-9]{64}$'
 re_num='^[0-9]+$'
-re_tuning='^(f16|q8|q4)-(off|swap|grid)$'
+re_kv='^(f16|q8|q4)$'
 
 # ---------------------------------------------------------------------------
 # job status
@@ -213,7 +214,7 @@ write_status() {
     "$JOB" "$state" "$step" "$reason" > "$tmp"
   printf '"repo":"%s","file":"%s","name":"%s","unit":"koboldcpp-%s.service",' \
     "$REPO" "$FILE" "$NAME" "$NAME" >> "$tmp"
-  printf '"tuning":"%s",' "$TUNING" >> "$tmp"
+  printf '"kv_precision":"%s","cache_mode":"%s",' "$KV" "$CACHE_MODE" >> "$tmp"
   printf '"size_bytes":%s,"downloaded_bytes":%s,"contextsize":%s,"sha256":"%s",' \
     "$SIZE" "$downloaded" "$CTX" "$SHA" >> "$tmp"
   printf '"started":"%s","finished":"%s"%s}\n' \
@@ -230,29 +231,45 @@ write_status() {
 }
 
 # ---------------------------------------------------------------------------
-# tuning (DP-364)
+# KV precision and cache mode (DP-364)
 # ---------------------------------------------------------------------------
-# <kv>-<cache>, already matched against $re_tuning.
-#   kv     f16 | q8 | q4        -> --quantkv 0 | 1 | 2
-#   cache  off | swap | grid    -> nothing | --smartcache N | --smartcachegrid MB
-# swap and grid are mutually exclusive in the fork: grid spends its whole
-# budget on checkpoint rungs and has no swap slots, so this never emits both.
-# grid is only usable by a hybrid, which cannot be known until the file is on
-# disk -- cmd_run checks it before writing the unit.
-resolve_tuning() {
+# KV precision is approved: f16 | q8 | q4 -> --quantkv 0 | 1 | 2.
+#
+# The cache mode is NOT a choice; it follows from the architecture, so it is
+# read off the downloaded file (resolve_cache_mode, from cmd_run):
+#   hybrid (ssm_layers > 0) -> --smartcachegrid $SMARTCACHEGRID_MB
+#   dense  (ssm_layers = 0) -> --smartcache $SMARTCACHE_SLOTS
+# A hybrid's recurrent state cannot be rewound, so fast-forward cannot reuse a
+# prefix after an edit; the grid's checkpoints are what can. A dense KV cache
+# truncates, so fast-forward already handles edits, and swap slots are what
+# help it switch conversations. Grid on a dense model would be strictly worse,
+# not neutral: the fork arms the grid only on a recurrent/hybrid model, while
+# koboldcpp.py drops --smartcache whenever --smartcachegrid is set -- leaving a
+# dense unit with neither.
+resolve_kv() {
   [[ "$SMARTCACHE_SLOTS"  =~ $re_num ]] || die "SMARTCACHE_SLOTS is not a number"
   [[ "$SMARTCACHEGRID_MB" =~ $re_num ]] || die "SMARTCACHEGRID_MB is not a number"
-  case "${TUNING%-*}" in
+  case "$KV" in
     f16) QUANTKV=0 ;;
     q8)  QUANTKV=1 ;;
     q4)  QUANTKV=2 ;;
   esac
-  CACHE_MODE="${TUNING#*-}"
-  case "$CACHE_MODE" in
-    off)  CACHE_FLAGS="" ;;
-    swap) CACHE_FLAGS=" --smartcache $SMARTCACHE_SLOTS" ;;
-    grid) CACHE_FLAGS=" --smartcachegrid $SMARTCACHEGRID_MB" ;;
-  esac
+}
+
+# Sets CACHE_MODE / CACHE_FLAGS from the file, or returns 1 when the reader
+# cannot say. "Could not tell" is not guessed either way: each guess writes a
+# unit that is silently wrong for one of the two architectures.
+resolve_cache_mode() {
+  local ssm=""
+  if [ -r "$GGUF_HEADER" ] && command -v python3 >/dev/null 2>&1; then
+    ssm="$(python3 "$GGUF_HEADER" --ssm-layers "$DEST" 2>/dev/null)" || ssm=""
+  fi
+  [[ "$ssm" =~ $re_num ]] || return 1
+  if [ "$ssm" -gt 0 ]; then
+    CACHE_MODE=grid; CACHE_FLAGS=" --smartcachegrid $SMARTCACHEGRID_MB"
+  else
+    CACHE_MODE=swap; CACHE_FLAGS=" --smartcache $SMARTCACHE_SLOTS"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -261,7 +278,8 @@ resolve_tuning() {
 parse_job_args() {
   [ "$#" -eq 8 ] || die "expected 8 arguments, got $#"
   REPO="$1"; FILE="$2"; NAME="$3"; CTX="$4"; SIZE="$5"; SHA="$6"; JOB="$7"
-  TUNING="$8"
+  KV="$8"
+  CACHE_MODE=""; CACHE_FLAGS=""
   [[ "$REPO" =~ $re_repo ]] || die "invalid repo"
   [[ "$FILE" =~ $re_file ]] || die "invalid file"
   [[ "$FILE" != *".."* ]]   || die "invalid file"
@@ -270,8 +288,8 @@ parse_job_args() {
   [[ "$SIZE" =~ $re_num  ]] || die "invalid size"
   [[ "$SHA"  =~ $re_sha  ]] || die "invalid sha256"
   [[ "$JOB"  =~ $re_job  ]] || die "invalid job id"
-  [[ "$TUNING" =~ $re_tuning ]] || die "invalid tuning"
-  resolve_tuning
+  [[ "$KV" =~ $re_kv ]] || die "invalid kv precision"
+  resolve_kv
   # The destination basename comes from $NAME, not from the repo file name.
   # Two unrelated repos both publishing `model-Q4_K_M.gguf` is ordinary, and
   # under a repo-derived basename the second is uninstallable while its
@@ -367,7 +385,7 @@ cmd_install() {
   # is exactly when that would bite).
   systemd-run --collect --unit="modelinstall-$JOB" \
     --setenv=STARTED="$STARTED" \
-    "$0" run "$REPO" "$FILE" "$NAME" "$CTX" "$SIZE" "$SHA" "$JOB" "$TUNING" >/dev/null 2>&1 \
+    "$0" run "$REPO" "$FILE" "$NAME" "$CTX" "$SIZE" "$SHA" "$JOB" "$KV" >/dev/null 2>&1 \
     || { release_reservation; die "could not start background job"; }
   log "ALLOW install $REPO/$FILE as $NAME job=$JOB"
   cat "$JOBS_DIR/$JOB.json"
@@ -484,30 +502,21 @@ cmd_run() {
     fi
   fi
 
-  # DP-364: grid on a model that is not a hybrid gives up swapping for rungs it
-  # cannot use, and kcpp would start without complaint -- so the node refuses
-  # rather than writing a unit that is silently wrong. "Could not tell" is
-  # refused too: the approval named grid on the premise that this is a hybrid,
-  # and an unverified premise is not one. The verified bytes stay in the
-  # archive, so a retry under another tuning reuses them without a download.
-  if [ "$CACHE_MODE" = grid ]; then
-    local ssm=""
-    if [ -r "$GGUF_HEADER" ] && command -v python3 >/dev/null 2>&1; then
-      ssm="$(python3 "$GGUF_HEADER" --ssm-layers "$DEST" 2>/dev/null)" || ssm=""
-    fi
-    if ! [[ "$ssm" =~ $re_num ]] || [ "$ssm" -eq 0 ]; then
-      FINISHED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      write_status failed unit "grid_needs_hybrid" "$SIZE"
-      log "FAIL job=$JOB tuning $TUNING needs a hybrid; ssm_layers=${ssm:-unknown}"
-      exit 1
-    fi
+  # DP-364: the cache mode, from the file. The verified bytes stay in the
+  # archive on a refusal, so a retry once the reader is fixed reuses them.
+  if ! resolve_cache_mode; then
+    FINISHED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    write_status failed unit "cache_mode_unknown" "$SIZE"
+    log "FAIL job=$JOB could not read ssm_layers from $DEST; no unit written"
+    exit 1
   fi
 
   write_status running unit "" "$SIZE"
   local tmp="/tmp/derpr-$UNIT.$$"
   sed -e "s|@@NAME@@|$NAME|g" \
       -e "s|@@JOB_ID@@|$JOB|g" \
-      -e "s|@@TUNING@@|$TUNING|g" \
+      -e "s|@@KV@@|$KV|g" \
+      -e "s|@@CACHE_MODE@@|$CACHE_MODE|g" \
       -e "s|@@KCPP_DIR@@|$KCPP_DIR|g" \
       -e "s|@@MODEL_PATH@@|$CT_MODELS_DIR/$BASENAME|g" \
       -e "s|@@PORT@@|$KCPP_PORT|g" \
