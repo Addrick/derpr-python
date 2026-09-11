@@ -7,7 +7,7 @@ An async, provider-agnostic LLM orchestration engine for chatbot automation: IT 
 ## What it does
 
 - **Chat orchestration.** One `ChatSystem` brokers requests across providers (OpenAI, Anthropic, Google Gemini/Gemma, OpenAI-compatible local). Streaming-first: token deltas, tool calls, and tool results all flow through a single event stream.
-- **Multi-interface.** Discord bot (primary), Gmail (PoC), Zammad agents, and a FastAPI portal serving a customised kobold-lite at `/portal` with persona CRUD, DB-as-source history, version chevrons for regenerations, and engine-side prompt/budget management on the OAI route.
+- **Multi-interface.** Discord bot (primary), Gmail (PoC), Zammad agents, and a FastAPI web portal (React, at `/derpr`) with persona CRUD, DB-as-source history, version chevrons for regenerations, and engine-side prompt/budget management on the OAI route.
 - **Persona system.** Stateful LLM configs with `ExecutionMode` (AUTONOMOUS / CONFIRM) and `MemoryMode` (CHANNEL_ISOLATED, SERVER_WIDE, PERSONAL, GLOBAL, TICKET_ISOLATED). Runtime-mutable through `set` commands; persisted to `data/personas.json`.
 - **Tool loop.** JSON-schema tools dispatched via `ToolManager`, capped at 5 iterations per request, with read/write classification, service-binding gating, and CONFIRM-mode approval flows on Discord.
 - **Autonomous agents.** Background workers on interval schedules: `ZammadBot` (multi-stage triage via system personas), `DispatchAgent` (priority + notification routing), `SqliteConsolidator` (segment + summarize + embed), `MemoryConsolidator` (cluster L1 summaries into L2 core profiles).
@@ -69,8 +69,8 @@ src/
                          consolidation, context budget, router
   agents/                Agent ABC, AgentManager, ZammadBot, DispatchAgent,
                          SqliteConsolidator, AgentServiceIntegration
-  interfaces/            discord_bot, gmail_bot, kobold_adapter (FastAPI portal),
-                         kobold_export
+  interfaces/            discord_bot, gmail_bot, kobold_engine_adapter (FastAPI
+                         portal), transcript
   clients/               ZammadClient + ZammadIntegration, NotificationRouter,
                          Notifier impls, ServiceIntegration ABC
   personas/              store.py — persona/model file persistence
@@ -110,7 +110,7 @@ Create a `.env` in the repo root (no `.env.example` is checked in yet) and fill 
 python -m src.main
 ```
 
-Once the bot is online, message a persona on Discord (e.g. `gemini hello`) or open the portal at `http://localhost:<adapter-port>/portal`. Use `help` in any channel to list commands; the full command surface is documented in [`docs/user_guide.md`](docs/user_guide.md).
+Once the bot is online, message a persona on Discord (e.g. `gemini hello`) or open the portal at `http://localhost:<adapter-port>/derpr/`. Use `help` in any channel to list commands; the full command surface is documented in [`docs/user_guide.md`](docs/user_guide.md).
 
 ### Docker
 

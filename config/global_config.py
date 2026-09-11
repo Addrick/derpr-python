@@ -69,7 +69,7 @@ DISCORD_BOT = True
 GMAIL_BOT = False
 WEB_INTERFACE = os.environ.get("WEB_INTERFACE", "False").lower() in ("true", "1", "yes", "on")
 KOBOLD_PORT = 5002
-# Persona served when kobold-lite connects without picking one explicitly.
+# Persona served when a portal/OAI client connects without picking one explicitly.
 # Overridable with KOBOLD_DEFAULT_PERSONA env var.
 KOBOLD_DEFAULT_PERSONA = os.environ.get("KOBOLD_DEFAULT_PERSONA", "test_persona")
 UPDATE_MODELS_ON_STARTUP = True
@@ -265,9 +265,9 @@ DEFAULT_TOKEN_LIMIT = 4096
 DEFAULT_HISTORY_MESSAGES = 15
 GLOBAL_HISTORY_MESSAGES = 30  # Hard cap for history sent to APIs
 
-# Total per-persona context budget (prompt + reserved response). Matches
-# kobold-lite's localsettings.max_context_length semantic so the value can
-# round-trip to the slider. Old persona configs without the field default here.
+# Total per-persona context budget (prompt + reserved response). Same semantic
+# as KoboldCPP's `max_context_length`. Old persona configs without the field
+# default here.
 DEFAULT_MAX_CONTEXT_TOKENS = 131072
 
 # API Error Handling

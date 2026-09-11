@@ -68,7 +68,7 @@ def test_store_api_request_eviction_does_not_orphan_iterations(chat_system_with_
 
 @pytest.mark.asyncio
 async def test_prepare_request_skips_empty_user_message(chat_system_with_mocks):
-    """A blank message (kobold-lite continue/prefetch) must not append a
+    """A blank message (continue/prefetch-style call) must not append a
     `{'role':'user','content':''}` turn to the LLM prompt — mirroring the
     DB-side guard in _log_user_turn."""
     system, mm, _, persona, _ = chat_system_with_mocks

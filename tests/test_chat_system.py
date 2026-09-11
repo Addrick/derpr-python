@@ -1158,7 +1158,7 @@ async def test_prepare_request_drops_orphaned_tool_head_from_db_window(chat_syst
 
 @pytest.mark.asyncio
 async def test_prepare_request_drops_orphaned_tool_head_from_client_messages(chat_system_with_mocks):
-    """DP-298: the kobold-lite path supplies its own message array, which
+    """DP-298: the client_messages path supplies its own message array, which
     `prepare_request` uses verbatim apart from stripping ONE leading system
     message. DP-296's source guard lives in the DB branch and does not run here,
     so a client window that opens mid-tool-sequence reaches the provider unless
@@ -1170,7 +1170,7 @@ async def test_prepare_request_drops_orphaned_tool_head_from_client_messages(cha
         persona=persona, persona_name='test_persona', user_identifier='user',
         channel='general', message='latest user msg', server_id='srv1',
         client_messages=[
-            # kobold-lite's window opened after the user turn that triggered it
+            # the client's window opened after the user turn that triggered it
             {"role": "tool", "tool_call_id": "c1", "name": "inspect_agents", "content": "{}"},
             {"role": "assistant", "content": "agent dispatched"},
             {"role": "user", "content": "and now?"},

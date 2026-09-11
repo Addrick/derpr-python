@@ -218,7 +218,7 @@ class Persona:
 
     def get_generation_params(self) -> GenerationParams:
         """Returns the underlying structured GenerationParams. Phase A seam
-        for Section B providers (stream_messages / stream_prompt)."""
+        for Section B providers (stream_messages)."""
         return self._params
 
     def get_history_messages(self, advance: bool = True) -> int:
@@ -556,8 +556,8 @@ class Persona:
         logger.info(f"Persona '{self._name}' meta_visible set to {self._meta_visible}.")
 
     def get_max_context_tokens(self) -> int:
-        """Total ctx budget (prompt + reserved response). Matches kobold-lite's
-        localsettings.max_context_length semantic — see context_budget.py."""
+        """Total ctx budget (prompt + reserved response). Same semantic as
+        KoboldCPP's `max_context_length` — see context_budget.py."""
         return self._max_context_tokens
 
     def get_provider_extra(self, provider: str, key: str) -> Any:

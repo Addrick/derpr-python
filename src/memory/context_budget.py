@@ -2,8 +2,8 @@
 """Token-budget enforcement shared between chat_system and the kobold engine adapter.
 
 `max_context_tokens` is a persona setting that caps the *total* context
-(prompt + reserved response), matching kobold-lite's
-`localsettings.max_context_length` semantic. Effective prompt-prune budget
+(prompt + reserved response), matching KoboldCPP's `max_context_length`
+semantic. Effective prompt-prune budget
 is therefore `max_context_tokens - response_token_limit`.
 
 Today this module only does char/4 estimation + drop-oldest pruning;
@@ -140,7 +140,7 @@ def drop_orphaned_tool_head(
       closes the DB sliding-window case at the source.
 
     The path where this function is still load-bearing is `client_messages`
-    (kobold-lite supplies its own array, which `prepare_request` takes verbatim
+    (a non-streaming OAI client supplies its own array, which `prepare_request` takes verbatim
     apart from stripping one leading system message) — neither guard above runs
     on it. Keeping the repair as the last stop before the wire also means any
     future producer of an unpaired head fails safe.

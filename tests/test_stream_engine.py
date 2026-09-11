@@ -68,7 +68,7 @@ def test_render_prompt_default_chatml():
 def test_render_prompt_template_selection():
     # Non-default template is picked up by name. Marker/thinking-trigger
     # overrides were intentionally dropped — the persona's chat_template owns
-    # rendering and we pass through to kobold-lite otherwise.
+    # rendering.
     messages = [{"role": "user", "content": "Hello"}]
     prompt, _ = _render_prompt(messages, "gemma")
     assert "<start_of_turn>user\nHello<end_of_turn>" in prompt
@@ -206,8 +206,7 @@ def test_chatml_family_stops_exclude_bare_turn_end():
 # stream_local end-to-end
 #
 # Coverage-prep before portal_engine_reintegration Phase B. The kobold-native
-# stream is the only async-iterator provider surface today and is the closest
-# thing to the planned `TextProvider.stream_prompt`. These tests pin the
+# stream is the only async-iterator provider surface today. These tests pin the
 # event-stream contract so the migration to a unified provider ABC has a
 # verifiable starting point. See memory/project/plans/portal_engine_reintegration.md.
 # --------------------------------------------------------------------------
@@ -505,7 +504,7 @@ async def test_stream_local_no_tool_call_yields_no_tool_calls_event():
 
 
 # --------------------------------------------------------------------------
-# Phase B — typed entries: stream_messages and stream_prompt
+# Phase B — typed entry: stream_messages
 # --------------------------------------------------------------------------
 
 
@@ -558,31 +557,6 @@ async def test_stream_messages_kobold_extras_flow_through():
     assert payload["rep_pen"] == 1.07
     assert payload["min_p"] == 0.05
     assert payload["max_context_length"] == 4096
-
-
-@pytest.mark.asyncio
-async def test_stream_prompt_skips_template_rendering():
-    # Caller-supplied prompt is forwarded verbatim. No chat template is
-    # applied, so the dump's `template=` field reads `<caller>` and the raw
-    # prompt's character count matches what we sent.
-    raw = "<<RAW>>USER: hi<<END>>"
-    resp = _FakeResp(chunks=[_sse_token("", finish_reason="stop")])
-    engine, client = _make_engine(resp)
-
-    events = await _drain(engine.stream_prompt(
-        _persona_config(),
-        raw,
-        GenerationParams(temperature=0.3),
-        stop_sequences=["<<END>>"],
-        tools_advertised=["get_x"],
-    ))
-    payload = events[0]["payload"]
-    assert payload["temperature"] == 0.3
-    assert payload["stop_sequence"] == ["<<END>>"]
-    assert payload["tools_advertised"] == ["get_x"]
-    assert payload["prompt"] == f"<{len(raw)} chars, template=<caller>>"
-    # Real prompt was forwarded verbatim to kobold.
-    assert client.last_stream["json"]["prompt"] == raw
 
 
 # --------------------------------------------------------------------------

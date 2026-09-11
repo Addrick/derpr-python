@@ -3,11 +3,11 @@
 
 Spins up `KoboldEngineAdapter` on 127.0.0.1:5003 backed by an in-memory DB and a
 fake text engine that streams a canned reply. No API keys, no network, no Discord
-— just the portal + engine HTTP surface so the web UI (portal.html) connect/submit
+— just the portal + engine HTTP surface so the `/derpr` web UI connect/submit
 flow can be exercised without redeploying to prod.
 
     .venv/bin/python scripts/run_local_portal.py
-    # then open http://127.0.0.1:5003/  (or curl it)
+    # then open http://127.0.0.1:5003/derpr/  (or curl it)
 
 The stub mirrors the prod "testr" persona ("only respond with 'success'") so a
 submitted turn returns "success" without a real model.
