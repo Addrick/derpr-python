@@ -122,11 +122,10 @@ PROXMOX_TOOLS: List[Dict[str, Any]] = [
                 "demonstrated its context fits, so a comparable model can be "
                 "sized against it directly. Read this before proposing a "
                 "context size, and say which installed unit you are anchoring "
-                "to. A row's quantkv_requested is named that way because it is "
-                "NOT evidence of what runs — it is what the unit file asks "
-                "for, and the container's policy wrapper may substitute a "
-                "different value at exec. Do not reason about cache cost from "
-                "it, and do not report it as the setting in force."
+                "to. A row's quantkv is the KV precision its unit runs with, "
+                "read from the same unit file — an anchor is only comparable "
+                "at the same quantkv, since a lower-precision cache fits "
+                "more context in the same VRAM."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -164,11 +163,10 @@ PROXMOX_TOOLS: List[Dict[str, Any]] = [
                 "the way to learn what a context costs is to read this before "
                 "the unit is first enabled and again after, and trust the "
                 "difference. Do not build a total out of a model's byte size "
-                "plus a KV figure plus buffer and margin constants — the "
-                "bytes-per-element term that would make the KV part real is "
-                "set by the --quantkv the process runs with and is not "
-                "readable from here, so such a total is guesswork wearing the "
-                "shape of arithmetic."
+                "plus a KV figure plus buffer and margin constants — such a "
+                "total has matched a real measurement on this box only by two "
+                "errors cancelling, so it is guesswork wearing the shape of "
+                "arithmetic."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },

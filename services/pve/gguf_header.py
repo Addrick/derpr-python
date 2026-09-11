@@ -9,10 +9,10 @@ built to feed
 
     KV_bytes_per_token = 2 · n_layer · n_kv_head · head_dim · bytes_per_elem
 
-and **DP-360 deleted that evaluation**, because ``bytes_per_elem`` is set by the
-``--quantkv`` the process actually runs with and CT101's policy wrapper
-substitutes that per model at exec — so no constant on derpr's side describes the
-configuration being sized. The three numbers below still ship, because they are
+and **DP-360 deleted that evaluation**: a total built from it matched a real
+measurement only because two errors cancelled (DP-344). (``bytes_per_elem`` was
+also unsourceable then, while CT101's policy wrapper rewrote ``--quantkv`` at
+exec; DP-364 removed the wrapper.) The three numbers below still ship, because they are
 *read off the file* rather than derived and the cached-layer count is available
 nowhere else; what is gone is the multiplication. The caller's answer to "how big
 a context fits" is now a measurement: ``gpu_status`` either side of first
@@ -523,10 +523,30 @@ def fragment(path: str) -> str:
     return out
 
 
-def main() -> int:
-    """Write the fragment and exit 0; the exit status IS the caller's gate.
+def ssm_layers(path: str) -> str:
+    """``ssm_layers`` for ``path`` as a bare integer, or ``""`` if unknown.
 
-    Exit 0 promises "stdout is a complete fragment", empty included -- a header
+    DP-364: the installer picks the unit's cache mode from this (grid for a
+    hybrid, swap for a dense model), and asks it rather than picking the number
+    out of ``fragment()``
+    with a shell pattern -- DP-360 is what a pattern over this module's output
+    costs. Unknown stays empty rather than ``0``, so the caller can tell "not a
+    hybrid" from "could not tell", and refuses on both.
+    """
+    try:
+        header = read_header(path)
+    except (_Bad, OSError, struct.error, UnicodeDecodeError):
+        return ""
+    return "" if header.ssm_layers is None else str(header.ssm_layers)
+
+
+def main() -> int:
+    """Write the answer and exit 0; the exit status IS the caller's gate.
+
+    ``gguf_header.py <file>`` writes the JSON fragment; ``gguf_header.py
+    --ssm-layers <file>`` writes the SSM block count alone (DP-364).
+
+    Exit 0 promises "stdout is a complete answer", empty included -- a header
     this cannot read is a normal outcome and must never fail an install whose
     bytes verified. Every other status means this process did not get to make
     that promise (an unhandled error, an OOM kill, a failed flush), and the
@@ -535,9 +555,12 @@ def main() -> int:
     here, where the interpreter turns it into a non-zero exit, rather than
     silently at shutdown.
     """
-    if len(sys.argv) != 2:
+    if len(sys.argv) == 3 and sys.argv[1] == "--ssm-layers":
+        text = ssm_layers(sys.argv[2])
+    elif len(sys.argv) == 2:
+        text = fragment(sys.argv[1])
+    else:
         return 0
-    text = fragment(sys.argv[1])
     if text:
         sys.stdout.write(text)
     sys.stdout.flush()

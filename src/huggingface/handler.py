@@ -33,6 +33,13 @@ Two things the model never gets to decide:
    human approves a *digest*, not a repo name.
 2. **Where they land.** The node script owns the models directory and the unit
    template; nothing in the arguments is a path.
+
+One thing the model *proposes* and a human approves: the unit's **KV
+precision** (DP-364), ``f16``/``q8``/``q4``, which the node writes into the unit
+as ``--quantkv``. The cache mode is NOT a choice: the node reads it off the file
+(a hybrid gets ``--smartcachegrid``, a dense model ``--smartcache``), because it
+follows from the architecture. Either way the unit file states every flag the
+process runs with.
 """
 
 from __future__ import annotations
@@ -79,6 +86,13 @@ _DEFAULT_CONTEXTSIZE = 8192
 _MIN_CONTEXTSIZE = 512
 _MAX_CONTEXTSIZE = 1048576
 
+#: DP-364. KV cache precision: a closed vocabulary rather than the raw
+#: ``--quantkv`` integer, so the approval card shows a choice a human can read
+#: and the node owns the mapping. Matches the node's and the sshd wrapper's.
+#: No default -- it trades quality against VRAM per model, which is a call a
+#: human approves, not one the template makes for every model.
+_KV_PRECISION_RE = re.compile(r"^(f16|q8|q4)$")
+
 #: Keys derpr will surface out of the node's job JSON, and how to coerce them.
 #: A whitelist rather than a passthrough: it is what keeps ``install_status``'s
 #: ``produces_untrusted: False`` claim *enforced* instead of merely asserted, so
@@ -106,6 +120,10 @@ _STATUS_FIELDS: Dict[str, type] = {
     "size_bytes": int,
     "downloaded_bytes": int,
     "contextsize": int,
+    # DP-364: the approved KV precision, and the cache mode the node read off
+    # the file (grid for a hybrid, swap for a dense model).
+    "kv_precision": str,
+    "cache_mode": str,
     # DP-360: blocks holding a recurrent state instead of a KV cache. Non-zero
     # means hybrid, which is what decides whether --smartcachegrid can do
     # anything for the unit. Reported rather than inferred from an
@@ -157,6 +175,15 @@ def _validate_contextsize(contextsize: Any) -> int:
         raise HFError(
             f"contextsize must be between {_MIN_CONTEXTSIZE} and "
             f"{_MAX_CONTEXTSIZE}, got {value}"
+        )
+    return value
+
+
+def _validate_kv_precision(kv_precision: Any) -> str:
+    value = str(kv_precision or "").strip().lower()
+    if not _KV_PRECISION_RE.match(value):
+        raise HFError(
+            f"invalid kv_precision {kv_precision!r}; use one of f16, q8, q4"
         )
     return value
 
@@ -352,16 +379,24 @@ class HuggingFaceToolHandler:
         """
         repo = str(kwargs.get("repo") or "")
         file_path = str(kwargs.get("file") or "")
+        # DP-364: KV precision is the one model-proposed setting the unit gets,
+        # so the card shows it -- and says so when it is not one the node will
+        # accept, rather than letting an approval fail after the fact.
+        raw_kv = kwargs.get("kv_precision")
+        try:
+            tuning = f"kv {_validate_kv_precision(raw_kv)}"
+        except HFError:
+            tuning = f"⚠️ INVALID kv_precision {raw_kv!r} — will be refused"
         try:
             entry = await self._hf.find_gguf_file(
                 validate_repo_id(repo), validate_file_path(file_path)
             )
         except HFError as e:
-            return f"⚠️ UNVERIFIED — HuggingFace lookup failed: {e}"
+            return f"⚠️ UNVERIFIED — HuggingFace lookup failed: {e} · {tuning}"
         gib = entry.size_bytes / _GIB
         return (
             f"{repo}/{entry.path} · {entry.size_bytes} bytes ({gib:.2f} GiB) · "
-            f"sha256 {entry.sha256}"
+            f"sha256 {entry.sha256} · {tuning}"
         )
 
     async def _install_model(
@@ -370,6 +405,7 @@ class HuggingFaceToolHandler:
         file: str,
         name: str,
         contextsize: Optional[int] = None,
+        kv_precision: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Provision a gguf so it *becomes* a valid ``set_active_model`` target.
 
@@ -381,8 +417,8 @@ class HuggingFaceToolHandler:
         and execution is visible in the tool result rather than silent.
         """
         logger.info(
-            "Tool install_model: repo=%s file=%s name=%s ctx=%s",
-            repo, file, name, contextsize,
+            "Tool install_model: repo=%s file=%s name=%s ctx=%s kv=%s",
+            repo, file, name, contextsize, kv_precision,
         )
         if not self._enabled():
             return self._disabled_error()
@@ -391,6 +427,7 @@ class HuggingFaceToolHandler:
             file_path = validate_file_path(file)
             unit_name = _validate_name(name)
             ctx = _validate_contextsize(contextsize)
+            unit_kv = _validate_kv_precision(kv_precision)
             entry = await self._hf.find_gguf_file(repo_id, file_path)
         except HFError as e:
             return _err(str(e))
@@ -399,7 +436,7 @@ class HuggingFaceToolHandler:
         res = await self._run([
             _INSTALL_SCRIPT, "install",
             repo_id, entry.path, unit_name, str(ctx),
-            str(entry.size_bytes), str(entry.sha256), job_id,
+            str(entry.size_bytes), str(entry.sha256), job_id, unit_kv,
         ])
         if res.get("status") != "ok":
             return res
@@ -415,6 +452,7 @@ class HuggingFaceToolHandler:
             "name": unit_name,
             "unit": f"koboldcpp-{unit_name}.service",
             "contextsize": ctx,
+            "kv_precision": unit_kv,
             "size_bytes": entry.size_bytes,
             "sha256": entry.sha256,
             "state": "running",
@@ -442,11 +480,11 @@ def _kv_measurement_note(job: Dict[str, Any]) -> Optional[str]:
     The formula was never wrong. ``2 x n_layer x n_kv_head x head_dim`` is
     right, and the node reads all three terms off the tensor index precisely
     because a hybrid architecture's block count is not its cached-layer count.
-    What could not be sourced was the fourth term. Bytes per element is set by
-    ``--quantkv``, and on CT101 the policy wrapper substitutes that per model at
-    exec -- so the value written into a unit is not the value the process runs
-    with, and any constant compiled in here describes a configuration other
-    than the one being sized.
+    What could not be sourced at the time was the fourth term: bytes per
+    element is set by ``--quantkv``, and CT101's policy wrapper substituted that
+    per model at exec. DP-364 removed the wrapper -- the approved precision is
+    now written into the unit, so the unit file does settle it -- and the deletion
+    still stands, on the ground below alone.
 
     DP-344 is why this is a deletion and not a repair. The estimate returned
     the right total for Qwen3.8 only because a layer count one too high and a
@@ -471,11 +509,11 @@ def _kv_measurement_note(job: Dict[str, Any]) -> Optional[str]:
         "Size this unit's contextsize by measurement, not by arithmetic: read "
         "gpu_status before the unit is first enabled and again after, and "
         "trust that difference. Do not multiply the header shape in this "
-        "status into a VRAM figure -- bytes per KV element depends on the "
-        "--quantkv the process actually runs with, which CT101's policy "
-        "wrapper substitutes per model at exec, so the unit file does not "
-        "settle it. Overshooting into GTT is recoverable and sometimes fine; "
-        "a confident wrong total is neither."
+        "status into a VRAM figure -- a total assembled from header terms has "
+        "matched a real measurement on this box only by two errors "
+        "cancelling, and the compute buffers beside the cache do not follow "
+        "the header at all. Overshooting into GTT is recoverable and "
+        "sometimes fine; a confident wrong total is neither."
     )
     # The node's own refusal is strictly better information than the generic
     # advice above, because it names the property that breaks the linearity.

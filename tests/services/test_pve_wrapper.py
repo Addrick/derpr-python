@@ -167,7 +167,9 @@ def emitted(monkeypatch) -> List[List[str]]:
         # DP-340: the cold target promotes instead of swapping, which is a
         # different argv family and therefore a different wrapper entry.
         await pve._set_active_model("archived")
-        await hf._install_model("owner/m-GGUF", "model-Q6_K.gguf", "newmodel")
+        await hf._install_model(
+            "owner/m-GGUF", "model-Q6_K.gguf", "newmodel", kv_precision="q8"
+        )
         await hf.job_status("newmodel-abc123def456")
 
     asyncio.run(drive())
@@ -233,15 +235,26 @@ def test_a_cold_target_promotes_and_touches_nothing_else(emitted):
     # `run` is systemd's entry point, not sshd's: admitting it would let a
     # caller skip the free-space precheck and the existing-unit refusal.
     "/usr/local/sbin/derpr-model-install run owner/m model.gguf n 8192 1 "
-    + "a" * 64 + " job1",
+    + "a" * 64 + " job1 q8",
     # Arity and charset gates on the install verb.
     "/usr/local/sbin/derpr-model-install install owner/m model.gguf n 8192",
     "/usr/local/sbin/derpr-model-install install ../../etc model.gguf n 8192 1 "
-    + "a" * 64 + " job1",
+    + "a" * 64 + " job1 q8",
     "/usr/local/sbin/derpr-model-install install owner/m model.gguf UPPER 8192 1 "
+    + "a" * 64 + " job1 q8",
+    "/usr/local/sbin/derpr-model-install install owner/m model.gguf n 8192 1 "
+    "nothexdigest job1 q8",
+    # DP-364: the pre-DP-364 shape is gone -- a unit written from it would
+    # carry no approved precision -- and the precision is a closed vocabulary.
+    # The cache mode is not an argument at all: the node reads it off the file.
+    "/usr/local/sbin/derpr-model-install install owner/m model.gguf n 8192 1 "
     + "a" * 64 + " job1",
     "/usr/local/sbin/derpr-model-install install owner/m model.gguf n 8192 1 "
-    "nothexdigest job1",
+    + "a" * 64 + " job1 q8-grid",
+    "/usr/local/sbin/derpr-model-install install owner/m model.gguf n 8192 1 "
+    + "a" * 64 + " job1 int8",
+    "/usr/local/sbin/derpr-model-install install owner/m model.gguf n 8192 1 "
+    + "a" * 64 + " job1 q8 grid",
     "/usr/local/sbin/derpr-model-install status ../../etc/passwd",
     # DP-340 tiering. `run-promote` is systemd's local entry point: admitting it
     # over ssh would let a caller skip the job-record and duplicate-job gates.
@@ -269,6 +282,23 @@ def test_the_install_verb_is_admitted_in_full(wrapper):
     argv = [
         "/usr/local/sbin/derpr-model-install", "install",
         "unsloth/gemma-4-31b-it-GGUF", "gemma-4-31b-it-Q4_K_M.gguf",
-        "gemma31b", "8192", str(SIZE), SHA, "gemma31b-0123456789ab",
+        "gemma31b", "8192", str(SIZE), SHA, "gemma31b-0123456789ab", "q8",
     ]
     assert _verdict(wrapper, argv) == "ALLOW"
+
+
+def test_the_schema_offers_exactly_the_precisions_the_wrapper_admits(wrapper):
+    """The enum on `install_model.kv_precision` and the wrapper's regex are
+    two copies of one vocabulary. A value in the enum the wrapper refuses is a
+    tool that fails only in production -- the DP-332 shape."""
+    from src.tools.tool_defs.huggingface import HUGGINGFACE_TOOLS
+
+    tool = next(t for t in HUGGINGFACE_TOOLS if t["function"]["name"] == "install_model")
+    enum = tool["function"]["parameters"]["properties"]["kv_precision"]["enum"]
+    assert enum == ["f16", "q8", "q4"]
+    for kv in enum:
+        argv = [
+            "/usr/local/sbin/derpr-model-install", "install", "owner/m",
+            "model.gguf", "n", "8192", "1", SHA, "job1", kv,
+        ]
+        assert _verdict(wrapper, argv) == "ALLOW", kv

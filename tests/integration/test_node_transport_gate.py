@@ -100,7 +100,7 @@ async def test_install_model_refuses_when_pve_tools_disabled(hf_feature_on, monk
     runner = RecordingRunner()
 
     res = await _hf(runner)._install_model(
-        "owner/model-GGUF", "model-Q6_K.gguf", "newmodel"
+        "owner/model-GGUF", "model-Q6_K.gguf", "newmodel", kv_precision="q8"
     )
 
     assert res["status"] == "error"

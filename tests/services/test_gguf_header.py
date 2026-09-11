@@ -107,6 +107,56 @@ def _write_gguf(path: Path, pairs: list, tensors: list = None) -> Path:
     return path
 
 
+# -- DP-364: `--ssm-layers`, the installer's hybrid check --------------------
+
+def _main(monkeypatch, capsys, *argv: str) -> tuple:
+    monkeypatch.setattr(gguf_header.sys, "argv", ["gguf_header.py", *argv])
+    rc = gguf_header.main()
+    return rc, capsys.readouterr().out
+
+
+def test_ssm_layers_mode_prints_the_bare_count_of_a_hybrid(tmp_path, monkeypatch, capsys):
+    path = _write_gguf(
+        tmp_path / "hybrid.gguf",
+        [
+            _kv_string("general.architecture", "qwen35"),
+            _kv_u32("qwen35.block_count", 64),
+            _kv_u32("qwen35.attention.head_count_kv", 4),
+            _kv_u32("qwen35.attention.key_length", 256),
+        ],
+        _blocks(16, "attn_k.weight")
+        + _blocks(48, "attn_qkv.weight", "ssm_conv1d.weight", start=16),
+    )
+    assert _main(monkeypatch, capsys, "--ssm-layers", str(path)) == (0, "48")
+
+
+def test_ssm_layers_mode_says_zero_for_a_dense_model(tmp_path, monkeypatch, capsys):
+    path = _write_gguf(tmp_path / "dense.gguf", [
+        _kv_string("general.architecture", "qwen3"),
+        _kv_u32("qwen3.block_count", 8),
+    ], _blocks(8, "attn_k.weight"))
+    assert _main(monkeypatch, capsys, "--ssm-layers", str(path)) == (0, "0")
+
+
+def test_ssm_layers_mode_says_nothing_when_it_cannot_tell(tmp_path, monkeypatch, capsys):
+    """Empty, not "0": the installer refuses grid on both, but they are
+    different claims and only one of them is "not a hybrid"."""
+    missing = str(tmp_path / "absent.gguf")
+    assert _main(monkeypatch, capsys, "--ssm-layers", missing) == (0, "")
+
+
+def test_the_fragment_mode_is_unchanged_by_the_new_flag(tmp_path, monkeypatch, capsys):
+    path = _write_gguf(tmp_path / "dense.gguf", [
+        _kv_string("general.architecture", "qwen3"),
+        _kv_u32("qwen3.block_count", 8),
+        _kv_u32("qwen3.attention.head_count_kv", 8),
+        _kv_u32("qwen3.attention.key_length", 128),
+    ], _blocks(8, "attn_k.weight"))
+    rc, out = _main(monkeypatch, capsys, str(path))
+    assert rc == 0
+    assert out == ',"n_layer":8,"n_kv_head":8,"head_dim":128,"ssm_layers":0'
+
+
 # -- happy paths -------------------------------------------------------------
 
 def test_reads_the_three_numbers_a_kv_budget_needs(tmp_path):
