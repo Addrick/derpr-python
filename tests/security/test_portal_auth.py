@@ -203,30 +203,29 @@ def test_abort_open_without_token(token_set):
 
 
 # ---------------------------------------------------------------------------
-# CORS: credentials must be off with wildcard origins
+# CORS: none — every browser client is same-origin (DP-365)
 # ---------------------------------------------------------------------------
 
-def test_cors_credentials_disabled():
+def test_no_cors_middleware():
     adapter, _, _ = _make_adapter()
-    for m in adapter.app.user_middleware:
-        if "CORSMiddleware" in str(m.cls):
-            assert m.kwargs.get("allow_credentials") is False
-            return
-    pytest.fail("CORS middleware not found")
+    assert not any("CORSMiddleware" in str(m.cls) for m in adapter.app.user_middleware)
 
 
-def test_gate_401_carries_cors_headers(token_set):
-    """CORS must wrap the auth gate (CORS added last = outermost), so a
-    cross-origin browser can READ the 401 instead of hitting an opaque
-    CORS-blocked network error."""
+def test_foreign_origin_gets_no_cors_grant(token_set):
+    """The GET reads are unauthenticated (DP-333), so the browser's
+    same-origin policy is what stops a foreign page from reading them. That
+    only holds while no Access-Control-Allow-Origin header is sent."""
     adapter, _, _ = _make_adapter()
     with TestClient(adapter.app) as client:
-        r = client.patch(
-            "/api/v1/persona/p", json={"prompt": "x"},
-            headers={"Origin": "https://other.example"},
+        r = client.get("/api/v1/persona/p", headers={"Origin": "https://other.example"})
+        pre = client.options(
+            "/api/v1/persona/p",
+            headers={"Origin": "https://other.example",
+                     "Access-Control-Request-Method": "PATCH"},
         )
-    assert r.status_code == 401
-    assert r.headers.get("access-control-allow-origin") == "*"
+    assert r.status_code == 200
+    assert "access-control-allow-origin" not in r.headers
+    assert "access-control-allow-origin" not in pre.headers
 
 
 def test_non_ascii_token_rejected_not_500(token_set):

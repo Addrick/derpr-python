@@ -32,7 +32,6 @@ from typing import (
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
@@ -194,24 +193,13 @@ class KoboldEngineAdapter:
             lifespan=self._lifespan,
         )
 
-        # Auth first, CORS second: Starlette's add_middleware puts the LAST
-        # addition outermost, and CORS must wrap the auth gate so its 401
-        # responses still carry CORS headers (a cross-origin caller must be
-        # able to read the 401, not get an opaque network error).
         self._setup_control_plane_auth()
 
-        # CORS open. (Originally so lite.koboldai.net could reach a local
-        # instance; the SPA is same-origin, so this is now a candidate to
-        # narrow — see DP-365.) allow_credentials must stay False with wildcard origins (DP-277):
-        # auth is a bearer token the calling page must know, never an
-        # ambient browser credential a foreign origin could ride.
-        self.app.add_middleware(
-            CORSMiddleware,
-            allow_origins=["*"],
-            allow_credentials=False,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
+        # No CORS middleware (DP-365): every browser client is same-origin —
+        # the /derpr SPA and the /voice page are served by this app, and the
+        # Vite dev server proxies. Wildcard CORS existed only so
+        # lite.koboldai.net could reach a local instance; without it, a foreign
+        # page cannot read any response, including the open GET reads.
 
         self._http = httpx.AsyncClient(timeout=None)
         self._setup_routes()
