@@ -150,7 +150,7 @@ class RequestContext:
     local_inference_config: Optional[Dict[str, Any]] = None
     turn_tainted: bool = False
     taint_sources: List[str] = field(default_factory=list)
-    # Optional: OAI-format messages from the client (e.g. kobold-lite jinja history).
+    # Optional: OAI-format messages from the client (non-streaming OAI callers).
     # Used as a fallback when the DB returns no history for this channel.
     client_messages: Optional[List[Dict[str, Any]]] = None
 
@@ -673,7 +673,7 @@ class RequestBuilder:
         a fresh user turn (DB already terminates with the matching user row).
 
         When `ctx.client_messages` is provided and the DB returns no history,
-        the client-side message array (e.g. kobold-lite jinja history) is used
+        the client-side message array (a non-streaming OAI caller's) is used
         as a fallback so sessions with rich UI state are not hollow on the
         first engine-routed turn.  System/trailing-assistant/trailing-user
         messages are stripped — the engine re-injects them from persona config
@@ -690,20 +690,18 @@ class RequestBuilder:
         if taint_key in self.conversation_taints:
             self.conversation_taints.move_to_end(taint_key)
 
-        # If the client supplied its own message array (kobold-lite jinja mode),
-        # prefer it over the DB result. The portal export already uses global
-        # history (all channels), so kobold-lite's in-memory state is the
-        # correct, authoritative window — re-querying a narrower channel filter
-        # here would miss cross-channel turns. DB history is still used when no
-        # client messages are present (Discord, Gmail, other bot callers).
+        # If the client supplied its own message array (the non-streaming OAI
+        # route passes it through), prefer it over the DB result — that caller
+        # owns its window. DB history is used when no client messages are
+        # present (the /derpr portal, Discord, Gmail, other bot callers).
         if ctx.client_messages:
             fallback = []
             for m in ctx.client_messages:
                 m_copy = dict(m)
                 content = m_copy.get("content", "")
                 if isinstance(content, str):
-                    # Strip kobold-lite internal placeholders used for dynamic templating.
-                    # These are injected by kobold_export.py but redundant for engine-side templating.
+                    # Strip KoboldCPP instruct placeholders a client may echo
+                    # back; the engine does its own templating.
                     content = content.replace("{{[INPUT]}}", "").replace("{{[OUTPUT]}}", "").strip()
                     # Noise reduction for client-supplied history
                     content = strip_vertex_links(content)
@@ -731,7 +729,7 @@ class RequestBuilder:
             db_row_count = len(ctx.conversation_history)
             ctx.conversation_history = fallback
             logger.info(
-                "prepare_request: using %d client messages (cleaned kobold-lite history) "
+                "prepare_request: using %d client messages (cleaned client history) "
                 "for %s / %s — DB result (%d rows) discarded",
                 len(ctx.conversation_history), ctx.persona_name, ctx.channel,
                 db_row_count,
@@ -760,7 +758,7 @@ class RequestBuilder:
                 ctx.conversation_history.pop()
         elif ctx.message and ctx.message.strip():
             # Symmetric with the DB-side guard in TurnPersistence.log_user_turn: an empty /
-            # whitespace-only message (kobold-lite continue/prefetch) must not
+            # whitespace-only message (a continue/prefetch-style call) must not
             # land a phantom `{'role':'user','content':''}` turn in the prompt,
             # which would otherwise make the model generate off a blank turn.
             # Noise reduction: Strip vertexai grounding redirect URLs from user message for LLM context.

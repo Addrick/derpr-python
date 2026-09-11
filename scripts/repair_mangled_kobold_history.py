@@ -3,16 +3,17 @@
 
 Background (DP-126 audit)
 -------------------------
-The kobold engine portal (port 5003) rebuilds conversation history from the
-DB and re-wraps each user turn in ``{{[INPUT]}}``/``{{[OUTPUT]}}`` placeholders
-(see ``src/interfaces/kobold_export.py``). If a user row's *content* itself
-already contains rendered instruct tags (``### Instruction:``, ``### Response:``,
-``{{[INPUT]}}``, ``<|im_start|>`` ...), the export nests them — producing the
-mangled blob seen in the UI and poisoning the LLM context on every turn.
+The retired Kobold Lite portal (DP-365) rebuilt conversation history from the
+DB and re-wrapped each user turn in ``{{[INPUT]}}``/``{{[OUTPUT]}}``
+placeholders. If a user row's *content* itself already contained rendered
+instruct tags (``### Instruction:``, ``### Response:``, ``{{[INPUT]}}``,
+``<|im_start|>`` ...), the export nested them — producing the mangled blob seen
+in the UI and poisoning the LLM context on every turn.
 
-Such rows are written when the logged "user turn" was the whole rendered
+Such rows were written when the logged "user turn" was the whole rendered
 instruct prompt instead of the clean typed message (pre-sidecar engine code,
-or passthrough-mode native ``/api/v1/generate``).
+or the since-removed native ``/api/v1/generate`` route). New rows can no longer
+be written this way; the script remains for cleaning old databases.
 
 This script is read-only by default. It scans for the corruption signature and
 reports it. With ``--repair`` it rewrites user rows to just the extracted last
@@ -42,8 +43,8 @@ import sys
 from datetime import datetime
 
 # Tags whose presence inside a stored message indicates a rendered instruct
-# prompt was logged instead of the raw user message. Kept in sync with
-# KoboldEngineAdapter._extract_last_user_turn.
+# prompt was logged instead of the raw user message. (Copied from the adapter's
+# former `_extract_last_user_turn`, removed in DP-365.)
 _USER_TAGS = [
     "### Instruction:",
     "<|im_start|>user",
@@ -80,8 +81,7 @@ def is_mangled(content: str) -> bool:
 def extract_last_user_turn(prompt: str) -> str:
     """Extract the last clean user turn from a rendered instruct prompt.
 
-    Mirrors KoboldEngineAdapter._extract_last_user_turn so a repaired row
-    matches what the live adapter would log going forward.
+    Same algorithm the adapter's native routes used before DP-365 removed them.
     """
     if not prompt:
         return ""

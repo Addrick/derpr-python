@@ -32,8 +32,7 @@ from typing import (
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse
+from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
 import uvicorn
@@ -45,12 +44,11 @@ from src.chat_system import (
     PendingConfirmationEvent, ResponseType, TokenEvent, ToolCallResultEvent,
     ToolCallStartEvent,
 )
-from src.interfaces.kobold_export import build_kobold_savefile, build_transcript
+from src.interfaces.transcript import build_transcript
 from src.memory.date_extraction import LlmTagger, resolve_ingest_anchor
 from src.origin import Origin
 from src.security.scrubber import get_scrubber
 from src.stream_engine import CHAT_TEMPLATES
-from src.interfaces.portal_render import render_portal_html
 from src.personas.store import save_personas_to_file
 from src.interfaces._persona_patch import (
     _KNOWN_PATCH_KEYS_ENGINE as _KNOWN_PATCH_KEYS,
@@ -134,27 +132,25 @@ def _channel_source(channel: str) -> str:
 
 
 class KoboldEngineAdapter:
-    """HTTP boundary between kobold-lite and the DERPR engine.
+    """HTTP boundary between the `/derpr` portal and the DERPR engine.
 
     Phase D split (2026-04-28): the OAI route (`/v1/chat/completions`) is a
     thin SSE transcoder over `chat_system.stream_response` — engine rebuilds
     history from DB, only `derpr_user_text` (or last-user fallback) drives
-    the user turn. The native route (`/api/extra/generate/stream`) and
-    `/api/v1/generate` remain verbatim passthrough to KoboldCPP because the
-    pre-rendered kobold prompt cannot be safely reconstructed from DB.
-    See decisions/2026-04-28-portal-engine-as-source-of-truth.md.
+    the user turn. See decisions/2026-04-28-portal-engine-as-source-of-truth.md.
+
+    DP-365 retired the vendored Kobold Lite UI (`/portal`) and the
+    kobold-native routes only it called (`/api/v1/generate`,
+    `/api/extra/generate/*`, `/tokencount`, version/config probes,
+    `/kobold_export`). The kobold-shaped routes that remain are the ones the
+    SPA uses.
     """
 
-    # DP-277: POST paths that ARE the data plane (generation, aborts, token
-    # counting). Everything else non-GET requires the operator token — new
-    # mutating routes are born gated, not born open.
+    # DP-277: POST paths that ARE the data plane (generation, aborts). Everything
+    # else non-GET requires the operator token — new mutating routes are born
+    # gated, not born open.
     DATA_PLANE_POST_PATHS = frozenset({
-        "/api/v1/generate",
-        "/api/extra/generate/stream",
-        "/api/extra/generate/check",
-        "/api/v1/abort",
         "/api/extra/abort",
-        "/api/extra/tokencount",
         "/chat/completions",
         "/v1/chat/completions",
         # Voice STT uploads (DP-238) mount on this same app via
@@ -197,23 +193,13 @@ class KoboldEngineAdapter:
             lifespan=self._lifespan,
         )
 
-        # Auth first, CORS second: Starlette's add_middleware puts the LAST
-        # addition outermost, and CORS must wrap the auth gate so its 401
-        # responses still carry CORS headers (a cross-origin caller must be
-        # able to read the 401, not get an opaque network error).
         self._setup_control_plane_auth()
 
-        # CORS open — required for lite.koboldai.net to reach a local instance.
-        # allow_credentials must stay False with wildcard origins (DP-277):
-        # auth is a bearer token the calling page must know, never an
-        # ambient browser credential a foreign origin could ride.
-        self.app.add_middleware(
-            CORSMiddleware,
-            allow_origins=["*"],
-            allow_credentials=False,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
+        # No CORS middleware (DP-365): every browser client is same-origin —
+        # the /derpr SPA and the /voice page are served by this app, and the
+        # Vite dev server proxies. Wildcard CORS existed only so
+        # lite.koboldai.net could reach a local instance; without it, a foreign
+        # page cannot read any response, including the open GET reads.
 
         self._http = httpx.AsyncClient(timeout=None)
         self._setup_routes()
@@ -283,7 +269,7 @@ class KoboldEngineAdapter:
         `/api/v1/persona/{name}` (the persona's system prompt),
         `/session/{p}/assemble` (the fully assembled request),
         `/session/{p}/transcript` (history, plus live park tokens and their
-        confirmation text), `/kobold_export`, `/session/{p}/ltm_block`
+        confirmation text), `/session/{p}/ltm_block`
         (long-term-memory search on a caller-supplied query),
         `/interaction/{id}/versions`, and the Hindsight bank listings — none of
         which consult a persona's DP-330 `origin_allowlist`, because none of
@@ -537,18 +523,14 @@ class KoboldEngineAdapter:
         }
 
     def _setup_portal(self) -> None:
-        @self.app.get("/portal")
-        async def get_portal() -> HTMLResponse:
-            return HTMLResponse(render_portal_html("engine"))
-
         @self.app.get("/")
-        async def root_redirect() -> HTMLResponse:
-            return HTMLResponse(render_portal_html("engine"))
+        async def root_redirect() -> RedirectResponse:
+            return RedirectResponse("/derpr/")
 
         # --- DP-132: bespoke "DERPR Portal" web UI (React/Vite build) ---------
-        # Additive only. The existing /portal (Kobold-Lite PoC) is untouched.
-        # The Vite app is built with base="/derpr/" so its asset URLs resolve
-        # under the StaticFiles mount below. GET /derpr returns the SPA entry
+        # The only web UI since DP-365 retired the Kobold Lite PoC. The Vite
+        # app is built with base="/derpr/" so its asset URLs resolve under the
+        # StaticFiles mount below. GET /derpr returns the SPA entry
         # (index.html); the mount serves the hashed JS/CSS assets. If the build
         # output is absent (UI not yet built), /derpr returns a short hint so
         # the engine still boots without the front-end artifacts present.
@@ -687,10 +669,8 @@ class KoboldEngineAdapter:
 
             Returns {"block": "<memory>...</memory>"} or {"block": null} when
             no relevant memories exist or LTM is disabled for the persona.
-            Phase 2.2: called client-side before each submit when LTM is on;
-            the block is written into kobold-lite's current_anote so kobold
-            places it at its normal author's-note position in the prompt.
-            DP-136: `channel`/`user_identifier`/`server_id` are accepted so the
+            The `/derpr` inspector uses it to preview what recall a turn would
+            inject. DP-136: `channel`/`user_identifier`/`server_id` are accepted so the
             recalled block is scoped to the active channel (defaults preserve the
             single web_ui/portal behavior).
             """
@@ -729,7 +709,7 @@ class KoboldEngineAdapter:
             with persona-default samplers and no `server_id`, exactly what this
             endpoint hardcodes. It is NOT a parity claim for arbitrary clients: a
             different user/server (PERSONAL/SERVER-mode personas) or a
-            sampler-overriding client (e.g. kobold-lite) assembles a different
+            sampler-overriding OAI client assembles a different
             history window / merges different params, which this dry-run does not
             model. (DP-132 #12 — broadening to accept those inputs is deferred.)
 
@@ -907,30 +887,6 @@ class KoboldEngineAdapter:
                 },
             )
 
-        @self.app.get("/api/v1/session/{persona}/kobold_export")
-        async def kobold_export(persona: str, max_turns: Optional[int] = None) -> Any:
-            """Build a kobold-lite savefile from DERPR's global history for `persona`.
-
-            Phase 2.1 always pulls global history (all channels) — the portal has
-            no channel concept. max_turns defaults to the persona's configured
-            sliding-window size (`get_base_history_messages`); no new config key.
-            """
-            if persona not in self._personas:
-                return JSONResponse(status_code=404, content={"error": f"Persona '{persona}' not found"})
-
-            p = self._personas[persona]
-            limit = max_turns if isinstance(max_turns, int) and max_turns > 0 else p.get_base_history_messages()
-            raw_history = await asyncio.to_thread(
-                self._memory_manager.get_global_history, persona, limit
-            )
-            savefile, skipped = build_kobold_savefile(raw_history)
-            logger.warning(
-                f"kobold_export persona={persona} limit={limit} "
-                f"rows={len(raw_history)} actions={len(savefile.get('actions', []))} "
-                f"ids={len(savefile.get('interaction_ids', []))} skipped={skipped}"
-            )
-            return JSONResponse(content=savefile)
-
         @self.app.get("/api/v1/session/{persona}/transcript")
         async def session_transcript(
             persona: str,
@@ -1098,7 +1054,7 @@ class KoboldEngineAdapter:
 
             Idempotent: a second DELETE returns success with `already_suppressed: true`.
             Reply chains stay intact; suppressed rows are filtered from history,
-            retrieval, and `kobold_export` via `_suppression_filter`.
+            retrieval, and `/transcript` via `_suppression_filter`.
             """
             try:
                 inserted = await asyncio.to_thread(
@@ -1225,29 +1181,6 @@ class KoboldEngineAdapter:
             )
             return {"result": "success", "rejected_fields": rejected, "unknown_fields": unknown}
 
-        @self.app.get("/api/v1/info/version")
-        async def get_info_version() -> Any:
-            return await self._forward_get("/api/v1/info/version", {"version": "1.70", "lib_version": "1.70"})
-
-        @self.app.get("/api/extra/version")
-        async def get_extra_version() -> Any:
-            # Forward verbatim so portal can detect KCPP version + jinja/mcp/etc.
-            # Fallback only on upstream failure. Without real version portal
-            # falls back to legacy prompt-field format and instruct tags break.
-            return await self._forward_get("/api/extra/version", {"version": "1.70", "platform": "DERPR"})
-
-        @self.app.get("/api/v1/config/soft_prompts")
-        async def get_soft_prompts() -> Any:
-            return await self._forward_get("/api/v1/config/soft_prompts", {"results": []})
-
-        @self.app.get("/api/v1/config/max_context_length")
-        async def get_max_history_messages() -> Any:
-            return await self._forward_get("/api/v1/config/max_context_length", {"result": global_config.DEFAULT_MAX_CONTEXT_TOKENS})
-
-        @self.app.get("/api/extra/true_max_context_length")
-        async def get_true_max_ctx() -> Any:
-            return await self._forward_get("/api/extra/true_max_context_length", {"value": global_config.DEFAULT_MAX_CONTEXT_TOKENS})
-
         @self.app.get("/api/extra/perf")
         async def get_perf() -> Any:
             """Backend processing counters, forwarded from KCPP.
@@ -1320,136 +1253,12 @@ class KoboldEngineAdapter:
                 }
             except Exception as e:
                 # Data-plane route: the exception text can carry the upstream URL,
-                # so log it and return a generic reason (same rule as
-                # _forward_post — decisions/2026-05-27-kobold-stack-trace-exposure).
+                # so log it and return a generic reason
+                # (decisions/2026-05-27-kobold-stack-trace-exposure).
                 logger.debug(f"prefill progress fetch failed: {e}")
                 return JSONResponse(content={"available": False, "reason": "unreachable"})
             return JSONResponse(content=projected)
 
-        @self.app.post("/api/extra/tokencount")
-        async def tokencount(request: Request) -> Any:
-            return await self._forward_post("/api/extra/tokencount", await request.json())
-
-        @self.app.post("/api/v1/generate")
-        async def kobold_generate(request: Request) -> Any:
-            """Non-streaming KoboldCPP generation with DB logging."""
-            data = await request.json()
-            persona_name = self._get_current_persona_name()
-            prompt = data.get("prompt", "")
-            user_interaction_id: Optional[int] = None
-            if prompt and prompt.strip():
-                clean_prompt = self._extract_last_user_turn(prompt)
-                user_interaction_id = self._log_interaction(persona_name, "user", clean_prompt)
-            url = f"{_kobold_base_url()}/api/v1/generate"
-            try:
-                r = await self._http.post(url, json=data)
-                resp = r.json() if r.content else {}
-                if r.status_code == 200:
-                    results = resp.get("results", [])
-                    if results:
-                        ai_text = results[0].get("text", "")
-                        if ai_text:
-                            self._commit_assistant(persona_name, ai_text, user_interaction_id, None)
-                return JSONResponse(status_code=r.status_code, content=resp)
-            except httpx.RequestError as e:
-                logger.error(f"/api/v1/generate upstream failed: {e}")
-                return JSONResponse(status_code=502, content={"error": str(e)})
-
-        @self.app.post("/api/extra/generate/stream")
-        async def kobold_generate_stream(request: Request) -> StreamingResponse:
-            """Streaming KoboldCPP SSE generation with DB logging.
-
-            Logs the user turn from `prompt` on entry, then collects all SSE
-            token deltas and commits the assembled assistant turn on [DONE].
-            Persona is selected by adapter.active_persona — uniform with the
-            OAI path; per-request `model` override is rejected.
-            """
-            data = await request.json()
-            persona_name = self._get_current_persona_name()
-
-            prompt: str = data.get("prompt") or ""
-            user_interaction_id: Optional[int] = None
-            if prompt.strip():
-                clean_prompt = self._extract_last_user_turn(prompt)
-                user_interaction_id = self._log_interaction(persona_name, "user", clean_prompt)
-
-            forward_body = {k: v for k, v in data.items() if k != "model"}
-            url = f"{_kobold_base_url()}/api/extra/generate/stream"
-
-            async def relay_stream() -> AsyncIterator[bytes]:
-                full_response: List[str] = []
-                committed = False
-                # StreamingResponse already cancels this generator on client
-                # drop (the CancelledError path commits the partial turn); the
-                # explicit poll is a belt-and-braces early-out, so once per
-                # second is plenty — per-event it costs an asyncio receive-poll
-                # per token.
-                last_dc_check = time.monotonic()
-                try:
-                    async with self._http.stream("POST", url, json=forward_body) as upstream:
-                        async for chunk in upstream.aiter_raw():
-                            now = time.monotonic()
-                            if now - last_dc_check >= 1.0:
-                                last_dc_check = now
-                                if await request.is_disconnected():
-                                    return
-                            if not chunk:
-                                continue
-                            try:
-                                decoded = chunk.decode("utf-8")
-                                for line in decoded.splitlines():
-                                    if line.startswith("data: "):
-                                        raw = line[6:].strip()
-                                        if raw and raw != "[DONE]":
-                                            try:
-                                                tok_data = json.loads(raw)
-                                                token = tok_data.get("token")
-                                                if token:
-                                                    full_response.append(token)
-                                            except Exception:
-                                                pass
-                            except Exception:
-                                pass
-                            yield chunk
-
-                except httpx.RequestError as e:
-                    logger.error(f"/api/extra/generate/stream upstream failed: {e}")
-                    err_payload = json.dumps({"error": str(e)})
-                    yield f"data: {err_payload}\n\ndata: [DONE]\n\n".encode("utf-8")
-                except asyncio.CancelledError:
-                    if full_response and not committed:
-                        committed = True
-                        self._commit_assistant(
-                            persona_name, "".join(full_response),
-                            user_interaction_id, None,
-                        )
-                    raise
-                finally:
-                    if full_response and not committed:
-                        committed = True
-                        self._commit_assistant(
-                            persona_name, "".join(full_response),
-                            user_interaction_id, None,
-                        )
-
-            return StreamingResponse(
-                relay_stream(),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "X-Accel-Buffering": "no",
-                    "Connection": "keep-alive",
-                },
-            )
-
-        @self.app.get("/api/extra/generate/check")
-        @self.app.post("/api/extra/generate/check")
-        async def generate_check(request: Request) -> Any:
-            body = await request.json() if request.method == "POST" else {}
-            return await self._forward_post("/api/extra/generate/check", body) if request.method == "POST" \
-                else await self._forward_get("/api/extra/generate/check", {})
-
-        @self.app.post("/api/v1/abort")
         @self.app.post("/api/extra/abort")
         async def abort_generation() -> Any:
             url = f"{_kobold_base_url()}/api/extra/abort"
@@ -1517,7 +1326,7 @@ class KoboldEngineAdapter:
                 "max_tokens": data.get("max_tokens") or data.get("max_completion_tokens"),
                 "stop_sequence": data.get("stop"),
             }
-            # Kobold-specific extras (from kobold-lite's UI)
+            # Kobold sampler extras (KoboldCPP request-field names)
             for k in ("rep_pen", "rep_pen_range", "rep_pen_slope",
                       "min_p", "typical", "tfs", "max_context_length"):
                 if data.get(k) is not None:
@@ -1956,168 +1765,6 @@ class KoboldEngineAdapter:
                 if joined:
                     return joined
         return None
-
-    def _extract_last_user_turn(self, prompt: str) -> str:
-        """Extract only the last user turn from a raw Kobold prompt string.
-
-        Supports standard instruct templates (Alpaca, ChatML, Llama-3, etc.).
-        Avoids nested or mangled wrappers by filtering out candidate tag matches.
-        """
-        if not prompt:
-            return ""
-
-        prompt_stripped = prompt.rstrip()
-
-        # Standard candidate tags (user_tag, assistant_tag)
-        candidates = [
-            ("### Instruction:", "### Response:"),
-            ("<|im_start|>user", "<|im_start|>assistant"),
-            ("<|start_header_id|>user<|end_header_id|>", "<|start_header_id|>assistant<|end_header_id|>"),
-            ("{{[INPUT]}}", "{{[OUTPUT]}}"),
-            ("[INST]", "[/INST]"),
-            ("USER:", "ASSISTANT:"),
-            ("User:", "Assistant:"),
-            ("Input:", "Output:"),
-            ("<|user|>", "<|assistant|>"),
-        ]
-
-        all_tags = []
-        for ut, at in candidates:
-            all_tags.append(ut)
-            all_tags.append(at)
-
-        best_message = None
-        best_assistant_idx = -1
-
-        for user_tag, assistant_tag in candidates:
-            idx_assistant = prompt_stripped.rfind(assistant_tag)
-            if idx_assistant == -1:
-                continue
-
-            # Find the user_tag before this assistant_tag
-            idx_user = prompt_stripped[:idx_assistant].rfind(user_tag)
-            if idx_user == -1:
-                continue
-
-            candidate_message = prompt_stripped[idx_user + len(user_tag) : idx_assistant].strip()
-
-            # Check if this candidate message contains any other tags (to avoid nested/mangled wrappers)
-            has_other_tags = any(tag in candidate_message for tag in all_tags)
-
-            if not has_other_tags:
-                if idx_assistant > best_assistant_idx:
-                    best_assistant_idx = idx_assistant
-                    best_message = candidate_message
-
-        if best_message is not None:
-            return best_message
-
-        # Fallback 1: No clean matching tags with assistant suffix, look for last user_tag with nothing after it
-        max_user_idx = -1
-        best_user_tag = None
-        for user_tag, _ in candidates:
-            idx_user = prompt_stripped.rfind(user_tag)
-            if idx_user > max_user_idx:
-                max_user_idx = idx_user
-                best_user_tag = user_tag
-
-        if best_user_tag is not None:
-            candidate_message = prompt_stripped[max_user_idx + len(best_user_tag):].strip()
-            if not any(tag in candidate_message for tag in all_tags):
-                return candidate_message
-
-        # Fallback 2: Retrieve the one with the highest assistant index even if it contains tags
-        best_assistant_idx = -1
-        best_message = None
-        for user_tag, assistant_tag in candidates:
-            idx_assistant = prompt_stripped.rfind(assistant_tag)
-            if idx_assistant != -1 and idx_assistant > best_assistant_idx:
-                idx_user = prompt_stripped[:idx_assistant].rfind(user_tag)
-                if idx_user != -1:
-                    best_assistant_idx = idx_assistant
-                    best_message = prompt_stripped[idx_user + len(user_tag) : idx_assistant].strip()
-
-        if best_message is not None:
-            return best_message
-
-        # Ultimate fallback: return the entire prompt (stripped)
-        return prompt_stripped
-
-    def _log_interaction(self, persona_name: str, role: str, content: str) -> Optional[int]:
-        """Log an interaction synchronously and return its interaction_id.
-
-        Synchronous call — MemoryManager.log_message is a fast SQLite insert
-        under a thread lock. Return value lets callers thread reply_to_id.
-        """
-        if not content or not content.strip():
-            return None
-        try:
-            res = self._memory_manager.log_message(
-                user_identifier="portal",
-                persona_name=persona_name,
-                channel="web_ui",
-                author_role=role,
-                author_name=None,
-                content=content,
-                timestamp=datetime.now(timezone.utc),
-            )
-            return int(res) if res is not None else None
-        except Exception as e:
-            logger.error(f"Interaction logging failed (role={role}): {e}")
-            return None
-
-    def _commit_assistant(self, persona_name: str, content: str, user_interaction_id: Optional[int],
-                          retry_assistant_id: Optional[int], reasoning_content: Optional[str] = None) -> Optional[int]:
-        """Helper to append the full assistant stream into history."""
-        if retry_assistant_id is not None:
-            try:
-                self._memory_manager.update_interaction_content(
-                    retry_assistant_id, content, reasoning_content=reasoning_content
-                )
-                return retry_assistant_id
-            except Exception as e:
-                logger.error(f"Failed to patch assistant response for retry_id {retry_assistant_id}: {e}")
-                return None
-        else:
-            try:
-                res = self._memory_manager.log_message(
-                    user_identifier="portal", persona_name=persona_name,
-                    channel="web_ui", author_role='assistant',
-                    author_name=persona_name, content=content,
-                    timestamp=datetime.now(timezone.utc),
-                    reply_to_id=user_interaction_id,
-                    reasoning_content=reasoning_content
-                )
-                return int(res) if res is not None else None
-            except Exception as e:
-                logger.error(f"Assistant log failed: {e}")
-                return None
-
-    async def _forward_get(self, path: str, fallback: Dict[str, Any]) -> JSONResponse:
-        url = f"{_kobold_base_url()}{path}"
-        try:
-            r = await self._http.get(url)
-            return JSONResponse(status_code=r.status_code, content=r.json() if r.content else fallback)
-        except Exception as e:
-            logger.warning(f"Forward GET {path} failed: {e}; returning fallback")
-            return JSONResponse(content=fallback)
-
-    async def _forward_post(self, path: str, body: Dict[str, Any]) -> JSONResponse:
-        url = f"{_kobold_base_url()}{path}"
-        try:
-            r = await self._http.post(url, json=body)
-            return JSONResponse(status_code=r.status_code, content=r.json() if r.content else {})
-        except Exception as e:
-            # The callers of this forwarder (/api/extra/tokencount,
-            # /api/extra/generate/check) are DATA_PLANE_POST_PATHS — reachable
-            # without the operator token. Unlike the control-plane error sites,
-            # the exception text here would go to an untrusted caller and can
-            # carry the upstream kobold URL, so log it and return a generic
-            # message. See decisions/2026-05-27-kobold-stack-trace-exposure.md.
-            logger.warning(f"Forward POST {path} failed: {e}")
-            return JSONResponse(
-                status_code=502, content={"error": "upstream backend unreachable"}
-            )
 
     @staticmethod
     def _assembled_to_dict(assembled: "AssembledRequest") -> Dict[str, Any]:

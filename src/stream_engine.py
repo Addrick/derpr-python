@@ -30,8 +30,8 @@ logger = logging.getLogger(__name__)
 
 
 def _template_from_instruct_tags(tags: Dict[str, Any]) -> Dict[str, Any]:
-    """Build a CHAT_TEMPLATES-shape dict from kobold-lite's raw `instruct_*`
-    vocabulary. The live portal forwards `localsettings.instruct_*` verbatim,
+    """Build a CHAT_TEMPLATES-shape dict from the raw `instruct_*` vocabulary
+    (inherited from KoboldCpp Lite). A persona's stored `instruct_tags` use it,
     and the named-preset registry below is mapped onto the same vocabulary, so
     this is the single translation point for both paths.
 
@@ -409,8 +409,8 @@ class StreamEngine:
         log-safe dump (prompt summarized, tools listed by name)."""
         genkey = f"KCPP{random.randint(1000, 9999)}"
         kobold_extras = params.get_provider_extras("kobold")
-        # Token budget comes from kobold-lite's UI slider
-        # (params.max_context_length). Persona.context_length is a *turn count*
+        # Token budget comes from the request's `max_context_length` kobold
+        # extra, else the persona's max_context_tokens. Persona.context_length is a *turn count*
         # for the history window — a different concept — so do not use it here.
         ctx_len = (
             kobold_extras.get("max_context_length")
@@ -640,30 +640,6 @@ class StreamEngine:
         finally:
             await inner.aclose()
 
-    def stream_prompt(
-        self,
-        persona_config: Dict[str, Any],
-        rendered_prompt: str,
-        params: GenerationParams,
-        *,
-        stop_sequences: Optional[List[str]] = None,
-        tools_advertised: Optional[List[str]] = None,
-    ) -> AsyncIterator[Dict[str, Any]]:
-        """Phase B entry — stream from a caller-rendered prompt. Used by the
-        portal where kobold-lite owns templating; the engine never rewraps."""
-        payload, dump_payload, genkey = self._build_kobold_payload(
-            persona_config=persona_config,
-            prompt=rendered_prompt,
-            stop_seqs=list(stop_sequences or []),
-            params=params,
-            template_name="<caller>",
-            tools_advertised=list(tools_advertised or []),
-        )
-        return self._kobold_stream(
-            payload, dump_payload, genkey,
-            parse_tool_calls=bool(tools_advertised),
-        )
-
     def stream_local(
         self,
         persona_config: Dict[str, Any],
@@ -674,7 +650,7 @@ class StreamEngine:
         """Legacy entry preserved for backwards compatibility — bridges
         history_object + local_inference_config callers into stream_messages.
         New callers should construct a GenerationParams and call
-        `stream_messages` / `stream_prompt` directly."""
+        `stream_messages` directly."""
         messages = self._build_messages(history_object)
         params = self._params_from_legacy_dicts(persona_config, local_inference_config)
         return self.stream_messages(persona_config, messages, params, tools)

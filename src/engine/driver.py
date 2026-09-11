@@ -587,8 +587,9 @@ class TextEngine:
     # ------------------------------------------------------------------
     # Provider streaming surface
     #
-    # `stream_messages(persona, messages, params)` and
-    # `stream_prompt(persona, prompt, params)` are the unified entries.
+    # `stream_messages(persona, messages, params)` is the unified entry.
+    # (`stream_prompt`, the caller-rendered-prompt entry, went with the Kobold
+    # Lite portal in DP-365 — it never had a caller.)
     #
     # DP-206b state: there is ONE driving layer. Each provider has a single
     # canonical streaming generator (`_stream_<provider>_response`; agy is a
@@ -679,28 +680,6 @@ class TextEngine:
             merged_config, history_object, tools, local_inference_config,
         ):
             yield ev
-
-    def stream_prompt(
-        self,
-        persona_config: Dict[str, Any],
-        rendered_prompt: str,
-        params: GenerationParams,
-        *,
-        stop_sequences: Optional[List[str]] = None,
-        tools_advertised: Optional[List[str]] = None,
-    ) -> AsyncIterator[Dict[str, Any]]:
-        """Stream from a caller-rendered prompt. Local-only — the portal
-        path where kobold-lite owns templating. Non-local model raises."""
-        model_name = persona_config.get("model_name", "")
-        if model_name != "local":
-            raise LLMCommunicationError(
-                f"stream_prompt only supports local models, got '{model_name}'"
-            )
-        return self.stream_engine.stream_prompt(  # type: ignore[no-any-return]
-            persona_config, rendered_prompt, params,
-            stop_sequences=stop_sequences,
-            tools_advertised=tools_advertised,
-        )
 
     @staticmethod
     async def collect_stream(

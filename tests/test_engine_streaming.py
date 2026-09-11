@@ -248,45 +248,6 @@ async def test_stream_messages_local_always_streams_kobold_native(
 
 
 # --------------------------------------------------------------------------
-# stream_prompt — local-only entry, raises on other providers.
-# --------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_stream_prompt_delegates_to_stream_engine(local_config, drain):
-    fake_events = [
-        {"type": "api_payload", "payload": {"prompt": "<5 chars>"}},
-        {"type": "text_delta", "text": "raw"},
-        {"type": "done", "full_text": "raw"},
-    ]
-
-    async def _gen(*a, **kw):
-        for e in fake_events:
-            yield e
-
-    fake_stream_engine = MagicMock()
-    fake_stream_engine.stream_prompt = MagicMock(side_effect=_gen)
-    engine = TextEngine(stream_engine=fake_stream_engine)
-
-    events = await drain(engine.stream_prompt(
-        local_config, "<|im_start|>user\nhi", GenerationParams(),
-        stop_sequences=["<|im_end|>"], tools_advertised=["get_x"],
-    ))
-    assert events == fake_events
-    call = fake_stream_engine.stream_prompt.call_args
-    assert call.kwargs["stop_sequences"] == ["<|im_end|>"]
-    assert call.kwargs["tools_advertised"] == ["get_x"]
-
-
-@pytest.mark.asyncio
-async def test_stream_prompt_rejects_non_local_models(text_engine, openai_config):
-    with pytest.raises(LLMCommunicationError, match="only supports local"):
-        # Note: stream_prompt returns the iterator; the model check raises at
-        # the call site, before any kobold transport is touched.
-        text_engine.stream_prompt(openai_config, "anything", GenerationParams())
-
-
-# --------------------------------------------------------------------------
 # collect_stream — drains the unified event stream into the same tuple shape
 # that generate_response returns. Phase C uses this as the non-streaming seam.
 # --------------------------------------------------------------------------

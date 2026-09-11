@@ -87,7 +87,7 @@ def get_kobold_extras_for_get(persona: Persona) -> Dict[str, Any]:
     """Build the `kobold_extras` block returned by GET /persona/{name}.
 
     Only includes keys actually set on the persona — absent keys are omitted
-    so the portal can distinguish unset (use kobold-lite default) from set.
+    so the portal can distinguish unset (use the backend default) from set.
     """
     out: Dict[str, Any] = {}
     for key, _ in _KOBOLD_SAMPLER_EXTRAS:

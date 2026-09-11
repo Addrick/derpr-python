@@ -168,15 +168,10 @@ def test_reads_stay_open_without_token(token_set):
 
 
 def test_data_plane_post_paths_not_gated():
-    """Allowlist is exactly the generation/abort/tokencount/voice-STT surface
-    — the drift guard: anything else non-GET is gated by construction."""
+    """Allowlist is exactly the generation/abort/voice-STT surface — the drift
+    guard: anything else non-GET is gated by construction."""
     assert KoboldAdapter.DATA_PLANE_POST_PATHS == frozenset({
-        "/api/v1/generate",
-        "/api/extra/generate/stream",
-        "/api/extra/generate/check",
-        "/api/v1/abort",
         "/api/extra/abort",
-        "/api/extra/tokencount",
         "/chat/completions",
         "/v1/chat/completions",
         "/voice/transcribe",
@@ -203,35 +198,34 @@ def test_abort_open_without_token(token_set):
         status_code=200, content=b"{}", json=lambda: {}
     ))
     with TestClient(adapter.app) as client:
-        r = client.post("/api/v1/abort")
+        r = client.post("/api/extra/abort")
     assert r.status_code != 401
 
 
 # ---------------------------------------------------------------------------
-# CORS: credentials must be off with wildcard origins
+# CORS: none — every browser client is same-origin (DP-365)
 # ---------------------------------------------------------------------------
 
-def test_cors_credentials_disabled():
+def test_no_cors_middleware():
     adapter, _, _ = _make_adapter()
-    for m in adapter.app.user_middleware:
-        if "CORSMiddleware" in str(m.cls):
-            assert m.kwargs.get("allow_credentials") is False
-            return
-    pytest.fail("CORS middleware not found")
+    assert not any("CORSMiddleware" in str(m.cls) for m in adapter.app.user_middleware)
 
 
-def test_gate_401_carries_cors_headers(token_set):
-    """CORS must wrap the auth gate (CORS added last = outermost), so a
-    cross-origin browser can READ the 401 instead of hitting an opaque
-    CORS-blocked network error."""
+def test_foreign_origin_gets_no_cors_grant(token_set):
+    """The GET reads are unauthenticated (DP-333), so the browser's
+    same-origin policy is what stops a foreign page from reading them. That
+    only holds while no Access-Control-Allow-Origin header is sent."""
     adapter, _, _ = _make_adapter()
     with TestClient(adapter.app) as client:
-        r = client.patch(
-            "/api/v1/persona/p", json={"prompt": "x"},
-            headers={"Origin": "https://lite.koboldai.net"},
+        r = client.get("/api/v1/persona/p", headers={"Origin": "https://other.example"})
+        pre = client.options(
+            "/api/v1/persona/p",
+            headers={"Origin": "https://other.example",
+                     "Access-Control-Request-Method": "PATCH"},
         )
-    assert r.status_code == 401
-    assert r.headers.get("access-control-allow-origin") == "*"
+    assert r.status_code == 200
+    assert "access-control-allow-origin" not in r.headers
+    assert "access-control-allow-origin" not in pre.headers
 
 
 def test_non_ascii_token_rejected_not_500(token_set):
@@ -257,37 +251,6 @@ def test_x_derpr_token_whitespace_stripped(token_set):
             headers={"X-Derpr-Token": f" {TOKEN} "},
         )
     assert r.status_code == 200
-
-
-# ---------------------------------------------------------------------------
-# DP-295 — ungated forwarder must not leak upstream error text
-# ---------------------------------------------------------------------------
-
-
-def test_forward_post_error_body_is_generic(token_unset, monkeypatch):
-    """`_forward_post` backs the data-plane routes (/api/extra/tokencount,
-    /api/extra/generate/check), which are reachable WITHOUT the operator token.
-    An upstream failure must not put the exception text — which carries the
-    internal kobold URL — into the response body. CodeQL alert #34
-    (py/stack-trace-exposure); the other sites are control-plane and dismissed
-    per decisions/2026-05-27-kobold-stack-trace-exposure.md.
-    """
-    adapter, _, _ = _make_adapter()
-    secret_url = "http://internal-kobold.lan:5001/api/extra/tokencount"
-
-    async def _boom(*a, **k):
-        raise RuntimeError(f"Connection refused to {secret_url}")
-
-    monkeypatch.setattr(adapter._http, "post", _boom)
-
-    with TestClient(adapter.app) as client:
-        r = client.post("/api/extra/tokencount", json={"prompt": "hi"})
-
-    assert r.status_code == 502
-    body = r.text
-    assert "upstream backend unreachable" in body
-    assert "internal-kobold.lan" not in body
-    assert "Connection refused" not in body
 
 
 # ---------------------------------------------------------------------------

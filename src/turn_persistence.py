@@ -110,7 +110,7 @@ class TurnPersistence:
 
         # Symmetric with the assistant-side guard in commit_or_update_assistant:
         # an empty / whitespace-only user message must never land a phantom row.
-        # kobold-lite continue/prefetch calls without a user message would
+        # Continue/prefetch-style calls without a user message would
         # otherwise leave zero-length user_interaction rows between turns,
         # polluting context and confusing the model.
         if not message or not message.strip():
